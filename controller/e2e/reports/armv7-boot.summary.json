@@ -1,0 +1,31 @@
+{
+  "format_version": 1,
+  "scenario": "armv7-boot",
+  "started_at": "2026-10-18T09:07:30.883035+00:00",
+  "binary_size_bytes": 20198924,
+  "binary_sha256": "8b2c3548834cf09355ff92df072e908e4c085787f6127df857db19f553a5e12a",
+  "test_seam": "Controller binary via external HTTP against chr-lab and chr-client",
+  "result": "pass",
+  "execution": {
+    "architecture": "linux/arm/v7",
+    "vm_memory_mib": 256,
+    "boot_timeout_seconds": 300.0,
+    "image_url": "https://cloud-images.ubuntu.com/releases/bionic/release-20230607/ubuntu-18.04-server-cloudimg-armhf.img",
+    "image_sha256": "d3da9dfdd69857fd35cbfa562be84d013dfd024a72de55a8c6911268f76375c3",
+    "boot_artifacts": {
+      "https://cloud-images.ubuntu.com/releases/bionic/release-20230607/ubuntu-18.04-server-cloudimg-armhf.img": "d3da9dfdd69857fd35cbfa562be84d013dfd024a72de55a8c6911268f76375c3",
+      "https://cloud-images.ubuntu.com/releases/bionic/release-20230607/unpacked/ubuntu-18.04-server-cloudimg-armhf-vmlinuz-lpae": "44678e6f87bc764eb29c022b8b59bb8cb42333232a7e2d3027053bc328d5aba8",
+      "https://cloud-images.ubuntu.com/releases/bionic/release-20230607/unpacked/ubuntu-18.04-server-cloudimg-armhf-initrd-generic-lpae": "4076869995177d12acb9dbae444c8e891857cf24e842a283d499fd2f0499957c"
+    },
+    "boot_seconds": 336.526,
+    "guest_address": "192.168.122.41",
+    "machine": "armv7l",
+    "memory_total_kib": 238140,
+    "swap_total_kib": 0,
+    "serial_console_log": "<local-workdir>/worktrees/agent-ab7df79bf93cab822/controller/e2e/reports/armv7-boot.serial.log"
+  },
+  "finished_at": "2026-10-18T09:13:12.192515+00:00",
+  "steps": [],
+  "git_commit": null,
+  "git_dirty": null
+}

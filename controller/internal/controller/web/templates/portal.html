@@ -1,0 +1,68 @@
+{{define "content"}}
+<section class="card">
+  <div class="card-head"><div><h3>Portal</h3>
+    <p class="muted-fg">Edit the page customers see. Saving checks the draft; customers see it only after you publish.
+Keep <code>&lt;script src="/portal/core.js"&gt;</code> and the required markers listed in the Portal contract. Everything loads from this Controller.</p>
+    <p class="muted-fg">Download default:
+      <a href="/admin/portal/default/index.html" download>index.html</a> ·
+      <a href="/admin/portal/default/portal.css" download>portal.css</a> ·
+      <a href="/admin/portal/default/custom.js" download>custom.js</a></p></div></div>
+  <div class="card-body">
+    {{with .Failures}}<ul class="alert">{{range .}}<li>{{.}}</li>{{end}}</ul>{{end}}
+    {{with .Saved}}<p>Draft saved (version {{.}}). Publish it to show it to customers.</p>{{end}}
+    <form class="form" method="post" action="/admin/portal/draft">
+      <label class="field">index.html <textarea name="index_html" rows="20" spellcheck="false" required>{{.Files.IndexHTML}}</textarea></label>
+      <label class="field">portal.css <textarea name="portal_css" rows="14" spellcheck="false">{{.Files.PortalCSS}}</textarea></label>
+      <label class="field">custom.js (optional) <textarea name="custom_js" rows="8" spellcheck="false">{{.Files.CustomJS}}</textarea></label>
+      <div><button class="btn" type="submit">Save draft</button></div>
+    </form>
+  </div>
+</section>
+<section class="card">
+  <div class="card-head"><div><h3>Cover and logo</h3>
+    <p class="muted-fg">Your browser crops each image and converts it to WebP before uploading: the logo to a 256 px square of 20 KB or less, the cover to 1200 × 400 px of 100 KB or less, kept around the focus point. Each upload saves a new draft; customers see it after you publish.</p></div></div>
+  <div class="card-body portal-images">
+    <div class="form" data-portal-image="logo">
+      <img src="/admin/portal/draft/logo" alt="Draft logo" width="80" height="80">
+      <label class="field">Logo image <input type="file" accept="image/*"></label>
+      <div class="form-row"><button class="btn" type="button">Upload logo</button><output></output></div>
+    </div>
+    <div class="form" data-portal-image="cover">
+      <img src="/admin/portal/draft/cover" alt="Draft cover" width="300" height="100">
+      <label class="field">Cover image <input type="file" accept="image/*"></label>
+      <label class="field">Focus: top to bottom, or left to right for a wide image <input type="range" min="0" max="100" value="50"></label>
+      <div class="form-row"><button class="btn" type="button">Upload cover</button><output></output></div>
+    </div>
+  </div>
+</section>
+<section class="card narrow">
+  <div class="card-head"><h3>Versions</h3></div>
+  <div class="card-body">
+    <p>Draft: {{with .Slots.Draft}}version {{.Version}}{{else}}none{{end}} ·
+       Published: {{with .Slots.Published}}version {{.Version}}{{else}}Default Portal{{end}} ·
+       Previous: {{with .Slots.Previous}}version {{.Version}}{{else}}none{{end}}</p>
+    <div class="form">
+      <form method="post" action="/admin/portal/publish"><button class="btn" type="submit"{{if not .Slots.Draft}} disabled{{end}}>Publish draft</button></form>
+      <form method="post" action="/admin/portal/revert"><button class="btn outline" type="submit"{{if not .Slots.Previous}} disabled{{end}}>Revert to previous</button></form>
+      <form method="post" action="/admin/portal/reset"><button class="btn outline danger" type="submit"{{if not .Slots.Published}} disabled{{end}}>Reset to default</button></form>
+    </div>
+  </div>
+</section>
+<section class="card" data-preview>
+  <div class="card-head"><div><h3>Preview</h3>
+    <p class="muted-fg">Runs the draft in a sandbox with sample states instead of a customer's: nothing is published and no Device or Router is asked.</p></div></div>
+  <div class="card-body">
+    <div class="preview-picker">
+      {{range previewStates}}<button class="btn outline" type="button" data-preview-state="{{.}}" aria-pressed="false">{{.}}</button>{{end}}
+      <button class="btn" type="button" data-preview-all>Check every state</button>
+    </div>
+    <div class="preview">
+      <iframe class="preview-frame" title="Portal preview" sandbox="allow-scripts" src="/admin/portal/preview?state={{index previewStates 0}}"></iframe>
+      <div class="table-scroll"><table class="preview-report">
+        <thead><tr><th>State</th><th>Read</th><th>Markers bound</th><th>Unknown markers</th><th>JS errors</th></tr></thead>
+        <tbody>{{range previewStates}}<tr data-state="{{.}}"><td>{{.}}</td><td data-field="read">not checked</td><td class="wrap"><ul data-field="bound"></ul></td><td class="wrap"><ul data-field="unknown"></ul></td><td class="wrap"><ul data-field="errors"></ul></td></tr>{{end}}</tbody>
+      </table></div>
+    </div>
+  </div>
+</section>
+{{end}}

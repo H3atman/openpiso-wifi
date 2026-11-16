@@ -1,0 +1,28 @@
+phone	step	question	answer
+iphone	r-a-connect	Wi-Fi Address shown under Private Wi-Fi Address?	10.5.50.199
+iphone	r-a-connect	Page said Connected? (y/n)	n
+iphone	r-a-connect	Normal website loads in the browser now? (y/n)	n
+iphone	r-b-forget	Popup appeared? (y/n)	n
+iphone	r-b-forget	Popup said Reconnected automatically? (y/n)	n
+iphone	r-b-forget	Internet works without tapping? (y/n)	y
+iphone	r-c-reboot	Popup appeared? (y/n)	n
+iphone	r-c-reboot	Popup said Reconnected automatically? (y/n)	y
+iphone	r-c-reboot	Internet works without tapping? (y/n)	y
+iphone	r-d-off	Popup appeared? (y/n)	n
+iphone	r-d-off	Popup said Reconnected automatically? (y/n)	n
+iphone	r-d-off	Internet works without tapping? (y/n)	n
+iphone	r-d-off	Wi-Fi Address shown now?	02:00:00:E6:00:01
+iphone	r-e-fixed	Popup appeared? (y/n)	n
+iphone	r-e-fixed	Popup said Reconnected automatically? (y/n)	n
+iphone	r-e-fixed	Internet works without tapping? (y/n)	y
+iphone	r-e-fixed	Wi-Fi Address shown now (same as step a?)	02:00:00:E2:00:01
+android	r-a-connect	Privacy setting now (randomized / device MAC)?	randomized
+android	r-a-connect	Page said Connected? (y/n)	y
+android	r-a-connect	Normal website loads in the browser now? (y/n)	y
+android	r-b-forget	Popup appeared? (y/n)	y
+android	r-b-forget	Popup said Reconnected automatically? (y/n)	y
+android	r-b-forget	Internet works without tapping? (y/n)	y
+android	r-b-forget	Privacy setting after forget?	randomized MAC
+android	r-c-reboot	Popup appeared? (y/n)	y
+android	r-c-reboot	Popup said Reconnected automatically? (y/n)	y
+android	r-c-reboot	Internet works without tapping? (y/n)	y

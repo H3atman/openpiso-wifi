@@ -1,0 +1,45 @@
+{
+  "format_version": 1,
+  "scenario": "armv7-update",
+  "started_at": "2026-11-16T05:54:22.246824+00:00",
+  "git_commit": "969aa2126f6eea5750a1a6af76df0f41e7ca3a1b",
+  "git_tree": "b50b2cbb689ad23d875f055999014a96a272572f",
+  "git_dirty": true,
+  "binary_size_bytes": 22002442,
+  "binary_sha256": "21f8177b4606c84df033d8be09c4958cc7fdb2f7edaacad6d9ac45466e055486",
+  "test_seam": "install.sh and the update units in an ARMv7 guest; admin HTTP; release tree over an SSH reverse tunnel",
+  "result": "pass",
+  "execution": {
+    "architecture": "linux/arm/v7",
+    "vm_memory_mib": 256,
+    "boot_timeout_seconds": 900,
+    "image_url": "https://cloud-images.ubuntu.com/releases/bionic/release-20230607/ubuntu-18.04-server-cloudimg-armhf.img",
+    "image_sha256": "d3da9dfdd69857fd35cbfa562be84d013dfd024a72de55a8c6911268f76375c3",
+    "boot_artifacts": {
+      "https://cloud-images.ubuntu.com/releases/bionic/release-20230607/ubuntu-18.04-server-cloudimg-armhf.img": "d3da9dfdd69857fd35cbfa562be84d013dfd024a72de55a8c6911268f76375c3",
+      "https://cloud-images.ubuntu.com/releases/bionic/release-20230607/unpacked/ubuntu-18.04-server-cloudimg-armhf-vmlinuz-lpae": "44678e6f87bc764eb29c022b8b59bb8cb42333232a7e2d3027053bc328d5aba8",
+      "https://cloud-images.ubuntu.com/releases/bionic/release-20230607/unpacked/ubuntu-18.04-server-cloudimg-armhf-initrd-generic-lpae": "4076869995177d12acb9dbae444c8e891857cf24e842a283d499fd2f0499957c"
+    },
+    "boot_seconds": 323.361,
+    "guest_address": "192.168.122.86",
+    "machine": "armv7l",
+    "memory_total_kib": 238140,
+    "swap_total_kib": 0,
+    "service_user": "openpiso",
+    "logs_persistent_capped": true,
+    "binary_size_bytes": 22002442
+  },
+  "finished_at": "2026-11-16T06:13:43.229711+00:00",
+  "steps": [
+    "installed-v0.1.0-timer-and-path-unit-active",
+    "check-records-unreachable-release-and-exits-0",
+    "check-refuses-manifest-signed-by-another-key",
+    "update-button-installs-v0.2.0-and-keeps-ledger",
+    "not-newer-release-not-offered-and-update-refused",
+    "unservable-release-rolled-back-with-ledger",
+    "tampered-asset-refused-without-stopping",
+    "mislabelled-release-refused-without-stopping",
+    "symlinked-request-only-unlinked",
+    "reinstall-keeps-units-and-update-state"
+  ]
+}

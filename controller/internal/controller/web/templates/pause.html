@@ -1,0 +1,12 @@
+{{define "content"}}
+<section class="card narrow">
+  <div class="card-head"><h3>Pause settings</h3></div>
+  <div class="card-body">
+    <form class="form" method="post" action="/admin/pause">
+    <label class="field">Pause Limit <input name="pause_limit" type="number" min="0" max="1000" value="{{.PauseLimit}}" required></label>
+    <label class="field">Idle Pause <select name="idle_enabled"><option value="off" {{if not .IdleEnabled}}selected{{end}}>Off</option><option value="on" {{if .IdleEnabled}}selected{{end}}>On</option></select></label>
+    <label class="field">Idle period (seconds) <input name="idle_seconds" type="number" min="1" max="86400" value="{{.IdleSeconds}}" required></label>
+    <div><button class="btn" type="submit">Save Pause settings</button></div></form>
+  </div>
+</section>
+{{end}}

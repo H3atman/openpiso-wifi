@@ -1,0 +1,29 @@
+@page { size: A4; margin: 8mm; }
+* { box-sizing: border-box; }
+html { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+body { margin: 0; background: #f4f4f5; color: #111; font-family: system-ui, sans-serif; }
+.sheet-bar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding: 16px; background: #123c1c; color: #fff; font-size: 14px; }
+.sheet-bar a { color: inherit; }
+.sheet-bar p { margin: 0; }
+.sheet-bar button { padding: 8px 20px; border: 0; border-radius: 6px; background: #71da88; color: #123c1c; font: inherit; cursor: pointer; }
+.sheet { display: grid; grid-template-columns: repeat(auto-fit, 62mm); justify-content: center; gap: 3mm; padding: 6mm 0; }
+.voucher { position: relative; display: grid; grid-template-columns: 8mm minmax(0, 1fr) 19mm; width: 62mm; height: 44mm; border: 1px solid #9ca3af; border-radius: 2mm; background: white; break-inside: avoid; page-break-inside: avoid; overflow: hidden; }
+.price { display: grid; place-items: center; background: var(--strip, #123c1c); color: white; }
+.price span { writing-mode: vertical-rl; transform: rotate(180deg); font-size: 12pt; font-weight: 800; }
+.details { min-width: 0; padding: 2mm; overflow-wrap: anywhere; }
+.details p { margin: 0 0 1mm; }
+.shop { font-size: 6.5pt; font-weight: 600; }
+.code { font: 700 11pt/1.15 ui-monospace, monospace; overflow-wrap: anywhere; }
+.time { font-size: 8pt; font-weight: 600; }
+.meta { font-size: 6.5pt; color: #374151; }
+.created { font-size: 5.5pt; color: #4b5563; }
+.qr { display: grid; place-items: center; padding-right: 1mm; }
+.qr svg { display: block; width: 18mm; height: 18mm; }
+.used { display: none; position: absolute; inset: 0; place-items: center; color: #b91c1c; font-size: 23pt; font-weight: 800; transform: rotate(-15deg); pointer-events: none; }
+.voucher[data-used] .used { display: grid; }
+.voucher[data-used] .details, .voucher[data-used] .qr { opacity: .4; }
+@media print {
+  body { background: white; }
+  .sheet-bar { display: none; }
+  .sheet { grid-template-columns: repeat(3, 62mm); justify-content: start; padding: 0; }
+}

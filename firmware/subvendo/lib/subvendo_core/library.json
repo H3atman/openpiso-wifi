@@ -1,0 +1,8 @@
+{
+  "name": "subvendo_core",
+  "version": "0.1.0",
+  "description": "Hardware-independent coin-board core: window-gated cumulative total, checkpoint ring, HMAC reports",
+  "frameworks": "*",
+  "platforms": "*",
+  "build": { "flags": ["-std=gnu++17"] }
+}

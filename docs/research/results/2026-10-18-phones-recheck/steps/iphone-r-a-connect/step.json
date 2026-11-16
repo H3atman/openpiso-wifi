@@ -1,0 +1,20 @@
+{
+  "phone": "iphone",
+  "step": "r-a-connect",
+  "start": "2026-10-18T09:11:55+08:00",
+  "end": "2026-10-18T09:13:28+08:00",
+  "answers": [
+    {
+      "question": "Wi-Fi Address shown under Private Wi-Fi Address?",
+      "answer": "10.5.50.199"
+    },
+    {
+      "question": "Page said Connected? (y/n)",
+      "answer": "n"
+    },
+    {
+      "question": "Normal website loads in the browser now? (y/n)",
+      "answer": "n"
+    }
+  ]
+}

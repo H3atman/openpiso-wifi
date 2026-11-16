@@ -1,0 +1,6 @@
+; Copy to bench/wifi.local.ini (git-ignored) to enable the WiFi case of isr_loopback.
+; Keep the escaped quotes. Never commit the real file.
+[wifi]
+build_flags =
+  -DWIFI_SSID=\"my-network\"
+  -DWIFI_PASS=\"my-password\"

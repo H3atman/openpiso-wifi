@@ -1,0 +1,21 @@
+{{define "content"}}
+<section class="card">
+  <div class="card-head"><div><h3>Coin sales</h3>
+    <p class="muted-fg">All-time authenticated intake: 1 pulse = ₱1. Unassigned coins are included in intake, but never buy time.</p></div></div>
+  <div class="table-scroll"><table>
+    <thead><tr><th>Vendo</th><th>Coins (pesos)</th><th>Unassigned coins</th><th>Time bought (seconds)</th></tr></thead><tbody>
+    {{range .Sales}}<tr><td>{{.VendoID}}</td><td class="num">{{.Coins}}</td><td class="num">{{.UnassignedCoins}}</td><td class="num">{{.CreditedSeconds}}</td></tr>{{end}}</tbody>
+  </table></div>
+</section>
+<section class="card">
+  <div class="card-head"><h3>Coin reconciliation</h3></div>
+  <div class="card-body">{{range .Gaps}}<p class="alert" role="alert">Vendo {{.VendoID}}, epoch {{.Epoch}}: total {{.LastSeen}}, recorded deltas {{.RecordedCoins}}. Gap requires investigation.</p>{{else}}<p>No coin total gaps.</p>{{end}}</div>
+</section>
+<section class="card">
+  <div class="card-head"><h3>Coin Windows</h3></div>
+  <div class="table-scroll"><table>
+    <thead><tr><th>Window</th><th>Vendo</th><th>Status</th><th>Coins</th><th>Time bought (seconds)</th><th>Final receipt</th></tr></thead><tbody>
+    {{range .Windows}}<tr><td>{{.ID}}</td><td>{{.VendoID}}</td><td>{{.Status}}</td><td class="num">{{.Coins}}</td><td class="num">{{.CreditedSeconds}}</td><td>{{if .ClosedAt}}received{{else}}outstanding (Vendo busy){{end}}</td></tr>{{end}}</tbody>
+  </table></div>
+</section>
+{{end}}

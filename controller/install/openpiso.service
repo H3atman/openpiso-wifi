@@ -1,0 +1,37 @@
+# OpenPiso Controller. Installed by install.sh; flags live in /etc/openpiso/openpiso.env.
+# The admin password is set once by install.sh and never passed to this unit.
+[Unit]
+Description=OpenPiso Controller
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=openpiso
+Group=openpiso
+EnvironmentFile=/etc/openpiso/openpiso.env
+# ${VAR} (braced) expands to exactly one argument; install.sh rejects whitespace and quotes.
+ExecStart=/usr/local/bin/openpiso -data /var/lib/openpiso -listen ${OPENPISO_LISTEN} -portal-url ${OPENPISO_PORTAL_URL} -admin-network ${OPENPISO_ADMIN_NETWORK}
+Restart=on-failure
+RestartSec=5
+UMask=0077
+# Logs go to the persistent, capped journal configured host-wide by install.sh.
+StandardOutput=journal
+StandardError=journal
+
+# Allow a portal on port 80 without running as root.
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/openpiso
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

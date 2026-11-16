@@ -1,0 +1,56 @@
+{{define "content"}}
+<section class="card" x-data="voucherBatches">
+  <div class="card-head voucher-head"><div><h3>Voucher Batches</h3><p class="muted-fg">Print a batch or export its codes.</p></div><div class="voucher-actions"><form class="voucher-search" role="search" method="get" action="/admin/vouchers">
+    <label class="sr-only" for="voucher-code-search">Search Voucher codes</label><input id="voucher-code-search" name="q" type="search" value="{{.Query}}" minlength="3" placeholder="At least 3 code characters" aria-describedby="voucher-search-hint"><button class="btn outline" type="submit">Search</button>
+  </form><button class="btn" type="button" @click="show">Generate</button></div></div>
+  <p id="voucher-search-hint" class="voucher-search-hint muted-fg">Search any part of a Voucher code, ignoring case. Type at least 3 characters.</p>
+  {{if .Generated}}<div class="card-body" role="status">Voucher Batch generated. <a href="/admin/vouchers?batch={{.Generated}}" target="_blank" rel="noopener" hx-boost="false">Open Print sheet</a></div>{{end}}
+  {{if .Query}}<div id="voucher-search-results">
+    <div class="card-body" role="status">
+      {{if .QueryShort}}Type at least 3 characters of a Voucher code.
+      {{else if .Matches}}{{len .Matches}} {{if eq (len .Matches) 1}}Voucher contains{{else}}Vouchers contain{{end}} <code>{{.Query}}</code>.{{if .MoreMatches}} Showing the first 50 matches, newest batch first. More Vouchers match; type more characters to narrow your search.{{end}}
+      {{else}}No Voucher code contains <code>{{.Query}}</code>.{{end}}
+      <a href="/admin/vouchers">Clear search</a>
+    </div>
+    {{if .Matches}}<div class="table-scroll"><table class="voucher-table"><thead><tr><th>Code</th><th>Batch</th><th>Seller</th><th>Price</th><th>Time</th><th>Status</th></tr></thead><tbody>
+      {{range .Matches}}<tr class="voucher-search-row" @click="print"><td data-label="Code"><a href="/admin/vouchers?batch={{.Batch.ID}}" target="_blank" rel="noopener" hx-boost="false"><code>{{.Code}}</code></a></td><td data-label="Batch">{{.Batch.Number}}</td><td data-label="Seller">{{if .Batch.Seller}}{{.Batch.Seller}}{{else}}Shop{{end}}</td><td data-label="Price">{{if .Batch.Pesos}}₱{{.Batch.Pesos}}{{end}}</td><td data-label="Time">{{.Batch.Seconds}} seconds</td><td data-label="Status">{{if .RedeemedAt}}Redeemed <time datetime="{{.RedeemedAt}}">{{.RedeemedAt}}</time><div class="muted-fg mono xs">MAC {{.RedeemedMAC}} · IP {{.RedeemedIP}}</div>{{else}}Unused{{end}}</td></tr>{{end}}
+    </tbody></table></div>{{end}}
+  </div>{{end}}
+  <p class="voucher-all strong">All Voucher Batches</p>
+  <div class="table-scroll"><table class="voucher-table voucher-batches"><thead><tr><th>Batch</th><th>Seller</th><th>Rate tier</th><th>Price</th><th>Time</th><th>Vouchers</th><th>Redeemed</th><th>Created</th><th>Actions</th></tr></thead><tbody>
+  {{range .Batches}}<tr data-batch="{{.ID}}" @click="print" class="voucher-batch-row{{if eq $.Generated .ID}} voucher-batch-new{{end}}"><td data-label="Batch"><a href="/admin/vouchers?batch={{.ID}}" target="_blank" rel="noopener" hx-boost="false">{{.Number}}</a></td><td data-label="Seller">{{if .Seller}}{{.Seller}}{{else}}Shop{{end}}</td><td data-label="Rate tier">{{if .TierLabel}}{{.TierLabel}}{{else}}Custom{{end}}</td><td data-label="Price">{{if .Pesos}}₱{{.Pesos}}{{end}}</td><td data-label="Time">{{.Seconds}} seconds</td><td data-label="Vouchers">{{.Count}}</td><td data-label="Redeemed">{{.RedeemedCount}}</td><td data-label="Created">{{.CreatedAt}}</td><td data-label="Actions"><a href="/admin/vouchers/export?batch={{.ID}}" hx-boost="false">CSV</a>{{if eq .RedeemedCount 0}} <form method="post" action="/admin/vouchers/delete?batch={{.ID}}" hx-boost="false" @submit.prevent="remove" data-confirm="Delete Batch {{.Number}}? {{.Count}} {{if eq .Count 1}}Voucher will{{else}}Vouchers will{{end}} stop working. This cannot be undone."><button class="btn destructive sm" type="submit">Delete</button></form>{{end}}</td></tr>
+  {{else}}<tr><td colspan="9" class="muted-fg">No Voucher Batches yet. Generate your first batch.</td></tr>{{end}}
+  </tbody></table></div>
+  <dialog class="vendo-dialog voucher-dialog" x-ref="generate" data-reopen="{{if .Error}}true{{else}}false{{end}}" aria-labelledby="voucher-generate-title">
+    <div class="vendo-dialog-head"><h3 id="voucher-generate-title">Generate Voucher Batch</h3><button class="btn ghost" type="button" @click="close">Close</button></div>
+    {{if .Error}}<p class="alert" role="alert">{{.Error}}</p>{{end}}
+    <form method="post" action="/admin/vouchers" hx-boost="false">
+      <label class="field">Rate tier <select name="tier" x-ref="tier" @change="choose">
+        <option value="custom" {{if or (eq (.Form.Get "tier") "custom") (eq (.Form.Get "tier") "")}}selected{{end}}>Custom</option>
+        {{if .MissingTier}}<option value="{{.MissingTier}}" selected>Unavailable tier ({{.MissingTier}})</option>{{end}}
+        {{range .Tiers}}<option value="{{.Pesos}}" {{if eq ($.Form.Get "tier") (printf "%d" .Pesos)}}selected{{end}}>₱{{.Pesos}} · {{.Seconds}} seconds · {{.ValiditySeconds}} seconds Validity · {{.PauseLimit}} Pauses</option>{{end}}
+      </select></label>
+      <div x-show="custom">
+        <label class="field">Time (seconds) <input name="seconds" type="number" min="1" max="31536000" value="{{.Form.Get "seconds"}}" :required="custom" :disabled="tierSelected"></label>
+        <label class="field">Price (pesos) <input name="pesos" type="number" min="0" max="1000000" value="{{.Form.Get "pesos"}}" :required="custom" :disabled="tierSelected"></label>
+        <p class="muted-fg">Custom uses the Shop's Voucher settings: {{.ValiditySeconds}} seconds Validity · {{.PauseLimit}} Pauses. ₱0 is allowed.</p>
+      </div>
+      <label class="field">Seller (optional) <input name="seller" list="voucher-sellers" value="{{.Form.Get "seller"}}" placeholder="Shop"></label>
+      <datalist id="voucher-sellers">{{range .Sellers}}<option value="{{.}}"></option>{{end}}</datalist>
+      <p class="muted-fg">Blank or Shop means the Shop sold this batch.</p>
+      <label class="field">Code characters <select name="preset" x-ref="preset" @change="format">
+        <option value="digits" data-alphabet="{{voucherAlphabet "digits"}}" data-size="{{voucherCodeSpaceSize "digits"}}" {{if eq (.Form.Get "preset") "digits"}}selected{{end}}>Digits</option>
+        <option value="uppercase" data-alphabet="{{voucherAlphabet "uppercase"}}" data-size="{{voucherCodeSpaceSize "uppercase"}}" {{if eq (.Form.Get "preset") "uppercase"}}selected{{end}}>Uppercase letters</option>
+        <option value="unambiguous" data-alphabet="{{voucherAlphabet "unambiguous"}}" data-size="{{voucherCodeSpaceSize "unambiguous"}}" {{if or (eq (.Form.Get "preset") "unambiguous") (eq (.Form.Get "preset") "")}}selected{{end}}>Uppercase letters and digits without look-alikes</option>
+        <option value="mixed" data-alphabet="{{voucherAlphabet "mixed"}}" data-size="{{voucherCodeSpaceSize "mixed"}}" {{if eq (.Form.Get "preset") "mixed"}}selected{{end}}>Mixed case and digits</option>
+        {{if and (.Form.Get "preset") (ne (.Form.Get "preset") "digits") (ne (.Form.Get "preset") "uppercase") (ne (.Form.Get "preset") "unambiguous") (ne (.Form.Get "preset") "mixed")}}<option value="{{.Form.Get "preset"}}" selected>Unknown character set ({{.Form.Get "preset"}})</option>{{end}}
+      </select></label>
+      <label class="field">Code length <input name="length" x-ref="length" @input="format" type="number" min="4" max="10" value="{{if .Form.Has "length"}}{{.Form.Get "length"}}{{else}}8{{end}}" required></label>
+      <label class="field">Prefix (optional) <input name="prefix" x-ref="prefix" @input="format" maxlength="6" pattern="[A-Za-z0-9]*" value="{{.Form.Get "prefix"}}" autocomplete="off"></label>
+      <p class="muted-fg">Prefix is added outside the code length. Sample: <code x-text="sample"></code> · <span x-text="codeSpace"></span> possible codes (ignoring case). A batch may use at most 1%.</p>
+      <label class="field">Vouchers <input name="count" type="number" min="1" max="1000" value="{{if .Form.Has "count"}}{{.Form.Get "count"}}{{else}}1{{end}}" required></label>
+      <div class="vendo-dialog-foot"><button class="btn" type="submit">Generate Voucher Batch</button></div>
+    </form>
+  </dialog>
+</section>
+{{end}}

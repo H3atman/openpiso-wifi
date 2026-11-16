@@ -1,0 +1,20 @@
+{
+  "phone": "android",
+  "step": "r-c-reboot",
+  "start": "2026-10-18T09:22:37+08:00",
+  "end": "2026-10-18T09:24:29+08:00",
+  "answers": [
+    {
+      "question": "Popup appeared? (y/n)",
+      "answer": "y"
+    },
+    {
+      "question": "Popup said Reconnected automatically? (y/n)",
+      "answer": "y"
+    },
+    {
+      "question": "Internet works without tapping? (y/n)",
+      "answer": "y"
+    }
+  ]
+}

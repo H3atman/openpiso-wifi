@@ -1,0 +1,6 @@
+{{/* Shown after POST /admin/update. admin.js "updateWait" polls /admin/update/state and opens the Dashboard once the update is over. */}}
+{{define "content"}}
+<section class="card narrow" x-data="updateWait"><div class="card-head"><h3>Updating to {{or .Available "a new version"}}</h3></div>
+  <div class="card-body"><p x-ref="message" x-text="message">The Controller downloads and checks the new version, then restarts. This page opens the Dashboard when it is back.</p></div>
+</section>
+{{end}}

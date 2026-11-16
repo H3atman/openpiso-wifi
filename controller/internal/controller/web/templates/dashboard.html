@@ -1,0 +1,57 @@
+{{/* The Dashboard. One poll re-renders "dashboard_body" from the same dashboardView as the page and ?format=json. */}}
+{{define "content"}}
+<h1 class="sr-only">Dashboard</h1>
+<div id="dashboard" class="dash" data-poll hx-get="/admin/fragments/dashboard" hx-trigger="every 10s" hx-swap="innerHTML">{{template "dashboard_body" .}}</div>
+{{end}}
+
+{{define "dashboard_body"}}
+{{if .PendingAudit}}<a class="audit-banner" href="/admin/time-credits?tab=audit">{{.PendingAudit}} coin {{if eq .PendingAudit 1}}report needs{{else}}reports need{{end}} review →</a>{{end}}
+
+<div class="grid-4">
+  {{range .SalesTiles}}<a class="kpi-link" href="{{.Href}}"><section class="card tint"><div class="card-body">
+    <p class="kpi-label">{{.Label}}</p>
+    <p class="kpi-value">₱{{.Pesos}}</p>
+    <p class="kpi-detail">Sales</p>
+  </div></section></a>{{end}}
+</div>
+
+<div class="grid-2">
+  <section class="card tint"><div class="card-body">
+    <p class="kpi-label">Active Hotspot</p>
+    <p class="kpi-value">{{with .ActiveHotspot}}{{.}}{{else}}unknown{{end}}</p>
+    <p class="kpi-detail">Time Credits online, confirmed by the Router</p>
+  </div></section>
+  <section class="card tint"><div class="card-body">
+    <p class="kpi-label">Customers with time left</p>
+    <p class="kpi-value">{{with .CustomersWithTimeLeft}}{{.}}{{else}}—{{end}}</p>
+    <p class="kpi-detail">Online or paused Time Credits</p>
+  </div></section>
+</div>
+
+{{/* SYSTEM STATUS: #34 fills controller_card and #35 fills router_card. Keep each in its own define. */}}
+<h2 class="section-heading">System Status</h2>
+<div class="grid-2">
+  <section class="card">{{template "controller_card" .Controller}}</section>
+  <section class="card">{{template "router_card" .Router}}</section>
+</div>
+{{end}}
+
+{{define "controller_card"}}<div class="card-head"><h3>Controller</h3></div>
+{{template "status_rows" .Rows}}{{with .Update}}{{template "update_notice" .}}{{end}}{{end}}
+
+{{/* Present only when the root update helper is installed; see update.go. */}}
+{{define "update_notice"}}{{if or .Problem .Pending .Available}}<div class="card-body update-notice">
+  {{with .Problem}}<p class="alert">Update to {{or .To "a new version"}} {{if eq .Outcome "rolled-back"}}was rolled back{{else}}failed{{end}}: {{.Reason}}</p>{{end}}
+  {{if .Pending}}<p class="muted-fg">Update in progress; the Controller will restart.</p>
+  {{else if .Available}}<form class="form-row" method="post" action="/admin/update">
+    <p>Update available: {{.Available}}</p>
+    <button type="submit" class="btn sm">Update</button>
+  </form>{{end}}
+</div>{{end}}{{end}}
+
+{{define "router_card"}}<div class="card-head"><h3>Router</h3></div>
+{{if .Unreachable}}<div class="card-body"><p class="muted-fg">Router unreachable</p></div>{{else}}{{template "status_rows" .Rows}}{{end}}{{end}}
+
+{{define "status_rows"}}<dl class="card-body status-rows">{{range .}}
+  <div class="status-row"><dt>{{.Label}}</dt><dd class="num">{{.Value}}</dd>{{with .Bar}}<progress max="100" value="{{.}}"></progress>{{end}}</div>{{end}}
+</dl>{{end}}

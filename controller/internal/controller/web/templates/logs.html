@@ -1,0 +1,25 @@
+{{define "content"}}
+<section class="card feed-card">
+  <div class="card-head">
+    <div><h3>Logs</h3><p class="muted-fg">Coins, vouchers, Rebinds, grants and audit flags. Newest first. Pauses are not logged: the ledger keeps only the current Pause state.</p></div>
+    <span class="live"><span class="pulse"></span>polling every 5s</span>
+  </div>
+  <div class="filters" hx-boost:inherited="true" hx-target:inherited="#view" hx-swap:inherited="innerHTML" role="group" aria-label="Filter by kind">
+    {{$kind := .Kind}}{{range .Filters}}<a class="filter-chip" href="/admin/logs{{if .Kind}}?kind={{.Kind}}{{end}}"{{if eq .Kind $kind}} aria-current="true"{{end}}>{{.Label}}</a>{{end}}
+  </div>
+  {{/* The poller sends the cursor and kind from these inputs; each non-empty poll replaces #feed-cursor out-of-band. */}}
+  <input type="hidden" id="feed-cursor" name="after" value="{{.Cursor}}">
+  <input type="hidden" id="feed-kind" name="kind" value="{{.Kind}}">
+  <div id="feed-poller" data-poll hx-get="/admin/logs/feed" hx-trigger="every 5s" hx-include="#feed-cursor, #feed-kind" hx-target="#feed" hx-swap="prepend"></div>
+  <ul id="feed" class="feed">{{template "feedItems" .}}<li class="list-empty">No events{{if .Kind}} of this kind{{end}} yet.</li></ul>
+</section>
+{{end}}
+
+{{/* GET /admin/logs/feed: new items to prepend, plus the advanced cursor. */}}
+{{define "feed"}}{{template "feedItems" .}}<input type="hidden" id="feed-cursor" name="after" value="{{.Cursor}}" hx-swap-oob="true">{{end}}
+
+{{define "feedItems"}}{{range .Events}}<li class="feed-item" id="ev-{{.Key}}" data-kind="{{.Kind}}">
+  <span class="ev-icon">{{if eq .Kind "coin"}}{{icon "coins"}}{{else if eq .Kind "voucher"}}{{icon "ticket"}}{{else if eq .Kind "rebind"}}{{icon "rebind"}}{{else if eq .Kind "grant"}}{{icon "circle-plus"}}{{else}}{{icon "alert"}}{{end}}</span>
+  <div class="grow"><p class="strong">{{.Title}}</p><p class="xs muted-fg">{{.Detail}}{{if .TimeCreditID}} · <a href="/admin/time-credits?tc={{.TimeCreditID}}">Time Credit {{.TimeCreditID}}</a>{{end}}</p></div>
+  <time class="xs muted-fg num" datetime="{{.Stamp}}">{{.Clock}}</time>
+</li>{{end}}{{end}}

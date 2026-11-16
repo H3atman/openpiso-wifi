@@ -1,0 +1,18 @@
+[
+ {
+  ".id": "*C832050A",
+  "address": "10.5.50.200",
+  "bytes-in": "560",
+  "bytes-out": "560",
+  "idle-time": "8s",
+  "login-by": "admin",
+  "mac-address": "02:00:00:00:0C:01",
+  "packets-in": "10",
+  "packets-out": "10",
+  "radius": "false",
+  "server": "hs1",
+  "session-time-left": "59m33s",
+  "uptime": "27s",
+  "user": "s-rebind"
+ }
+]

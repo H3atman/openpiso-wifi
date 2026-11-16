@@ -1,0 +1,72 @@
+{{/* Time Credits split view. The URL (?tc= &q= &state= &tab=) is the single source of truth: this page, "list" and "detail_swap" all render from creditsView in admin_time_credits.go. */}}
+{{define "content"}}
+<section class="card d-split">
+  <div class="split">
+    <div class="pane list-pane">
+      <div class="pane-head">
+        <div class="tabs">
+          <a class="tab{{if not .AuditTab}} is-active{{end}}" href="{{.CreditsTabHref}}">{{icon "timer"}}Time Credits</a>
+          <a class="tab{{if .AuditTab}} is-active{{end}}" href="{{.AuditTabHref}}">{{icon "inbox"}}Audit inbox <span class="count">{{len .Audit}}</span></a>
+        </div>
+      </div>
+      {{if .AuditTab}}
+      <div class="pane-body">{{template "audit_inbox" .}}</div>
+      {{else}}
+      <div class="pane-body">
+        <div class="search">{{icon "search"}}<input type="search" name="q" value="{{.Query}}" placeholder="Search ID, MAC, IP, state…" autocomplete="off" aria-label="Search Time Credits"
+          hx-get="/admin/time-credits/list" hx-trigger="input changed delay:250ms, search" hx-include="#tc-state" hx-target="#tc-list" hx-swap="innerHTML"></div>
+        <input type="hidden" id="tc-state" name="state" value="{{.State}}">
+        {{if not .Known}}<p class="muted-fg xs">Router unavailable: used and remaining time are unknown.</p>{{else if .Stale}}<p class="muted-fg xs">Router unavailable: showing the last known usage.</p>{{end}}
+        <ul id="tc-list" class="list">{{template "list" .}}</ul>
+      </div>
+      {{end}}
+    </div>
+    <div class="pane detail-pane" id="detail" aria-live="polite">{{template "detail" .}}</div>
+  </div>
+</section>
+{{end}}
+
+{{/* GET /admin/time-credits/list: the list items for ?q=&state=. */}}
+{{define "list"}}{{range .List}}<li><a class="tc-item" href="{{.Href}}"{{if .Current}} aria-current="true"{{end}} hx-get="{{.DetailURL}}" hx-target="#detail" hx-swap="innerHTML" hx-push-url="{{.Href}}">
+  <span class="tc-main"><span class="strong">{{.ID}}</span><span class="mono xs">{{.MAC}}</span></span>
+  <span class="tc-side">{{template "badge" .State}}<span class="xs num">{{if .Metered}}{{.RemainingText}} left{{else}}—{{end}}</span></span>
+</a></li>{{else}}<li class="list-empty">{{if .Total}}No Time Credits match.{{else}}No Time Credits yet.{{end}}</li>{{end}}{{end}}
+
+{{/* GET /admin/time-credits/detail: the detail pane, plus the list re-rendered out of band so the highlight follows the URL. */}}
+{{define "detail_swap"}}{{template "detail" .}}<ul id="tc-list" class="list" hx-swap-oob="true">{{template "list" .}}</ul>{{end}}
+
+{{define "detail"}}{{with .Selected}}<div class="detail" data-detail-id="{{.ID}}">
+  <div class="detail-head">
+    <div><h2>{{.ID}}</h2><p class="muted-fg mono">{{.Device}}</p></div>
+    {{template "badge" .State}}
+  </div>
+  <dl class="facts">
+    <div><dt>Bought</dt><dd class="num">{{.BoughtText}}</dd></div>
+    <div><dt>Used · Router-metered</dt><dd class="num">{{.UsedText}}</dd></div>
+    <div><dt>Remaining</dt><dd class="num">{{.RemainingText}}</dd></div>
+    <div><dt>Validity</dt><dd>{{.ValidityText}}</dd></div>
+    <div><dt>Points</dt><dd class="num">{{.Points}}</dd></div>
+  </dl>
+  {{if .ShowBar}}<progress class="wide" max="{{.Bought}}" value="{{.Remaining}}" aria-label="Remaining time"></progress>{{end}}
+  <div class="actions">
+    {{if .Expired}}<p class="muted-fg">Validity has ended. Unused time is forfeited; a new Voucher creates a new Time Credit.</p>{{else}}
+    <form class="form-row" method="post" action="/admin/grants"><input type="hidden" name="request_id" value="{{$.RequestID}}"><input type="hidden" name="time_credit_id" value="{{.ID}}">
+      <label class="field">Seconds <input type="number" name="seconds" min="1" max="31536000" required></label>
+      <label class="field">Reason <input name="reason" maxlength="500" required></label>
+      <button class="btn outline">{{icon "circle-plus"}}Grant time</button>
+    </form>{{end}}
+  </div>
+  <h3 class="section-title">Timeline</h3>
+  <ol class="timeline">{{range $.Timeline}}<li data-kind="{{.Kind}}"><span class="tl-dot"></span><span class="tl-time num">{{.Time}}</span><span class="tl-text">{{.Text}}</span></li>{{else}}<li class="muted-fg">No history yet.</li>{{end}}</ol>
+</div>{{else}}{{if .Missing}}<div class="empty-state">{{icon "alert"}}<h3>Time Credit not found</h3><p>No Time Credit has the ID “{{.Missing}}”.</p></div>
+{{else}}<div class="empty-state">{{icon "timer"}}<h3>No Time Credits</h3><p>A Time Credit appears here once a Voucher is redeemed or a coin is inserted.</p></div>{{end}}{{end}}{{end}}
+
+{{define "audit_inbox"}}<ul class="list audit-list">{{range .Audit}}<li class="audit-item">
+  <span class="ev-icon">{{icon "alert"}}</span>
+  <div class="grow"><p class="strong">{{.Reason}}</p>
+    <p class="xs muted-fg">Vendo {{.VendoID}} · {{.Coins}} coins · window {{.WindowID}} · epoch {{.Epoch}} · total {{.Total}}</p>
+    <p class="xs muted-fg">#{{.ID}} · {{.RecordedAt}} · {{.Status}}</p>
+    <form class="form" method="post" action="/admin/audit/resolve"><input type="hidden" name="audit_id" value="{{.ID}}"><input type="hidden" name="action" value="dismiss">
+      <label class="field">Resolution reason <input name="reason" maxlength="500" required></label><button class="btn sm outline">Dismiss</button></form>
+  </div>
+</li>{{else}}<li class="list-empty">No audit items need review.</li>{{end}}</ul>{{end}}

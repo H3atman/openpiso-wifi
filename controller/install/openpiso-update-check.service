@@ -1,0 +1,25 @@
+# Root helper: fetches and verifies the signed release manifest and records what is available in
+# /var/lib/openpiso-update/status.json. Started by openpiso-update-check.timer; a failed check
+# (offline, wrong clock) is recorded and exits 0. Installed by install.sh.
+[Unit]
+Description=Check for an OpenPiso Controller update
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/openpiso/openpiso.env
+ExecStart=/usr/local/bin/openpiso update check
+TimeoutStartSec=15min
+UMask=0022
+CapabilityBoundingSet=
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/openpiso-update
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX

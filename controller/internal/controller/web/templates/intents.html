@@ -1,0 +1,10 @@
+{{define "content"}}
+<section class="card">
+  <div class="card-head"><div><h3>Credit intents</h3>
+    <p class="muted-fg">Pending writes retry automatically on boot and about every 10 seconds.</p></div></div>
+  <div class="table-scroll"><table>
+    <thead><tr><th>Time Credit</th><th>Absolute bought seconds</th><th>Revision</th><th>Status</th><th>Error</th></tr></thead><tbody>
+    {{range .}}<tr><td>{{.TimeCreditID}}</td><td class="num">{{.BoughtSeconds}}</td><td class="num">{{.Revision}}</td><td>{{if .Pending}}pending{{else}}applied{{end}}</td><td>{{.Error}}</td></tr>{{end}}
+    </tbody></table></div>
+</section>
+{{end}}

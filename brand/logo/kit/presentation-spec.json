@@ -1,0 +1,36 @@
+{
+  "brand": "OpenPiso WiFi",
+  "tagline": "Open-source piso WiFi",
+  "brief": "An open-source alternative to closed MikroTik-controller piso WiFi systems, for Filipino operators and hobbyists. It should feel open, trustworthy, local and simple to run.",
+  "adjectives": ["open", "trustworthy", "local", "simple"],
+  "criteria": "Success: one mark that reads as a p and as a coin sending out wifi, works in one colour, survives at 16 px with the small cut, and stands apart from generic wifi-plus-peso marks.",
+  "mockups": ["website", "sticker", "signage", "readme", "favicon-tab", "app-icon"],
+  "nav": ["Install", "Docs", "GitHub"],
+  "brand_color": "#2E9E4F",
+  "tile_color": "#123C1C",
+  "greyscale": false,
+  "designer": "OpenPiso WiFi",
+  "round": 4,
+  "concepts": [
+    {
+      "name": "Signal p",
+      "symbol": "masters/symbol-color.svg",
+      "lockup": "masters/lockup-horizontal-color.svg",
+      "symbol_on_tile": "masters/symbol-reversed.svg",
+      "lockup_on_dark": "masters/lockup-horizontal-reversed.svg",
+      "idea": "The p's bowl is an O, the coin, and the coin at its centre sends out the wifi.",
+      "rationale": [
+        "O and P merged into one letter: OpenPiso in a single glyph",
+        "Coin + signal = the product: drop a coin, get WiFi",
+        "Constructed wordmark from the same circles and stroke, no font licence needed",
+        "Separate small cut keeps the idea legible at 16 px"
+      ]
+    }
+  ],
+  "recommendation": "Signal p, in OpenPiso greens: Forest for the letter, Mint (Leaf on white) for the coin and its signal.",
+  "next_steps": [
+    "Run a trademark search (contactless-payment marks look similar)",
+    "Drop the web icons into the captive portal and admin UI",
+    "Print a vendo sticker test at actual size"
+  ]
+}

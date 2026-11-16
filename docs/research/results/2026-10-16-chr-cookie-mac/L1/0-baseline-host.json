@@ -1,0 +1,1 @@
+[{".id":"*1","address":"10.5.50.201","authorized":"false","bypassed":"false","bytes-in":"0","bytes-out":"0","dynamic":"true","found-by":"TCP :47412 -> 10.5.50.1:80","host-dead-time":"4s","idle-time":"10s","idle-timeout":"5m","mac-address":"02:00:00:00:0A:01","packets-in":"0","packets-out":"0","server":"hs1","to-address":"10.5.50.200","uptime":"10s"}]

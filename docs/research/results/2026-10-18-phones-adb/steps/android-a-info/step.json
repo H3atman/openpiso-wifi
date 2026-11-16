@@ -1,0 +1,16 @@
+{
+  "phone": "android",
+  "step": "a-info",
+  "start": "2026-10-18T09:38:06+08:00",
+  "end": "2026-10-18T09:39:18+08:00",
+  "answers": [
+    {
+      "question": "Model and OS version?",
+      "answer": "Xiaomi"
+    },
+    {
+      "question": "Current private-address setting for openpiso-lab?",
+      "answer": "randomized mac"
+    }
+  ]
+}

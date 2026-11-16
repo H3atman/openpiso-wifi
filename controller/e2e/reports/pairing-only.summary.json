@@ -1,0 +1,29 @@
+{
+  "format_version": 1,
+  "scenario": "pairing-only",
+  "started_at": "2026-10-30T02:30:16.467677+00:00",
+  "git_commit": "386e915cfbf94bceee3ccd7a2fee8b108bf5caed",
+  "git_tree": "ae13c0bdf8322c3b97aada756b5cacc151007a32",
+  "git_dirty": false,
+  "binary_size_bytes": 22182252,
+  "binary_sha256": "2aa58482e1e35bef32424a0974576b007007f3fc0b5968f0cb43165e961f6e23",
+  "test_seam": "Controller binary via external HTTP against chr-lab and chr-client",
+  "result": "pass",
+  "cleanup": {
+    "result": "pass",
+    "failures": []
+  },
+  "finished_at": "2026-10-30T02:31:41.932635+00:00",
+  "steps": [
+    "boot-admin-password-persisted-and-rate-limited",
+    "authenticated-post-route-policy",
+    "provisioned-unpair-needs-no-router",
+    "non-v7-onboarding-refused-before-any-write",
+    "operator-compares-certificate",
+    "onboarded-with-special-character-admin-password",
+    "second-onboarding-is-idempotent",
+    "boot-reverified-with-bootstrap-admin-deleted",
+    "flash-pairing-adopted-from-real-vlan-source"
+  ],
+  "chr_client_cleanup_removed": 19
+}

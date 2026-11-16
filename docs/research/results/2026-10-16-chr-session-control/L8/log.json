@@ -1,0 +1,184 @@
+[
+ {
+  ".id": "*D",
+  "extra-info": "",
+  "message": "s-rebind (10.5.50.200): trying to log in by admin",
+  "time": "2026-10-15 23:43:00",
+  "topics": "hotspot,info,debug"
+ },
+ {
+  ".id": "*E",
+  "extra-info": "",
+  "message": "s-rebind (10.5.50.200): logged in",
+  "time": "2026-10-15 23:43:00",
+  "topics": "hotspot,account,info,debug"
+ },
+ {
+  ".id": "*11",
+  "extra-info": "",
+  "message": "s-rebind (10.5.50.200): logged out: admin reset",
+  "time": "2026-10-15 23:43:47",
+  "topics": "hotspot,info,debug"
+ },
+ {
+  ".id": "*12",
+  "extra-info": "",
+  "message": "onlogout user=s-rebind mac=02:00:00:00:0C:01 cause=admin reset",
+  "time": "2026-10-15 23:43:47",
+  "topics": "script,info"
+ },
+ {
+  ".id": "*22",
+  "extra-info": "",
+  "message": "s-rebind (10.5.50.200): trying to log in by admin",
+  "time": "2026-10-15 23:47:26",
+  "topics": "hotspot,info,debug"
+ },
+ {
+  ".id": "*23",
+  "extra-info": "",
+  "message": "s-rebind (10.5.50.200): logged in",
+  "time": "2026-10-15 23:47:26",
+  "topics": "hotspot,account,info,debug"
+ },
+ {
+  ".id": "*25",
+  "extra-info": "",
+  "message": "s-rebind (10.5.50.199): trying to log in by admin",
+  "time": "2026-10-15 23:47:53",
+  "topics": "hotspot,info,debug"
+ },
+ {
+  ".id": "*26",
+  "extra-info": "",
+  "message": "s-rebind (10.5.50.199): login failed: no more sessions are allowed for user",
+  "time": "2026-10-15 23:47:55",
+  "topics": "hotspot,info,debug"
+ },
+ {
+  ".id": "*27",
+  "extra-info": "",
+  "message": "s-rebind (10.5.50.200): logged out: admin reset",
+  "time": "2026-10-15 23:47:55",
+  "topics": "hotspot,info,debug"
+ },
+ {
+  ".id": "*28",
+  "extra-info": "",
+  "message": "onlogout user=s-rebind mac=02:00:00:00:0C:01 cause=admin reset",
+  "time": "2026-10-15 23:47:55",
+  "topics": "script,info"
+ },
+ {
+  ".id": "*29",
+  "extra-info": "",
+  "message": "s-rebind (10.5.50.199): trying to log in by admin",
+  "time": "2026-10-15 23:47:56",
+  "topics": "hotspot,info,debug"
+ },
+ {
+  ".id": "*2A",
+  "extra-info": "",
+  "message": "s-rebind (10.5.50.199): logged in",
+  "time": "2026-10-15 23:47:56",
+  "topics": "hotspot,account,info,debug"
+ },
+ {
+  ".id": "*2B",
+  "extra-info": "",
+  "message": "s-rebind (10.5.50.199): logged out: admin reset",
+  "time": "2026-10-15 23:48:16",
+  "topics": "hotspot,info,debug"
+ },
+ {
+  ".id": "*2C",
+  "extra-info": "",
+  "message": "onlogout user=s-rebind mac=02:00:00:00:0C:02 cause=admin reset",
+  "time": "2026-10-15 23:48:16",
+  "topics": "script,info"
+ },
+ {
+  ".id": "*2E",
+  "extra-info": "",
+  "message": "s-idle (10.5.50.199): trying to log in by admin",
+  "time": "2026-10-15 23:48:17",
+  "topics": "hotspot,info,debug"
+ },
+ {
+  ".id": "*2F",
+  "extra-info": "",
+  "message": "s-idle (10.5.50.199): logged in",
+  "time": "2026-10-15 23:48:17",
+  "topics": "hotspot,account,info,debug"
+ },
+ {
+  ".id": "*30",
+  "extra-info": "",
+  "message": "s-idle (10.5.50.199): logged out: idle timeout",
+  "time": "2026-10-15 23:50:07",
+  "topics": "hotspot,info,debug"
+ },
+ {
+  ".id": "*31",
+  "extra-info": "",
+  "message": "onlogout user=s-idle mac=02:00:00:00:0C:02 cause=idle timeout",
+  "time": "2026-10-15 23:50:07",
+  "topics": "script,info"
+ },
+ {
+  ".id": "*33",
+  "extra-info": "",
+  "message": "s-limit (10.5.50.199): trying to log in by admin",
+  "time": "2026-10-15 23:50:10",
+  "topics": "hotspot,info,debug"
+ },
+ {
+  ".id": "*34",
+  "extra-info": "",
+  "message": "s-limit (10.5.50.199): logged in",
+  "time": "2026-10-15 23:50:10",
+  "topics": "hotspot,account,info,debug"
+ },
+ {
+  ".id": "*36",
+  "extra-info": "",
+  "message": "s-limit (10.5.50.199): logged out: session timeout",
+  "time": "2026-10-15 23:51:10",
+  "topics": "hotspot,info,debug"
+ },
+ {
+  ".id": "*37",
+  "extra-info": "",
+  "message": "onlogout user=s-limit mac=02:00:00:00:0C:02 cause=session timeout",
+  "time": "2026-10-15 23:51:10",
+  "topics": "script,info"
+ },
+ {
+  ".id": "*39",
+  "extra-info": "",
+  "message": "s-keep (10.5.50.199): trying to log in by admin",
+  "time": "2026-10-15 23:51:11",
+  "topics": "hotspot,info,debug"
+ },
+ {
+  ".id": "*3A",
+  "extra-info": "",
+  "message": "s-keep (10.5.50.199): logged in",
+  "time": "2026-10-15 23:51:11",
+  "topics": "hotspot,account,info,debug"
+ },
+ {
+  ".id": "*3E",
+  "extra-info": "",
+  "message": "s-keep (10.5.50.199): logged out: keepalive timeout",
+  "time": "2026-10-15 23:52:43",
+  "topics": "hotspot,info,debug"
+ },
+ {
+  ".id": "*3F",
+  "extra-info": "",
+  "message": "onlogout user=s-keep mac=02:00:00:00:0C:02 cause=keepalive timeout",
+  "time": "2026-10-15 23:52:43",
+  "topics": "script,info"
+ }
+]

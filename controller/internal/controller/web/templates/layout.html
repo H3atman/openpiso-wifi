@@ -1,0 +1,116 @@
+{{/* Shared admin shell. Page files define "content" (and named fragments); see web.go renderPage. */}}
+
+{{define "head"}}<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Title}} · OpenPiso WiFi</title>
+<link rel="icon" href="{{asset "logo.svg"}}" type="image/svg+xml">
+<link rel="stylesheet" href="{{asset "admin.css"}}">
+<script src="{{asset "admin.js"}}"></script>
+<script src="{{asset "htmx.min.js"}}"></script>
+<script defer src="{{asset "alpine-csp.min.js"}}"></script>{{end}}
+
+{{define "crumbItems"}}<ol>
+  <li class="hide-mobile">{{.Section}}</li>
+  <li class="hide-mobile crumb-sep" aria-hidden="true">{{icon "chevron-right"}}</li>
+  <li aria-current="page">{{.Title}}</li>
+</ol>{{end}}
+
+{{/* Alpine state lives on .sb-wrapper and the palette, both outside #view, so boosted swaps never reset them. */}}
+{{define "layout"}}<!doctype html>
+<html lang="en"><head>{{template "head" .}}</head>
+<body>
+<div class="sb-wrapper" x-data="shell" :data-state="state" :data-mobile="mobile" data-state="expanded" @keydown.escape.window="closeMobile">
+  {{template "sidebar" .}}
+  <div class="sb-overlay" @click="closeMobile"></div>
+  <main class="sb-inset">
+    <header class="topbar">
+      <button type="button" class="btn ghost icon" @click="toggle" aria-label="Toggle sidebar">{{icon "panel-left"}}</button>
+      <span class="separator-v"></span>
+      <nav id="crumbs" class="breadcrumb" aria-label="Breadcrumb">{{template "crumbItems" .}}</nav>
+    </header>
+    <div id="view" class="content">{{template "view" .}}</div>
+  </main>
+</div>
+{{template "palette" .}}
+</body></html>{{end}}
+
+{{/* Response to a boosted sidebar navigation: title, out-of-band breadcrumb, then the new #view content. */}}
+{{define "boosted"}}<title>{{.Title}} · OpenPiso WiFi</title>
+<nav id="crumbs" class="breadcrumb" aria-label="Breadcrumb" hx-swap-oob="true">{{template "crumbItems" .}}</nav>
+{{template "view" .}}{{end}}
+
+{{/* data-nav-key lets admin.js move the sidebar highlight after a boosted swap. */}}
+{{define "view"}}<span hidden data-nav-key="{{.Active}}"></span><h1 class="sr-only">{{.Title}}</h1>{{template "content" .Data}}{{end}}
+
+{{define "navItem"}}{{if .Subs}}
+<li class="menu-item" x-data="collapsible({{if .Open}}true{{else}}false{{end}})" :data-state="state">
+  <a class="menu-btn" href="{{.Href}}" data-nav="{{.Href}}" data-tooltip="{{.Label}}"{{if .Active}} data-active="true"{{end}}>{{icon .Icon}}<span class="menu-text">{{.Label}}</span></a>
+  <button type="button" class="menu-action chevron" @click="toggle" aria-label="Toggle {{.Label}}" :aria-expanded="open">{{icon "chevron-right"}}</button>
+  <ul class="menu-sub" x-show="open" x-cloak>
+    {{range .Subs}}<li><a class="menu-sub-btn" href="{{.Href}}" data-nav="{{.Href}}"{{if .Active}} data-active="true"{{end}}>{{.Label}}</a></li>{{end}}
+  </ul>
+</li>{{else}}
+<li class="menu-item">
+  <a class="menu-btn" href="{{.Href}}" data-nav="{{.Href}}" data-tooltip="{{.Label}}"{{if .Active}} data-active="true"{{end}}>{{icon .Icon}}<span class="menu-text">{{.Label}}</span></a>
+</li>{{end}}{{end}}
+
+{{define "sidebar"}}{{$p := .}}<aside class="sb" id="sidebar">
+  <div class="sb-inner" hx-boost:inherited="true" hx-target:inherited="#view" hx-swap:inherited="innerHTML">
+    <div class="sb-header">
+      <a class="menu-btn lg" href="/admin/dashboard" data-tooltip="OpenPiso WiFi">
+        <img class="brand-icon" src="{{asset "logo.svg"}}" alt="">
+        <span class="menu-text two-line"><span class="strong">OpenPiso WiFi</span><span class="xs">Controller admin</span></span>
+      </a>
+      <button type="button" class="search-box" @click="$dispatch('palette-open')">{{icon "search"}}<span class="grow">Search or jump to…</span><kbd>Ctrl K</kbd></button>
+    </div>
+
+    <div class="sb-content">
+      <div class="group">
+        <div class="group-label">Main</div>
+        <ul class="sb-menu">{{range .Platform}}{{template "navItem" .}}{{end}}</ul>
+      </div>
+      <div class="group">
+        <div class="group-label">Quick actions</div>
+        <ul class="sb-menu">{{range .Quick}}{{template "navItem" .}}{{end}}</ul>
+      </div>
+      <div class="group secondary">
+        <ul class="sb-menu">
+          {{range .Secondary}}<li class="menu-item"><a class="menu-btn sm" href="{{.Href}}" data-nav="{{.Href}}"{{if .Active}} data-active="true"{{end}}>{{icon .Icon}}<span class="menu-text">{{.Label}}</span><span class="status-dot {{if $p.RouterOK}}good{{else}}warn{{end}}" title="{{if $p.RouterOK}}Router ready{{else}}Router not ready{{end}}"></span></a></li>{{end}}
+        </ul>
+      </div>
+    </div>
+
+    <div class="sb-footer">
+      <div class="user" x-data="dropdown" data-side="top" @click.outside="close" @keydown.escape.window="close">
+        <button type="button" class="menu-btn lg" x-ref="trigger" @click="toggle" :aria-expanded="open">
+          <span class="avatar">{{icon "user"}}</span>
+          <span class="menu-text two-line"><span class="strong">Operator</span><span class="xs">Management network</span></span>
+          <span class="menu-end">{{icon "chevrons-up-down"}}</span>
+        </button>
+        <div class="menu user-menu" x-ref="menu" x-show="open" x-cloak role="menu" @click="close">
+          <div class="menu-label two-line"><span class="strong">Operator</span><span class="xs">Management network</span></div>
+          <div class="separator"></div>
+          <button type="button" class="menu-entry" role="menuitem" @click="$store.theme.toggle()"><span class="icon-sun">{{icon "sun"}}</span><span class="icon-moon">{{icon "moon"}}</span><span x-text="$store.theme.label"></span></button>
+          <form method="post" action="/admin/logout" hx-boost="false"><button type="submit" class="menu-entry" role="menuitem">{{icon "log-out"}}<span>Log out</span></button></form>
+        </div>
+      </div>
+    </div>
+  </div>
+</aside>{{end}}
+
+{{/* Ctrl/Cmd+K palette. Static entries come from data-items; extra entries are fetched from data-src on open (JSON, see searchItem in web.go). */}}
+{{define "palette"}}<div class="palette-root" x-data="palette" data-items="{{.Palette}}" data-src="/admin/search" @palette-open.window="show" @keydown.ctrl.k.window.prevent="toggle" @keydown.meta.k.window.prevent="toggle" x-show="open" x-cloak>
+  <div class="palette-backdrop" @click="hide"></div>
+  <div class="palette" role="dialog" aria-modal="true" aria-label="Command palette" @keydown.escape.prevent="hide">
+    <div class="palette-input">{{icon "search"}}<input type="text" x-ref="input" x-model="query" placeholder="Type a page or action…" autocomplete="off"
+      @keydown.arrow-down.prevent="move(1)" @keydown.arrow-up.prevent="move(-1)" @keydown.enter.prevent="choose"></div>
+    <ul class="palette-list">
+      <template x-for="(item, i) in results" :key="item.key">
+        <li><a :href="item.href" class="palette-item" :class="{'is-active': isActive(i)}" @mouseenter="hover(i)"><span class="grow" x-text="item.label"></span><span class="xs" x-text="item.hint"></span></a></li>
+      </template>
+      <li class="palette-empty" x-show="isEmpty">No results</li>
+    </ul>
+  </div>
+</div>{{end}}
+
+{{define "badge"}}<span class="badge" data-state="{{.}}"><span class="dot"></span>{{.}}</span>{{end}}

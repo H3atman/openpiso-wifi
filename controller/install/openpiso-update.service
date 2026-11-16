@@ -1,0 +1,27 @@
+# Root helper: downloads and verifies the signed release, then swaps it in under a stopped
+# Controller and rolls back binary and ledger when it does not come up healthy. Started by
+# openpiso-update.path; outcome in /var/lib/openpiso-update/status.json. Installed by install.sh.
+[Unit]
+Description=Apply an OpenPiso Controller update
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/openpiso/openpiso.env
+ExecStart=/usr/local/bin/openpiso update apply
+# No start timeout: killing the helper mid-apply could leave the Controller stopped.
+TimeoutStartSec=infinity
+UMask=0022
+# Root only to replace the binary, write the state directory and call systemctl. Without
+# CAP_DAC_OVERRIDE root cannot enter the openpiso-owned data directory: the request removal and
+# ledger copies run as the openpiso user (setuid/setgid).
+CapabilityBoundingSet=CAP_SETUID CAP_SETGID
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/usr/local/bin /var/lib/openpiso-update /var/lib/openpiso
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX

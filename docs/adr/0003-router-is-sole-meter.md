@@ -1,0 +1,3 @@
+# The Router is the only meter of used time
+
+The Controller's ledger records only time bought (coins, Vouchers, Top-ups); time used is always read from the Router's accumulated HotSpot uptime, and remaining time is bought minus used. On every Top-up the Controller sets the Router's absolute uptime limit to the new total bought, and after any Controller or Router outage it reconciles by reading usage back. We chose this so the two systems can never disagree about minutes: CHR lab findings (PR #2) showed `limit-uptime` accumulates across sessions and MACs and that Idle Pause doesn't charge the idle tail, so the Router already meters correctly, and a Controller-side countdown would only drift from it. Don't add a "remaining minutes" field to the ledger.

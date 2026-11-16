@@ -1,0 +1,79 @@
+{
+  "format_version": 1,
+  "scenario": "vouchers-only",
+  "started_at": "2026-11-06T15:14:59.453716+00:00",
+  "git_commit": "4e52b9e925aaf73e9fd039a31ca681324b3411de",
+  "git_tree": "0c71923f0eeae9693d71b50d7f90e59b4ca6e979",
+  "git_dirty": false,
+  "binary_size_bytes": 22791686,
+  "binary_sha256": "8ee9801cf554fa098c243fe321a33765be9241c435f1b149e8e05ad2787ada1c",
+  "test_seam": "Controller binary via external HTTP against chr-lab and chr-client",
+  "result": "pass",
+  "voucher_print_sheet": {
+    "screenshots": [
+      "voucher-print-sheet/01-redeemed-reprint.png"
+    ],
+    "browser": {
+      "cards": 2,
+      "rendered_event": true,
+      "loads": [
+        "http://127.0.0.1:18080/admin/vouchers?batch=45ovZ-N8NyeOv2IHA9Irj2JFhkoVBUMqVPrE-jgaATY"
+      ],
+      "browser": "chromium 156.0.8078.4",
+      "device_profile": "desktop",
+      "screenshots": [
+        "01-redeemed-reprint"
+      ],
+      "csp_violations": []
+    }
+  },
+  "voucher_template_editor": {
+    "screenshots": [
+      "voucher-template-editor/01-draft-preview.png",
+      "voucher-template-editor/02-published-throwing-script.png",
+      "voucher-template-editor/03-reset-default.png"
+    ],
+    "browser": {
+      "preview_cards": 6,
+      "preview_used": 1,
+      "throwing_custom_js": true,
+      "draft_isolated": true,
+      "reverted": true,
+      "reset": true,
+      "shop_marker": true,
+      "browser": "chromium 156.0.8078.4",
+      "device_profile": "desktop",
+      "screenshots": [
+        "01-draft-preview",
+        "02-published-throwing-script",
+        "03-reset-default"
+      ],
+      "csp_violations": []
+    }
+  },
+  "cleanup": {
+    "result": "pass",
+    "failures": []
+  },
+  "finished_at": "2026-11-06T15:16:39.249289+00:00",
+  "steps": [
+    "boot-admin-password-persisted-and-rate-limited",
+    "authenticated-post-route-policy",
+    "non-v7-onboarding-refused-before-any-write",
+    "operator-compares-certificate",
+    "onboarded-with-special-character-admin-password",
+    "second-onboarding-is-idempotent",
+    "boot-reverified-with-bootstrap-admin-deleted",
+    "vouchers-tier-and-custom-zero-batches-csv-and-list",
+    "vouchers-tier-snapshot-redemption-and-router-limits",
+    "vouchers-print-sheet-rendered-and-used",
+    "vouchers-template-editor-publish-revert-reset",
+    "vouchers-code-formats-and-prefixed-different-case-redemption",
+    "vouchers-seller-sales-filter-and-csv",
+    "vouchers-code-search-redeemed-device-and-print-sheet",
+    "vouchers-search-cap-and-newest-batch-first",
+    "vouchers-delete-unused-and-append-only-audit",
+    "vouchers-delete-redeemed-direct-post-refused"
+  ],
+  "chr_client_cleanup_removed": 3
+}

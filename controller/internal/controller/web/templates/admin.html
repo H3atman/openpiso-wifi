@@ -1,0 +1,13 @@
+{{define "content"}}
+<section class="card narrow">
+  <div class="card-head"><div><h3>Router onboarding</h3><p class="muted-fg">Connect this Controller to a RouterOS v7 Router.</p></div></div>
+  <div class="card-body">
+    <form class="form" method="post" action="/admin/router/probe">
+      <label class="field">Router address <input name="address" type="url" placeholder="https://192.0.2.1" required></label>
+      <label class="field">Admin username <input name="username" autocomplete="username" required></label>
+      <label class="field">Admin password <input name="password" type="password" autocomplete="current-password" required></label>
+      <div><button class="btn" type="submit">Read certificate</button></div>
+    </form>
+  </div>
+</section>
+{{end}}

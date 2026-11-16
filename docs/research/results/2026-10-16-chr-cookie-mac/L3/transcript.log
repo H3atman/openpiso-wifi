@@ -1,0 +1,3 @@
+06:21:00 curl[hsA/jar] -d username=t-cookie&password=t-cookie&dst=&popup=true http://10.5.50.1/login -> HTTP 200
+06:22:00 curl[hsA/jar] http://10.5.50.1/logout -> HTTP 200
+06:22:00 curl[hsA/jar] http://10.5.50.1/login -> HTTP 200

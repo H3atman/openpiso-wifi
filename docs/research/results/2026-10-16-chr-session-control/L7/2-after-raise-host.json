@@ -1,0 +1,39 @@
+[
+ {
+  ".id": "*1",
+  "DHCP": "true",
+  "address": "10.5.50.200",
+  "authorized": "false",
+  "bypassed": "false",
+  "bytes-in": "13664",
+  "bytes-out": "18984",
+  "found-by": "ICMP echo to 10.5.50.1",
+  "host-dead-time": "2m48s",
+  "idle-time": "2m58s",
+  "idle-timeout": "5m",
+  "mac-address": "02:00:00:00:0C:01",
+  "packets-in": "244",
+  "packets-out": "244",
+  "server": "hs1",
+  "to-address": "10.5.50.200",
+  "uptime": "8m44s"
+ },
+ {
+  ".id": "*3",
+  "DHCP": "true",
+  "address": "10.5.50.199",
+  "authorized": "true",
+  "bypassed": "false",
+  "bytes-in": "1008",
+  "bytes-out": "980",
+  "found-by": "ICMP echo to 10.5.50.1",
+  "host-dead-time": "0s",
+  "idle-time": "0s",
+  "mac-address": "02:00:00:00:0C:02",
+  "packets-in": "18",
+  "packets-out": "17",
+  "server": "hs1",
+  "to-address": "10.5.50.199",
+  "uptime": "34s"
+ }
+]

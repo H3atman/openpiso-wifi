@@ -1,0 +1,198 @@
+{
+  "format_version": 1,
+  "scenario": "browser-only",
+  "started_at": "2026-11-04T04:26:49.504703+00:00",
+  "git_commit": "0fac5073f1db8388f057820765dea4eb07c1691b",
+  "git_tree": "b9936cb3a5cb4f0723e855fc853d6c473c0b3bfd",
+  "git_dirty": false,
+  "binary_size_bytes": 22571104,
+  "binary_sha256": "2a765bd96420adce86a30acb1be9482d7ed8252e2d8fd7c59522ed46128e65d6",
+  "test_seam": "Controller binary via external HTTP against chr-lab and chr-client",
+  "result": "pass",
+  "browser_portal": {
+    "browser": "chromium 156.0.8078.4",
+    "device_profile": "Pixel 7",
+    "code_bytes": {
+      "/portal": 6595,
+      "/portal/portal.css": 7905,
+      "/portal/core.js": 13218
+    },
+    "code_budget_bytes": 40960,
+    "csp_violations": 0,
+    "csp_probe_refused": true,
+    "custom_portal_inline_script_refused": true,
+    "custom_js_error_left_core_js_working": true,
+    "preview_reports": {
+      "good": {
+        "read_ok": true,
+        "unknown_markers": [],
+        "states_with_errors": []
+      },
+      "broken-marker": {
+        "read_ok": true,
+        "unknown_markers": [
+          "stauts"
+        ],
+        "states_with_errors": []
+      },
+      "throwing-custom-js": {
+        "read_ok": true,
+        "unknown_markers": [],
+        "states_with_errors": [
+          "new",
+          "online",
+          "coin",
+          "paused",
+          "out",
+          "error"
+        ]
+      }
+    },
+    "signin": {
+      "exact_next_preserved": true,
+      "wrong_password_status": 401,
+      "session_survived_restart": true,
+      "session_not_renewed": true,
+      "logged_out": true,
+      "browser": "chromium 156.0.8078.4",
+      "device_profile": "desktop",
+      "screenshots": [
+        "35-signin-continue-sales",
+        "36-signin-wrong-password",
+        "37-signin-returned-to-sales",
+        "38-signin-survived-restart",
+        "39-signin-logged-out"
+      ],
+      "csp_violations": []
+    },
+    "sales_report": {
+      "shortcuts": {
+        "Today": {
+          "from": "2026-11-04",
+          "to": "2026-11-04",
+          "count": 30,
+          "total_pesos": 57
+        },
+        "This week": {
+          "from": "2026-11-02",
+          "to": "2026-11-04",
+          "count": 30,
+          "total_pesos": 57
+        },
+        "This month": {
+          "from": "2026-11-01",
+          "to": "2026-11-04",
+          "count": 30,
+          "total_pesos": 57
+        },
+        "This year": {
+          "from": "2026-01-01",
+          "to": "2026-11-04",
+          "count": 30,
+          "total_pesos": 57
+        }
+      },
+      "single_vendo_named": true,
+      "search_count": 26,
+      "later_page": 2,
+      "reload_back_forward_restored": true,
+      "csv_rows": 26,
+      "csv_matches_filtered_json": true,
+      "total_pesos": 57,
+      "csp_violations": []
+    },
+    "preview_live_api_requests": 0,
+    "http_only_cookie_survived_fetch_posts": true,
+    "cover_logo_cropped_in_browser": {
+      "logo": {
+        "type": "image/webp",
+        "bytes": 880,
+        "width": 256,
+        "height": 256,
+        "corner": [
+          255,
+          255,
+          255
+        ],
+        "bottom": [
+          255,
+          255,
+          255
+        ]
+      },
+      "cover": {
+        "type": "image/webp",
+        "bytes": 90960,
+        "width": 1200,
+        "height": 400,
+        "corner": [
+          197,
+          41,
+          39
+        ],
+        "bottom": [
+          199,
+          40,
+          39
+        ]
+      }
+    },
+    "cover_logo_on_device_match": true,
+    "screenshots": [
+      "browser-portal/01-new.png",
+      "browser-portal/02-voucher-error.png",
+      "browser-portal/03-online.png",
+      "browser-portal/04-paused.png",
+      "browser-portal/05-resumed.png",
+      "browser-portal/06-coin-window.png",
+      "browser-portal/07-coin-done.png",
+      "browser-portal/07a-points.png",
+      "browser-portal/07b-points-too-low.png",
+      "browser-portal/08-rebind.png",
+      "browser-portal/09-rebind-online.png",
+      "browser-portal/10-out-of-time.png",
+      "browser-portal/11-custom-portal-throwing-custom-js.png",
+      "browser-portal/12-preview-good.png",
+      "browser-portal/13-preview-broken-marker.png",
+      "browser-portal/14-preview-throwing-custom-js.png",
+      "browser-portal/15-admin-cover-logo.png",
+      "browser-portal/16-preview-cover-logo.png",
+      "browser-portal/17-device-cover-logo.png",
+      "browser-portal/30-sales-all.png",
+      "browser-portal/31-sales-single-vendo.png",
+      "browser-portal/32-sales-search.png",
+      "browser-portal/33-sales-later-page.png",
+      "browser-portal/34-sales-mobile-table.png",
+      "browser-portal/34-sales-mobile-feed.png",
+      "browser-portal/35-signin-continue-sales.png",
+      "browser-portal/36-signin-wrong-password.png",
+      "browser-portal/37-signin-returned-to-sales.png",
+      "browser-portal/38-signin-survived-restart.png",
+      "browser-portal/39-signin-logged-out.png"
+    ]
+  },
+  "cleanup": {
+    "result": "pass",
+    "failures": []
+  },
+  "finished_at": "2026-11-04T04:30:09.526670+00:00",
+  "steps": [
+    "boot-admin-password-persisted-and-rate-limited",
+    "authenticated-post-route-policy",
+    "non-v7-onboarding-refused-before-any-write",
+    "operator-compares-certificate",
+    "onboarded-with-special-character-admin-password",
+    "second-onboarding-is-idempotent",
+    "boot-reverified-with-bootstrap-admin-deleted",
+    "custom-portal-save-check-publish-revert-reset",
+    "browser-portal-new-voucher-pause-coin-window",
+    "browser-portal-rebind-to-new-device",
+    "browser-portal-out-of-time",
+    "browser-custom-portal-throwing-custom-js",
+    "browser-custom-portal-preview",
+    "browser-custom-portal-cover-logo",
+    "browser-sales-report",
+    "browser-signin-logout-restart"
+  ],
+  "chr_client_cleanup_removed": 20
+}

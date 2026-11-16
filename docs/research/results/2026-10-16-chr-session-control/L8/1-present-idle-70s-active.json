@@ -1,0 +1,19 @@
+[
+ {
+  ".id": "*C732050A",
+  "address": "10.5.50.199",
+  "bytes-in": "0",
+  "bytes-out": "0",
+  "idle-time": "1m10s",
+  "keepalive-timeout": "30s",
+  "login-by": "admin",
+  "mac-address": "02:00:00:00:0C:02",
+  "packets-in": "0",
+  "packets-out": "0",
+  "radius": "false",
+  "server": "hs1",
+  "session-time-left": "58m50s",
+  "uptime": "1m10s",
+  "user": "s-keep"
+ }
+]

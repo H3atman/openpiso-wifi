@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Print sheet</title>
+</head>
+<body>
+  <header class="sheet-bar">
+    <a href="/admin/vouchers">Voucher Batches</a>
+    <p>Print or save as PDF. Redeemed Vouchers are marked USED.</p>
+    <button type="button" data-print>Print</button>
+  </header>
+  <main class="sheet">
+    <article class="voucher" data-voucher="card">
+      <div class="price"><span data-voucher="pesos"></span></div>
+      <div class="details">
+        <p class="shop" data-voucher="shop"></p>
+        <p class="code" data-voucher="code"></p>
+        <p class="time" data-voucher="time"></p>
+        <p class="meta">Validity: <span data-voucher="validity"></span></p>
+        <p class="meta">Pauses: <span data-voucher="pause-limit"></span></p>
+        <p class="meta">Batch <span data-voucher="batch"></span> · Seller: <span data-voucher="seller"></span></p>
+        <p class="created" data-voucher="created"></p>
+      </div>
+      <div class="qr" data-voucher="qr"></div>
+      <span class="used" data-voucher="used"></span>
+    </article>
+  </main>
+</body>
+</html>

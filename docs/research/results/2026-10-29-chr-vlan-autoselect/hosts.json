@@ -1,0 +1,52 @@
+[
+  {
+    "vlan": 10,
+    "host_rows": [
+      {
+        ".id": "*1",
+        "DHCP": "true",
+        "address": "10.5.10.200",
+        "authorized": "false",
+        "bypassed": "false",
+        "bytes-in": "56",
+        "bytes-out": "84",
+        "found-by": "ICMP echo to 10.5.10.1",
+        "host-dead-time": "0s",
+        "idle-time": "0s",
+        "idle-timeout": "5m",
+        "mac-address": "02:00:00:00:0C:01",
+        "packets-in": "1",
+        "packets-out": "1",
+        "server": "opnw-vlan10",
+        "to-address": "10.5.10.200",
+        "uptime": "0s",
+        "vlan-id": "10"
+      }
+    ]
+  },
+  {
+    "vlan": 20,
+    "host_rows": [
+      {
+        ".id": "*2",
+        "DHCP": "true",
+        "address": "10.5.20.200",
+        "authorized": "false",
+        "bypassed": "false",
+        "bytes-in": "56",
+        "bytes-out": "84",
+        "found-by": "ICMP echo to 10.5.20.1",
+        "host-dead-time": "0s",
+        "idle-time": "0s",
+        "idle-timeout": "5m",
+        "mac-address": "02:00:00:00:0C:02",
+        "packets-in": "1",
+        "packets-out": "1",
+        "server": "opnw-vlan20",
+        "to-address": "10.5.20.200",
+        "uptime": "0s",
+        "vlan-id": "20"
+      }
+    ]
+  }
+]

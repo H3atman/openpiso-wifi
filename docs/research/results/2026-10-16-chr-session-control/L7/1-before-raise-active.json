@@ -1,0 +1,18 @@
+[
+ {
+  ".id": "*C732050A",
+  "address": "10.5.50.199",
+  "bytes-in": "840",
+  "bytes-out": "840",
+  "idle-time": "1s",
+  "login-by": "admin",
+  "mac-address": "02:00:00:00:0C:02",
+  "packets-in": "15",
+  "packets-out": "15",
+  "radius": "false",
+  "server": "hs1",
+  "session-time-left": "30s",
+  "uptime": "30s",
+  "user": "s-limit"
+ }
+]

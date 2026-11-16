@@ -1,0 +1,8 @@
+/kitifi-subvendo-bins/
+__pycache__/
+/controller/e2e/reports/*
+!/controller/e2e/reports/*.summary.json
+!/controller/e2e/reports/browser-portal/
+/controller/e2e/.cache/
+/lab/dev/.run/
+/brand/logo/renders/

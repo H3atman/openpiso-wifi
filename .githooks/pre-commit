@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+while IFS= read -r -d '' path; do
+	case "$path" in
+		*.pyc|.env|*/.env)
+			printf 'pre-commit: compiled Python or .env file is not allowed: %s\n' "$path" >&2
+			exit 1
+			;;
+	esac
+	if (( $(git cat-file -s ":$path") > 500000 )); then
+		printf 'pre-commit: staged file exceeds 500 KB (500000 bytes): %s\n' "$path" >&2
+		exit 1
+	fi
+	case "$path" in
+		controller/e2e/*.py|lab/chr/*.py)
+			# Extract each lookup predicate, including continued lines, but not
+			# unrelated reads outside the comprehension or generator expression.
+			if git show ":$path" |
+				grep -Po --null-data 'time_credits['\''"]\]\s+if\s+\K(?:\[[^\]\n]*\]|\([^()]*\)|[^][()\n;]|\n[\t ]+(?:and|or)\b)+' |
+				grep --null-data -E '\[['\''"]ip['\''"]\]' |
+				grep --null-data -Ev '\[['\''"]mac['\''"]\]' >/dev/null; then
+				printf 'pre-commit: IP-only Time Credit lookup in %s; use time_credit_for_device(state, mac, ip) instead.\n' "$path" >&2
+				exit 1
+			fi
+			;;
+	esac
+	if [[ $path == *.go ]]; then
+		gofmt=${GOFMT:-gofmt}
+		if ! command -v "$gofmt" >/dev/null; then
+			printf 'pre-commit: gofmt not found; add the Go bin directory to PATH or set GOFMT.\n' >&2
+			exit 1
+		fi
+		unformatted=$(git show ":$path" | "$gofmt" -l)
+		if [[ -n $unformatted ]]; then
+			printf 'pre-commit: unformatted staged Go; run gofmt and stage again: %s\n' "$path" >&2
+			exit 1
+		fi
+	fi
+done < <(git diff --cached --name-only --diff-filter=ACMR -z)
+
+if ! git diff --cached --quiet -- controller/; then
+	go=${GO:-go}
+	if ! command -v "$go" >/dev/null; then
+		printf 'pre-commit: go not found; add the Go bin directory to PATH or set GO (as in controller/Makefile).\n' >&2
+		exit 1
+	fi
+	# Vet the index, not unstaged edits, without changing the working tree.
+	snapshot=$(mktemp -d)
+	trap 'rm -rf "$snapshot"' EXIT
+	git archive "$(git write-tree)" controller/ | tar -x -C "$snapshot"
+	if ! (cd "$snapshot/controller" && CGO_ENABLED=0 "$go" vet ./...); then
+		printf 'pre-commit: staged Controller files fail go vet; fix and stage again.\n' >&2
+		exit 1
+	fi
+fi

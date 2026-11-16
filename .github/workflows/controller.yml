@@ -1,0 +1,34 @@
+name: Controller
+
+on:
+  pull_request:
+    paths:
+      - 'controller/**'
+      - 'Makefile'
+      - '.github/workflows/controller.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'controller/**'
+      - 'Makefile'
+      - '.github/workflows/controller.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  controller:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: controller/go.mod
+          cache-dependency-path: controller/go.sum
+      - name: Vet, build, and cross-compile for armv7
+        run: make -C controller check build armv7

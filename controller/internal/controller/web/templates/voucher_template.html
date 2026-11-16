@@ -1,0 +1,55 @@
+{{define "content"}}
+<div hx-boost="false">
+<section class="card narrow">
+  <div class="card-head"><div><h3>Shop name</h3><p class="muted-fg">Fills the shop marker on every Print sheet. This setting is saved separately from template drafts and takes effect immediately. Leave blank for OpenPiso WiFi.</p></div></div>
+  <div class="card-body">
+    <form class="form" method="post" action="/admin/voucher-template/shop-name">
+      <label class="field">Shop name <input name="shop_name" value="{{.ShopName}}"></label>
+      <div><button class="btn" type="submit">Save Shop name</button></div>
+    </form>
+  </div>
+</section>
+<div class="voucher-template-editor">
+<section class="card">
+  <div class="card-head"><div><h3>Voucher template</h3>
+    <p class="muted-fg">Edit the HTML, CSS and optional script every Print sheet uses. Save a draft, preview it, then publish. Saving a draft does not change printing.</p>
+    <p class="muted-fg">Keep exactly one card outside head and exactly one code inside it. No external URLs; each file must be 64 KB or less. Scripts in HTML do not run: use custom.js instead. Listen for <code>voucher:rendered</code> on document to receive the filled batch data; the Controller renders cards even if custom.js fails.</p>
+  </div></div>
+  <div class="card-body">
+    {{with .Failures}}<ul class="alert">{{range .}}<li>{{.}}</li>{{end}}</ul>{{end}}
+    {{with .Saved}}<p>Draft saved (version {{.}}). Preview it, then publish it to use it for every Print sheet.</p>{{end}}
+    <form class="form" method="post" action="/admin/voucher-template/draft">
+      <label class="field">voucher.html <textarea name="voucher_html" rows="20" spellcheck="false" required>{{.Files.VoucherHTML}}</textarea></label>
+      <label class="field">voucher.css <textarea name="voucher_css" rows="14" spellcheck="false">{{.Files.VoucherCSS}}</textarea></label>
+      <label class="field">custom.js (optional) <textarea name="custom_js" rows="8" spellcheck="false">{{.Files.CustomJS}}</textarea></label>
+      <div class="form-row"><button class="btn" type="submit">Save draft</button>
+        <a class="btn outline" href="/admin/voucher-template/preview" target="_blank" rel="noopener">Preview</a></div>
+      <p class="muted-fg">Preview opens the saved draft on a fixed sample batch of 6 Vouchers, one used. Without a draft it shows the published template or default.</p>
+    </form>
+  </div>
+</section>
+<aside>
+<section class="card">
+  <div class="card-head"><h3>Versions</h3></div>
+  <div class="card-body">
+    <p>Draft: {{with .Slots.Draft}}version {{.Version}}{{else}}none{{end}} ·
+       Published: {{with .Slots.Published}}version {{.Version}}{{else}}default template{{end}} ·
+       Previous: {{with .Slots.Previous}}{{if .Version}}version {{.Version}}{{else}}default template{{end}}{{else}}none{{end}}</p>
+    <div class="form">
+      <form method="post" action="/admin/voucher-template/publish"><button class="btn" type="submit"{{if not .Slots.Draft}} disabled{{end}}>Publish draft</button></form>
+      <form method="post" action="/admin/voucher-template/revert"><button class="btn outline" type="submit"{{if not .Slots.Previous}} disabled{{end}}>Revert to previous</button></form>
+      <form method="post" action="/admin/voucher-template/reset"><button class="btn outline danger" type="submit"{{if not .Slots.Published}} disabled{{end}}>Reset to default</button></form>
+    </div>
+    <p class="muted-fg">Revert swaps published and previous. Reset restores the shipped template for printing; your draft stays editable. Revert can undo Reset.</p>
+  </div>
+</section>
+<section class="card">
+  <div class="card-head"><div><h3>Markers</h3><p class="muted-fg">Use <code>data-voucher="…"</code> on an element. Only card and code are required. Put content markers inside card to repeat them.</p></div></div>
+  <div class="card-body"><dl>
+    {{range .Markers}}<dt><code>{{.Name}}</code>{{if .Required}} <strong>required</strong>{{end}}</dt><dd>{{.Description}}</dd>{{end}}
+  </dl></div>
+</section>
+</aside>
+</div>
+</div>
+{{end}}

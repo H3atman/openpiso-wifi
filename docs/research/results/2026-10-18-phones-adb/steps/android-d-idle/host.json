@@ -1,0 +1,1 @@
+[{".id":"*C","DHCP":"true","address":"10.5.50.200","authorized":"false","bypassed":"false","bytes-in":"59629","bytes-out":"4262","found-by":"ICMP type<3> code<3> to 10.5.50.1","host-dead-time":"3s","idle-time":"3s","idle-timeout":"5m","mac-address":"02:00:00:E1:00:01","packets-in":"141","packets-out":"65","server":"hs1","to-address":"10.5.50.200","uptime":"11m11s"}]

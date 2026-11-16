@@ -1,0 +1,9 @@
+10-18 09:53:08.578 I/PowerHalWrapper( 1921): amsBoostNotify pid:4427,activity:com.android.settings.Settings$WifiSettingsActivity, package:com.android.settings, mProcessCreatePackcom.google.android.captiveportallogin 
+10-18 09:53:08.789 I/PowerHalWrapper( 1921): amsBoostNotify pid:2669,activity:com.miui.home.launcher.Launcher, package:com.miui.home, mProcessCreatePackcom.google.android.captiveportallogin 
+10-18 09:53:14.863 I/PowerHalWrapper( 1921): amsBoostNotify pid:2669,activity:com.miui.home.launcher.Launcher, package:com.miui.home, mProcessCreatePackcom.google.android.captiveportallogin 
+10-18 09:53:15.416 I/PowerHalWrapper( 1921): amsBoostNotify pid:6877,activity:com.google.android.apps.search.assistant.surfaces.voice.robin.ui.floaty.activity.FloatyActivity, package:com.google.android.googlequicksearchbox, mProcessCreatePackcom.google.android.captiveportallogin 
+10-18 09:53:23.864 W/system_server( 1921): ApkAssets: Deleting an ApkAssets object '<empty> and /data/app/~~pQE-lnRtCy9mDJ2LzJ_5Iw==/com.google.android.captiveportallogin-mfRDTt5I56L6cFq3ojBfkA==/base.apk' with 1 weak references
+10-18 09:53:23.865 W/system_server( 1921): ApkAssets: Deleting an ApkAssets object '<empty> and /data/app/~~pQE-lnRtCy9mDJ2LzJ_5Iw==/com.google.android.captiveportallogin-mfRDTt5I56L6cFq3ojBfkA==/split_config.xhdpi.apk' with 1 weak references
+10-18 09:54:08.046 I/NearbyPresence( 2800): NetworkMonitorImpl started. [CONTEXT service_id=317 ]
+10-18 09:54:08.055 I/NearbyPresence( 2800): (REDACTED) NetworkMonitorImpl onAvailable %s
+10-18 09:54:08.056 I/NearbyPresence( 2800): (REDACTED) NetworkMonitorImpl onLinkPropertiesChanged %s

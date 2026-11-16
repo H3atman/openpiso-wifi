@@ -1,0 +1,24 @@
+phone	step	question	answer
+android	adb-connect	Device (adb getprop)	<phone-model>, Android 14
+android	a-info	Model and OS version?	Xiaomi
+android	a-info	Current private-address setting for openpiso-lab?	randomized mac
+android	b-join	Popup appeared automatically? (y/n)	y
+android	b-join	Roughly how many seconds until it appeared?	2
+android	b-join	What did it show (New device page / blank / error)?	New Device
+android	c-connect	Page said Connected? (y/n)	y
+android	c-connect	Popup turned into Done / closed by itself? (y/n)	y
+android	c-connect	Normal website loads in the browser now? (y/n)	y
+android	d-idle	Popup appeared? (y/n)	y
+android	d-idle	Popup said Reconnected automatically? (y/n)	y
+android	d-idle	Internet works without tapping? (y/n)	y
+android	e-forget	Popup appeared? (y/n)	n
+android	e-forget	Popup said Reconnected automatically? (y/n)	n
+android	e-forget	Internet works without tapping? (y/n)	y
+android	f-mac	Popup appeared? (y/n)	y
+android	f-mac	Popup said Reconnected automatically? (y/n)	y
+android	f-mac	Internet works without tapping? (y/n)	y
+android	f-mac	Which setting is now active?	device MAC
+android	g-reboot	Popup appeared? (y/n)	y
+android	g-reboot	Popup said Reconnected automatically? (y/n)	y
+android	g-reboot	Internet works without tapping? (y/n)	y
+android	h-browser	What does the page say about the cookie?	no opid cookie was sent to this browser

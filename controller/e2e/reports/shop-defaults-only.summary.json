@@ -1,0 +1,95 @@
+{
+  "format_version": 1,
+  "scenario": "shop-defaults-only",
+  "started_at": "2026-11-04T04:23:21.017120+00:00",
+  "git_commit": "a5d406fcfd61709c3cab6f3738cedb5b549f1af2",
+  "git_tree": "27d2974af44f3629bfedcea576e3dc6bef50b8cb",
+  "git_dirty": false,
+  "binary_size_bytes": 22571104,
+  "binary_sha256": "58dd2e7933aff537b62fc2ee5d068c9e8ff489d9cdaa120209c417dfd0e579ee",
+  "test_seam": "Controller binary via external HTTP against chr-lab and chr-client",
+  "result": "pass",
+  "shop_vendo_list": {
+    "screenshots": [
+      "shop-vendo-list/01-custom-badges.png",
+      "shop-vendo-list/02a-confirm-use-shop-tiers.png",
+      "shop-vendo-list/02b-after-use-shop-tiers.png",
+      "shop-vendo-list/03a-confirm-use-shop-points-table.png",
+      "shop-vendo-list/03b-after-use-shop-points-table.png"
+    ],
+    "browser": {
+      "confirms": [
+        "This Vendo's own tiers are discarded. Its next Coin Window prices at Shop tiers.",
+        "This Vendo's own table is discarded. Redemptions here use the Shop table from now on."
+      ],
+      "customize_offered_after_reset": true,
+      "browser": "chromium 156.0.8078.4",
+      "device_profile": "desktop",
+      "screenshots": [
+        "01-custom-badges",
+        "02a-confirm-use-shop-tiers",
+        "02b-after-use-shop-tiers",
+        "03a-confirm-use-shop-points-table",
+        "03b-after-use-shop-points-table"
+      ],
+      "csp_violations": []
+    }
+  },
+  "shop_pills": {
+    "screenshots": [
+      "shop-pills/01-shop-list.png",
+      "shop-pills/02-custom-list.png",
+      "shop-pills/03-edit-tiers-opens-rate-tiers-tab.png",
+      "shop-pills/04-open-shows-details.png"
+    ],
+    "browser": {
+      "pills_toggle": true,
+      "keyboard": true,
+      "edit_tiers_tab": "rates",
+      "browser": "chromium 156.0.8078.4",
+      "device_profile": "desktop",
+      "screenshots": [
+        "01-shop-list",
+        "02-custom-list",
+        "03-edit-tiers-opens-rate-tiers-tab",
+        "04-open-shows-details"
+      ],
+      "csp_violations": []
+    }
+  },
+  "cleanup": {
+    "result": "pass",
+    "failures": []
+  },
+  "finished_at": "2026-11-04T04:26:48.084268+00:00",
+  "steps": [
+    "boot-admin-password-persisted-and-rate-limited",
+    "authenticated-post-route-policy",
+    "non-v7-onboarding-refused-before-any-write",
+    "operator-compares-certificate",
+    "onboarded-with-special-character-admin-password",
+    "second-onboarding-is-idempotent",
+    "boot-reverified-with-bootstrap-admin-deleted",
+    "shop-rate-tiers-nav-and-page",
+    "shop-rate-tiers-counts-paired-vendos",
+    "shop-rate-tiers-counts-exclude-unpaired",
+    "shop-rate-tiers-editor-save",
+    "shop-rate-tiers-textarea-save",
+    "shop-vendo-list-follower-shop-wording",
+    "shop-vendo-list-customize-copies-shop-set",
+    "shop-vendo-list-use-shop-clears-and-reprices",
+    "shop-pill-lists-follow-paired-vendos",
+    "shop-pill-lists-custom-and-deactivated",
+    "shop-pill-lists-toggle-and-deep-link",
+    "shop-pill-lists-shop-edit-reprices-next-window",
+    "shop-pill-lists-exclude-unpaired",
+    "shop-points-table-page",
+    "shop-points-table-pills-follow-paired-vendos",
+    "shop-points-table-custom-and-deactivated",
+    "shop-points-table-edit-applies-to-next-redemption",
+    "shop-points-table-textarea-save",
+    "shop-points-table-empty-offers-no-redemptions",
+    "shop-points-table-exclude-unpaired"
+  ],
+  "chr_client_cleanup_removed": 7
+}

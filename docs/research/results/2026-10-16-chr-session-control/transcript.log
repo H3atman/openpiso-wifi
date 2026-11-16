@@ -1,0 +1,88 @@
+[    0.0s] setup
+[    4.1s] client MAC -> 02:00:00:00:0C:01 (lan1), ip 10.5.50.200
+[    4.1s] client lan1 UP
+[    4.1s] client traffic ON
+[    4.1s] == L5 rebind
+[    4.1s] active login s-rebind 02:00:00:00:0C:01 10.5.50.200 -> []
+[   24.1s] L5/1-active-mac1: active=[('s-rebind', '02:00:00:00:0C:01', '10.5.50.200', '20s', '59m40s')] users=[('s-rebind', '0s', '1h'), ('s-idle', '0s', '1h'), ('s-limit', '0s', '1m'), ('s-keep', '0s', '1h')]
+[   28.1s] client MAC -> 02:00:00:00:0C:02 (lan2), ip 10.5.50.199
+[   31.1s] L5/2-after-mac-change: active=[('s-rebind', '02:00:00:00:0C:01', '10.5.50.200', '27s', '59m33s')] users=[('s-rebind', '0s', '1h'), ('s-idle', '0s', '1h'), ('s-limit', '0s', '1m'), ('s-keep', '0s', '1h')]
+[   31.1s] L5a: login new MAC WITHOUT removing old active
+[   33.1s] active login s-rebind 02:00:00:00:0C:02 10.5.50.199 -> {'error': 400, 'detail': 'failure: no more sessions are allowed for user'}
+[   33.1s] L5/3-login-without-remove: active=[('s-rebind', '02:00:00:00:0C:01', '10.5.50.200', '29s', '59m31s')] users=[('s-rebind', '0s', '1h'), ('s-idle', '0s', '1h'), ('s-limit', '0s', '1m'), ('s-keep', '0s', '1h')]
+[   33.1s] L5b: remove old active, then login new MAC
+[   33.1s] remove active *C832050A s-rebind 02:00:00:00:0C:01 -> None
+[   34.1s] L5/4-after-remove: active=[] users=[('s-rebind', '29s', '1h'), ('s-idle', '0s', '1h'), ('s-limit', '0s', '1m'), ('s-keep', '0s', '1h')]
+[   34.2s] active login s-rebind 02:00:00:00:0C:02 10.5.50.199 -> []
+[   54.2s] L5/5-rebound-mac2: active=[('s-rebind', '02:00:00:00:0C:02', '10.5.50.199', '20s', '59m11s')] users=[('s-rebind', '29s', '1h'), ('s-idle', '0s', '1h'), ('s-limit', '0s', '1m'), ('s-keep', '0s', '1h')]
+[   54.2s] remove active *C732050A s-rebind 02:00:00:00:0C:02 -> None
+[   55.2s] L5/6-paused: active=[] users=[('s-rebind', '49s', '1h'), ('s-idle', '0s', '1h'), ('s-limit', '0s', '1m'), ('s-keep', '0s', '1h')]
+[   55.2s]   log: 2026-10-15 23:47:53 hotspot,info,debug s-rebind (10.5.50.199): trying to log in by admin
+[   55.2s]   log: 2026-10-15 23:47:55 hotspot,info,debug s-rebind (10.5.50.199): login failed: no more sessions are allowed for user
+[   55.2s]   log: 2026-10-15 23:47:55 hotspot,info,debug s-rebind (10.5.50.200): logged out: admin reset
+[   55.2s]   log: 2026-10-15 23:47:55 script,info onlogout user=s-rebind mac=02:00:00:00:0C:01 cause=admin reset
+[   55.2s]   log: 2026-10-15 23:47:56 hotspot,info,debug s-rebind (10.5.50.199): trying to log in by admin
+[   55.2s]   log: 2026-10-15 23:47:56 hotspot,account,info,debug s-rebind (10.5.50.199): logged in
+[   55.2s]   log: 2026-10-15 23:48:16 hotspot,info,debug s-rebind (10.5.50.199): logged out: admin reset
+[   55.2s]   log: 2026-10-15 23:48:16 script,info onlogout user=s-rebind mac=02:00:00:00:0C:02 cause=admin reset
+[   55.2s] == L6 idle-timeout=40s
+[   55.2s] profile sess <- {'idle-timeout': '40s', 'keepalive-timeout': 'none'}
+[   55.2s] active login s-idle 02:00:00:00:0C:02 10.5.50.199 -> []
+[   55.2s] L6 control: traffic on for 70s
+[  125.3s] s-idle still active after 70s
+[  125.3s] L6/1-after-70s-traffic: active=[('s-idle', '02:00:00:00:0C:02', '10.5.50.199', '1m10s', '58m50s')] users=[('s-rebind', '49s', '1h'), ('s-idle', '0s', '1h'), ('s-limit', '0s', '1m'), ('s-keep', '0s', '1h')]
+[  125.3s] client traffic OFF
+[  125.3s] L6/2-traffic-off: active=[('s-idle', '02:00:00:00:0C:02', '10.5.50.199', '1m10s', '58m50s')] users=[('s-rebind', '49s', '1h'), ('s-idle', '0s', '1h'), ('s-limit', '0s', '1m'), ('s-keep', '0s', '1h')]
+[  167.4s] s-idle logged out after 42s
+[  167.4s] L6 logout 42s after traffic stopped
+[  167.4s] L6/3-after-logout: active=[] users=[('s-rebind', '49s', '1h'), ('s-idle', '1m10s', '1h'), ('s-limit', '0s', '1m'), ('s-keep', '0s', '1h')]
+[  167.4s]   log: 2026-10-15 23:47:56 hotspot,info,debug s-rebind (10.5.50.199): trying to log in by admin
+[  167.4s]   log: 2026-10-15 23:47:56 hotspot,account,info,debug s-rebind (10.5.50.199): logged in
+[  167.4s]   log: 2026-10-15 23:48:16 hotspot,info,debug s-rebind (10.5.50.199): logged out: admin reset
+[  167.4s]   log: 2026-10-15 23:48:16 script,info onlogout user=s-rebind mac=02:00:00:00:0C:02 cause=admin reset
+[  167.4s]   log: 2026-10-15 23:48:17 hotspot,info,debug s-idle (10.5.50.199): trying to log in by admin
+[  167.4s]   log: 2026-10-15 23:48:17 hotspot,account,info,debug s-idle (10.5.50.199): logged in
+[  167.4s]   log: 2026-10-15 23:50:07 hotspot,info,debug s-idle (10.5.50.199): logged out: idle timeout
+[  167.4s]   log: 2026-10-15 23:50:07 script,info onlogout user=s-idle mac=02:00:00:00:0C:02 cause=idle timeout
+[  167.4s] client traffic ON
+[  167.4s] == L7 live limit change
+[  167.4s] profile sess <- {'idle-timeout': 'none', 'keepalive-timeout': 'none'}
+[  168.4s] active login s-limit 02:00:00:00:0C:02 10.5.50.199 -> []
+[  198.4s] L7/1-before-raise: active=[('s-limit', '02:00:00:00:0C:02', '10.5.50.199', '30s', '30s')] users=[('s-rebind', '49s', '1h'), ('s-idle', '1m10s', '1h'), ('s-limit', '0s', '1m'), ('s-keep', '0s', '1h')]
+[  198.4s] user s-limit <- {'limit-uptime': '3m'}
+[  201.4s] L7/2-after-raise: active=[('s-limit', '02:00:00:00:0C:02', '10.5.50.199', '33s', '27s')] users=[('s-rebind', '49s', '1h'), ('s-idle', '1m10s', '1h'), ('s-limit', '0s', '3m'), ('s-keep', '0s', '1h')]
+[  229.5s] s-limit logged out after 28s
+[  229.5s] L7/3-past-old-limit: active=[] users=[('s-rebind', '49s', '1h'), ('s-idle', '1m10s', '1h'), ('s-limit', '1m', '3m'), ('s-keep', '0s', '1h')]
+[  229.5s] L7b: lower limit below consumed uptime while active
+[  229.5s] L7/4-after-lower: active=[] users=[('s-rebind', '49s', '1h'), ('s-idle', '1m10s', '1h'), ('s-limit', '1m', '3m'), ('s-keep', '0s', '1h')]
+[  229.5s]   log: 2026-10-15 23:48:17 hotspot,info,debug s-idle (10.5.50.199): trying to log in by admin
+[  229.5s]   log: 2026-10-15 23:48:17 hotspot,account,info,debug s-idle (10.5.50.199): logged in
+[  229.5s]   log: 2026-10-15 23:50:07 hotspot,info,debug s-idle (10.5.50.199): logged out: idle timeout
+[  229.5s]   log: 2026-10-15 23:50:07 script,info onlogout user=s-idle mac=02:00:00:00:0C:02 cause=idle timeout
+[  229.5s]   log: 2026-10-15 23:50:10 hotspot,info,debug s-limit (10.5.50.199): trying to log in by admin
+[  229.5s]   log: 2026-10-15 23:50:10 hotspot,account,info,debug s-limit (10.5.50.199): logged in
+[  229.5s]   log: 2026-10-15 23:51:10 hotspot,info,debug s-limit (10.5.50.199): logged out: session timeout
+[  229.5s]   log: 2026-10-15 23:51:10 script,info onlogout user=s-limit mac=02:00:00:00:0C:02 cause=session timeout
+[  229.5s] == L8 keepalive-timeout=30s
+[  229.5s] profile sess <- {'idle-timeout': 'none', 'keepalive-timeout': '30s'}
+[  229.5s] active login s-keep 02:00:00:00:0C:02 10.5.50.199 -> []
+[  229.5s] client traffic OFF
+[  229.5s] L8 control: present but no traffic for 70s
+[  299.8s] s-keep still active after 70s
+[  299.8s] L8/1-present-idle-70s: active=[('s-keep', '02:00:00:00:0C:02', '10.5.50.199', '1m10s', '58m50s')] users=[('s-rebind', '49s', '1h'), ('s-idle', '1m10s', '1h'), ('s-limit', '1m', '3m'), ('s-keep', '0s', '1h')]
+[  300.1s] client lan2 DOWN (departed)
+[  322.1s] s-keep logged out after 22s
+[  322.1s] L8 logout 22s after client departed
+[  322.1s] L8/2-after-depart: active=[] users=[('s-rebind', '49s', '1h'), ('s-idle', '1m10s', '1h'), ('s-limit', '1m', '3m'), ('s-keep', '1m32s', '1h')]
+[  322.2s]   log: 2026-10-15 23:50:10 hotspot,info,debug s-limit (10.5.50.199): trying to log in by admin
+[  322.2s]   log: 2026-10-15 23:50:10 hotspot,account,info,debug s-limit (10.5.50.199): logged in
+[  322.2s]   log: 2026-10-15 23:51:10 hotspot,info,debug s-limit (10.5.50.199): logged out: session timeout
+[  322.2s]   log: 2026-10-15 23:51:10 script,info onlogout user=s-limit mac=02:00:00:00:0C:02 cause=session timeout
+[  322.2s]   log: 2026-10-15 23:51:11 hotspot,info,debug s-keep (10.5.50.199): trying to log in by admin
+[  322.2s]   log: 2026-10-15 23:51:11 hotspot,account,info,debug s-keep (10.5.50.199): logged in
+[  322.2s]   log: 2026-10-15 23:52:43 hotspot,info,debug s-keep (10.5.50.199): logged out: keepalive timeout
+[  322.2s]   log: 2026-10-15 23:52:43 script,info onlogout user=s-keep mac=02:00:00:00:0C:02 cause=keepalive timeout
+[  322.2s] client lan2 UP
+[  322.2s] client traffic ON
+[  322.2s] profile sess <- {'idle-timeout': 'none', 'keepalive-timeout': 'none'}
+[  322.2s] done

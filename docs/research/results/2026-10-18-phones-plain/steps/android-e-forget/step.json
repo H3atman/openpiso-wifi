@@ -1,0 +1,20 @@
+{
+  "phone": "android",
+  "step": "e-forget",
+  "start": "2026-10-18T08:45:32+08:00",
+  "end": "2026-10-18T08:46:12+08:00",
+  "answers": [
+    {
+      "question": "Popup appeared? (y/n)",
+      "answer": "n"
+    },
+    {
+      "question": "Popup said Reconnected automatically? (y/n)",
+      "answer": "n"
+    },
+    {
+      "question": "Internet works without tapping? (y/n)",
+      "answer": "y"
+    }
+  ]
+}

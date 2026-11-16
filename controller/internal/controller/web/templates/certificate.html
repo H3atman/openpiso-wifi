@@ -1,0 +1,10 @@
+{{define "content"}}
+<section class="card narrow">
+  <div class="card-head"><div><h3>Confirm Router certificate</h3>
+    <p class="muted-fg">Compare this fingerprint with <code>/certificate print</code> on the Router:</p></div></div>
+  <div class="card-body">
+    <pre class="fingerprint">{{.Fingerprint}}</pre>
+    <form method="post" action="/admin/router/confirm"><button class="btn" type="submit">Fingerprint matches</button></form>
+  </div>
+</section>
+{{end}}

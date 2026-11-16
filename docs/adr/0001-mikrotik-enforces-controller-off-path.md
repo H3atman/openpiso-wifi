@@ -1,0 +1,3 @@
+# A MikroTik always enforces access; the Controller stays off the traffic path
+
+Every site needs a MikroTik Router: it enforces and meters access through HotSpot, and the Controller (a low-cost SBC) only owns the ledger, serves the portal, and instructs the Router over REST. We don't support an SBC-only mode where the SBC acts as the gateway and blocks traffic with nftables. Our target market already runs MikroTik for many HotSpot and PPPoE clients, and keeping customer traffic off the SBC means a 100 Mb, 256 MB Orange Pi Zero can't bottleneck the site. The Controller sits on a dedicated management port or VLAN and is reachable by unpaid Devices only through the HotSpot walled garden.

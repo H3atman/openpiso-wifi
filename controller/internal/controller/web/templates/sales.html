@@ -1,0 +1,68 @@
+{{define "content"}}{{template "sales_report" .}}{{end}}
+
+{{define "sales_report"}}
+<section class="sales-report" id="sales-report" data-view="{{.View}}" x-data="salesFilters">
+  <header class="sales-heading"><div><h2>Sales Inventory</h2><p class="muted-fg">{{.From}} — {{.To}}</p></div>
+    <nav class="sales-views" aria-label="Sales view">
+      <a class="btn outline" href="{{.ViewURL "table"}}" hx-get="{{.ViewURL "table"}}" hx-target="#sales-report" hx-swap="outerHTML" hx-push-url="true" {{if eq .View "table"}}aria-current="page"{{end}}>Table</a>
+      <a class="btn outline" href="{{.ViewURL "feed"}}" hx-get="{{.ViewURL "feed"}}" hx-target="#sales-report" hx-swap="outerHTML" hx-push-url="true" {{if eq .View "feed"}}aria-current="page"{{end}}>Feed</a>
+    </nav>
+    <a class="btn outline sales-export" href="{{.ExportURL}}" hx-boost="false" download>{{icon "download"}} Export</a>
+  </header>
+  <div class="sales-totals">
+    <div class="sales-total"><span>Total Sales</span><strong>₱{{.TotalPesos}}</strong></div>
+    <div><span>Vendo Sales</span><strong>₱{{.CoinPesos}}</strong></div>
+    <div><span>Voucher Sales</span><strong>₱{{.VoucherPesos}}</strong></div>
+  </div>
+  {{if eq .View "feed"}}
+  <div class="sales-feed-layout">
+    <dialog class="sales-sheet" x-ref="filters" aria-labelledby="sales-filter-title"><div class="sales-sheet-head"><h3 id="sales-filter-title">Filter Sales</h3><button class="btn ghost" type="button" @click="close" aria-label="Close filters">Close</button></div>{{template "sales_filters" .}}{{template "sales_shortcuts" .}}</dialog>
+    <div class="sales-feed-main">{{range .Days}}<section class="sales-day"><h3>{{.Date}}</h3>{{range .Rows}}{{template "sales_receipt" .}}{{end}}</section>{{else}}<p class="sales-empty">No Sales in this period.</p>{{end}}{{template "sales_pager" .}}</div>
+  </div>
+  <div class="sales-bottom-actions"><button type="button" class="btn" @click="show">{{icon "search"}} Filter Sales</button><a class="btn outline" href="{{.ExportURL}}" hx-boost="false" download>{{icon "download"}} Export</a></div>
+  {{else}}
+  {{template "sales_shortcuts" .}}
+  <details class="sales-filter-panel"><summary>Filters &amp; search <span>Vendo · Seller · dates · IP, MAC or User · entries</span></summary>{{template "sales_filters" .}}</details>
+  <div class="sales-table-wrap"><table class="sales-table">
+    <thead><tr><th>#</th><th>Date</th><th>Time</th><th>IP</th><th>MAC</th><th>User</th><th>Validity</th><th>Type</th><th>Vendo</th><th>Seller</th><th>Credited time</th><th>Amount</th></tr></thead>
+    <tbody>{{range .TableRows}}<tr><td>{{.Number}}</td><td>{{.At.Format "2006-01-02"}}</td><td>{{.At.Format "15:04:05"}}</td><td>{{.IP}}</td><td>{{.MAC}}</td><td title="{{.User}}">{{.ShortUser}}</td><td>{{.Validity}}</td><td>{{template "sales_type" .}}</td><td>{{.VendoName}}</td><td>{{.Seller}}</td><td>{{.CreditedSeconds}} s</td><td class="num">{{template "sales_amount" .}}</td></tr>{{else}}<tr><td colspan="12">No Sales in this period.</td></tr>{{end}}</tbody>
+  </table></div>
+  <div class="sales-compact">{{range .TableRows}}{{template "sales_receipt" .}}{{else}}<p class="sales-empty">No Sales in this period.</p>{{end}}</div>
+  {{template "sales_pager" .}}
+  {{end}}
+</section>
+{{end}}
+
+{{define "sales_filters"}}
+<form class="sales-filters" method="get" action="/admin/sales" hx-get="/admin/sales" hx-trigger="submit, change" hx-target="#sales-report" hx-swap="outerHTML" hx-push-url="true">
+  <input type="hidden" name="view" value="{{.View}}">
+  <label class="field">Vendo <select name="vendo"><option value="all" {{if not .VendoID}}selected{{end}}>All</option>{{range .Vendos}}<option value="{{.ID}}" {{if eq $.VendoID .ID}}selected{{end}}>{{.Label}}</option>{{end}}</select></label>
+  <label class="field">Seller <select name="seller"><option value="">All</option><option value="Shop" {{if eq .Seller "Shop"}}selected{{end}}>Shop</option>{{range .Sellers}}<option value="{{.}}" {{if eq $.Seller .}}selected{{end}}>{{.}}</option>{{end}}</select></label>
+  <div class="sales-date-pair"><label class="field">From <input type="date" name="from" value="{{.From}}" required></label><label class="field">To <input type="date" name="to" value="{{.To}}" required></label></div>
+  <label class="field">Search <input type="search" name="q" value="{{.Search}}" placeholder="IP, MAC or User"></label>
+  <label class="field">Entries <select name="page_size"><option value="25" {{if eq .PageSize 25}}selected{{end}}>25</option><option value="50" {{if eq .PageSize 50}}selected{{end}}>50</option><option value="100" {{if eq .PageSize 100}}selected{{end}}>100</option></select></label>
+  <button class="btn" type="submit">Show Sales</button>
+</form>
+{{end}}
+
+{{define "sales_shortcuts"}}<nav class="sales-shortcuts" aria-label="Sales period">{{range .Shortcuts}}<a class="btn outline" href="{{.URL}}" hx-get="{{.URL}}" hx-target="#sales-report" hx-swap="outerHTML" hx-push-url="true">{{.Label}}</a>{{end}}</nav>{{end}}
+
+{{define "sales_receipt"}}
+<article class="sales-receipt" data-sale="{{.Type}}-{{.ID}}">
+  <div class="sales-receipt-icon" aria-hidden="true">{{if eq .Type "coin"}}{{icon "coins"}}{{else}}{{icon "ticket"}}{{end}}</div>
+  <div class="sales-receipt-body"><div class="sales-receipt-top"><h3>{{if eq .Type "coin"}}{{.VendoName}}{{else}}Voucher{{end}}</h3><strong>{{template "sales_amount" .}}</strong></div>
+    <p class="sales-receipt-sub">{{.At.Format "02 Jan · 15:04:05"}} · {{.CreditedSeconds}} s credited</p>
+    <details><summary>{{if eq .Type "coin"}}Coin Window{{else}}Voucher{{end}} · {{.ShortUser}} <span>Details</span></summary>
+      <dl class="sales-receipt-details"><dt>#</dt><dd>{{.Number}}</dd><dt>Date</dt><dd>{{.At.Format "2006-01-02"}}</dd><dt>Time</dt><dd>{{.At.Format "15:04:05"}}</dd><dt>IP</dt><dd>{{.IP}}</dd><dt>MAC</dt><dd>{{.MAC}}</dd><dt>User</dt><dd data-user>{{.User}}</dd><dt>Validity</dt><dd>{{if .Validity}}{{.Validity}}{{else}}—{{end}}</dd><dt>Type</dt><dd>{{template "sales_type" .}}</dd><dt>Vendo</dt><dd>{{if .VendoName}}{{.VendoName}}{{else}}—{{end}}</dd><dt>Seller</dt><dd>{{.Seller}}</dd><dt>Credited time</dt><dd>{{.CreditedSeconds}} s</dd><dt>Amount</dt><dd>{{template "sales_amount" .}}</dd></dl>
+    </details>
+  </div>
+</article>
+{{end}}
+
+{{/* Unknown, not ₱0, when the Voucher Batch has no price. */}}
+{{define "sales_amount"}}{{if .Amount}}₱{{.Amount}}{{else}}Unknown{{end}}{{end}}
+{{define "sales_type"}}{{if eq .Type "coin"}}Coin{{else}}Voucher{{end}}{{end}}
+
+{{define "sales_pager"}}
+<footer class="card-foot sales-pager"><p>Showing {{.First}} to {{.Last}} of {{.Count}} entries</p><nav aria-label="Sales pages">{{range .Pages}}{{if .Current}}<span class="btn" aria-current="page">{{.Number}}</span>{{else}}<a class="btn outline" href="{{.URL}}" hx-get="{{.URL}}" hx-target="#sales-report" hx-swap="outerHTML" hx-push-url="true">{{.Number}}</a>{{end}}{{end}}</nav></footer>
+{{end}}

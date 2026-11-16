@@ -1,0 +1,13 @@
+# Build outputs. sim/out/report.md and report.json are intentionally not ignored.
+sim/out/sim
+sim/out/sim_asan
+sim/out/asan/
+sim/out/*.o
+
+# Bench toolchain and outputs. bench/out/results.md is intentionally not ignored.
+.venv/
+.pio/
+bench/out/*
+!bench/out/results.md
+# Local WiFi credentials for the isr_loopback WiFi case. Never commit.
+bench/wifi.local.ini

@@ -1,0 +1,2 @@
+06:22:31 curl[hsA/jar] -d username=t-takeover&password=t-takeover&dst=&popup=true http://10.5.50.1/login -> HTTP 200
+06:22:35 curl[hsB/jarB] -d username=t-takeover&password=t-takeover&dst=&popup=true http://10.5.50.1/login -> HTTP 200

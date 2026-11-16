@@ -1,0 +1,20 @@
+{
+  "phone": "android",
+  "step": "c-connect",
+  "start": "2026-10-18T08:41:49+08:00",
+  "end": "2026-10-18T08:42:15+08:00",
+  "answers": [
+    {
+      "question": "Page said Connected? (y/n)",
+      "answer": "y"
+    },
+    {
+      "question": "Popup turned into Done / closed by itself? (y/n)",
+      "answer": "closed by itself"
+    },
+    {
+      "question": "Normal website loads in the browser now? (y/n)",
+      "answer": "y"
+    }
+  ]
+}

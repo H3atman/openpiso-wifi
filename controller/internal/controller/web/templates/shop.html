@@ -1,0 +1,13 @@
+{{/* Shop › Rate tiers and Shop › Points table; the dot is a shopPage. */}}
+{{define "content"}}
+<section class="card">
+  <div class="card-head"><div><h3>{{.Title}}</h3>
+    <p class="muted-fg">{{.Scope}}</p></div></div>
+  <div class="card-body" data-shop-tiers>
+    <div class="shop-cover"><button type="button" class="pill" data-group="shop" aria-expanded="false" aria-controls="group-shop"><span class="badge shop">Shop</span><strong>{{len .Shop}}</strong> {{if eq (len .Shop) 1}}Vendo uses{{else}}Vendos use{{end}} {{.ShopSet}} {{icon "chevron-right"}}</button><button type="button" class="pill" data-group="custom" aria-expanded="false" aria-controls="group-custom"><span class="badge custom">Custom</span><strong>{{len .Custom}}</strong> {{if eq (len .Custom) 1}}Vendo has{{else}}Vendos have{{end}} {{.CustomSet}} {{icon "chevron-right"}}</button></div>
+    <div class="shop-group" id="group-shop" hidden><p class="shop-group-head">A change here applies to each from its next {{.NextUse}}.</p>{{if .Shop}}<ul class="shop-vlist">{{range .Shop}}<li data-vendo="{{.ID}}"><span class="shop-dot" data-s="{{.Status}}"></span><span><strong>{{.Name}}</strong><span class="sub">{{if .Location}}{{.Location}} · {{end}}{{.Status}}</span></span><a href="/admin/vendos?vendo={{.ID}}">Open</a></li>{{end}}</ul>{{else}}<p class="shop-empty">No Vendo uses {{.ShopSet}}.</p>{{end}}</div>
+    <div class="shop-group" id="group-custom" hidden><p class="shop-group-head">Shop changes do not affect these.</p>{{if .Custom}}<ul class="shop-vlist">{{range .Custom}}<li data-vendo="{{.ID}}"><span class="shop-dot" data-s="{{.Status}}"></span><span><strong>{{.Name}}</strong><span class="sub">{{if .Location}}{{.Location}} · {{end}}{{.Status}} · {{.Size}} {{$.Unit}}{{if ne .Size 1}}s{{end}}</span></span><a href="/admin/vendos?vendo={{.ID}}&tab={{$.Editor.Kind}}">{{$.EditLabel}}</a></li>{{end}}</ul>{{else}}<p class="shop-empty">No Vendo has its own {{.OwnSet}}.</p>{{end}}</div>
+    {{template "tier_editor" .Editor}}
+  </div>
+</section>
+{{end}}

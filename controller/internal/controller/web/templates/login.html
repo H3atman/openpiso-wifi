@@ -1,0 +1,26 @@
+{{/* Standalone page: no sidebar. */}}
+{{define "login"}}<!doctype html>
+<html lang="en"><head>{{template "head" .}}</head>
+<body class="login-body">
+<main class="card login-card">
+  <img class="login-logo" src="{{asset "logo.svg"}}" alt="">
+  <div class="card-body">
+    <div class="login-title"><h2>OpenPiso WiFi</h2><p class="muted-fg">Controller admin</p></div>
+    {{with .Data}}
+    <p class="login-line">{{.Notice}}</p>
+    <form class="form" method="post" action="/admin/login">
+      <input type="hidden" name="next" value="{{.Next}}">
+      <label class="field" for="password">Password</label>
+      <div class="login-password">
+        <input id="password" type="password" name="password" autocomplete="current-password" required autofocus{{if .Error}} aria-invalid="true" aria-describedby="password-error"{{end}}{{if .Locked}} disabled{{end}}>
+        <button type="button" data-password-toggle aria-controls="password" aria-pressed="false"{{if .Locked}} disabled{{end}}>Show</button>
+      </div>
+      <button class="btn" type="submit"{{if .Locked}} disabled{{end}}>Log in</button>
+    </form>
+    {{if .Error}}<p id="password-error" class="login-line bad" role="alert">{{.Error}}</p>{{end}}
+    {{end}}
+  </div>
+</main>
+</body></html>{{end}}
+
+{{define "content"}}{{end}}

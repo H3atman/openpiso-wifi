@@ -1,0 +1,45 @@
+phone	step	question	answer
+iphone	a-info	Model and OS version?	Iphone
+iphone	a-info	Current private-address setting for openpiso-lab?	10.5.50.199
+iphone	b-join	Popup appeared automatically? (y/n)	y
+iphone	b-join	Roughly how many seconds until it appeared?	2 seconds
+iphone	b-join	What did it show (New device page / blank / error)?	New device page
+iphone	c-connect	Page said Connected? (y/n)	y
+iphone	c-connect	Popup turned into Done / closed by itself? (y/n)	y
+iphone	c-connect	Normal website loads in the browser now? (y/n)	y
+iphone	d-idle	Popup appeared? (y/n)	y
+iphone	d-idle	Popup said Reconnected automatically? (y/n)	n
+iphone	d-idle	Internet works without tapping? (y/n)	n
+iphone	e-forget	Popup appeared? (y/n)	y
+iphone	e-forget	Popup said Reconnected automatically? (y/n)	n
+iphone	e-forget	Internet works without tapping? (y/n)	n
+iphone	f-mac	Popup appeared? (y/n)	y
+iphone	f-mac	Popup said Reconnected automatically? (y/n)	n
+iphone	f-mac	Internet works without tapping? (y/n)	n
+iphone	f-mac	Which setting is now active?	Fixed
+iphone	g-reboot	Popup appeared? (y/n)	y
+iphone	g-reboot	Popup said Reconnected automatically? (y/n)	n
+iphone	g-reboot	Internet works without tapping? (y/n)	n
+iphone	h-browser	What does the page say about the cookie?	No opid cookie was sent to this browser
+android	a-info	Model and OS version?	Android
+android	a-info	Current private-address setting for openpiso-lab?	10.5.50.198
+android	b-join	Popup appeared automatically? (y/n)	y
+android	b-join	Roughly how many seconds until it appeared?	2
+android	b-join	What did it show (New device page / blank / error)?	New device page
+android	c-connect	Page said Connected? (y/n)	y
+android	c-connect	Popup turned into Done / closed by itself? (y/n)	closed by itself
+android	c-connect	Normal website loads in the browser now? (y/n)	y
+android	d-idle	Popup appeared? (y/n)	y
+android	d-idle	Popup said Reconnected automatically? (y/n)	y
+android	d-idle	Internet works without tapping? (y/n)	y
+android	e-forget	Popup appeared? (y/n)	n
+android	e-forget	Popup said Reconnected automatically? (y/n)	n
+android	e-forget	Internet works without tapping? (y/n)	y
+android	f-mac	Popup appeared? (y/n)	y
+android	f-mac	Popup said Reconnected automatically? (y/n)	y
+android	f-mac	Internet works without tapping? (y/n)	y
+android	f-mac	Which setting is now active?	device MAC
+android	g-reboot	Popup appeared? (y/n)	n
+android	g-reboot	Popup said Reconnected automatically? (y/n)	y
+android	g-reboot	Internet works without tapping? (y/n)	y
+android	h-browser	What does the page say about the cookie?	No opid cookie was sent to this browser

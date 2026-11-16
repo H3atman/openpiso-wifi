@@ -1,0 +1,24 @@
+{
+  "phone": "iphone",
+  "step": "r-e-fixed",
+  "start": "2026-10-18T09:18:48+08:00",
+  "end": "2026-10-18T09:20:08+08:00",
+  "answers": [
+    {
+      "question": "Popup appeared? (y/n)",
+      "answer": "n"
+    },
+    {
+      "question": "Popup said Reconnected automatically? (y/n)",
+      "answer": "n"
+    },
+    {
+      "question": "Internet works without tapping? (y/n)",
+      "answer": "y"
+    },
+    {
+      "question": "Wi-Fi Address shown now (same as step a?)",
+      "answer": "02:00:00:E2:00:01"
+    }
+  ]
+}

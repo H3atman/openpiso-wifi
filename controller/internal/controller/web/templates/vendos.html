@@ -1,0 +1,58 @@
+{{define "content"}}
+<section class="card vendo-card" data-vendos hx-boost="false">
+  <div class="card-head"><h3>Vendo List</h3><span class="xs muted-fg">{{len .Vendos}} Vendos</span></div>
+  {{if .Message}}<p class="banner" role="alert">{{.Message}}</p>{{end}}
+  <div class="totals" aria-label="All Vendos"><div><span>Current Sales</span><strong data-total="current">—</strong></div><div><span>Online</span><strong data-total="online">—</strong></div><div class="total-attention"><span>Needs attention</span><strong data-total="attention">—</strong></div><div class="total-sales"><span>Total Sales</span><strong data-total="total">—</strong></div></div>
+  <div class="chips" aria-label="Filter Vendos"><button type="button" data-filter="all" aria-pressed="true">All <span class="filter-count"></span></button><button type="button" data-filter="online" aria-pressed="false">Online <span class="filter-count"></span></button><button type="button" data-filter="attention" aria-pressed="false"><span class="filter-label-full">Needs attention</span><span class="filter-label-short">Attention</span> <span class="filter-count warn"></span></button><button type="button" data-filter="off" aria-pressed="false"><span class="filter-label-full">Off &amp; unpaired</span><span class="filter-label-short">Off</span> <span class="filter-count"></span></button></div>
+  <div class="vsplit"><div class="vlist" aria-label="Vendos">
+  {{range .Vendos}}<button type="button" class="item{{if eq .Vendo.Status "unpaired"}} row-muted{{end}}" data-select="{{.ID}}" data-status="{{.StatusLabel}}" data-current="{{.Sales.Current}}" data-total="{{.Sales.Total}}" aria-current="false"><span class="vendo-status" data-s="{{.StatusLabel}}"><span class="dot"></span></span><span class="grow"><strong class="trunc">{{if .Name}}{{.Name}}{{else}}Vendo {{.ID}}{{end}}</strong><span class="secondary-text">{{.StatusLabel}} · {{if .HotspotServer}}{{.HotspotServer}}{{else}}Not learned{{end}}</span>{{template "custom_badges" .}}</span><span class="item-location"><span class="trunc">{{if .Location}}{{.Location}}{{else}}—{{end}}</span><span class="secondary-text mono">{{.IP}}</span></span><span class="right"><strong class="peso">₱{{.Sales.Current}}</strong><span class="secondary-text">{{if or .RouterDown (ne .Vendo.Status "paired") (not .HotspotServer)}}—{{else}}{{.OnlineDevices}}{{end}} online</span></span>{{icon "chevron-right"}}</button>{{else}}<p class="empty">No Vendos paired</p>{{end}}
+  <p class="empty" data-filter-empty hidden>No Vendos match this filter</p></div><div class="vpane"><div class="pane-empty">{{icon "inbox"}}<h3>Select a Vendo</h3><p class="secondary-text">Pick one from the list to view its sales, status and configuration.</p></div><div data-detail-slot></div></div></div>
+  <dialog class="sheet" data-vendo-sheet aria-label="Vendo details"><div class="grab"></div><div data-sheet-slot></div></dialog>
+  {{range .Vendos}}<template data-vendo-source="{{.ID}}">{{template "vendo_detail" .}}</template>{{end}}
+</section>
+{{end}}
+
+{{define "vendo_detail"}}
+<article class="vdetail" data-id="{{.ID}}" data-name="{{if .Name}}{{.Name}}{{else}}Vendo {{.ID}}{{end}}" data-status="{{.StatusLabel}}">
+  <div class="vcard-head"><div class="grow"><h3>{{if .Name}}{{.Name}}{{else}}Vendo {{.ID}}{{end}}</h3><span class="secondary-text">#{{.ID}} · {{if .HotspotServer}}{{.HotspotServer}}{{else}}Not learned{{end}}</span>{{template "custom_badges" .}}</div><button type="button" class="btn ghost icon sm" data-vendo-close aria-label="Close"><span aria-hidden="true">×</span></button></div>
+  <div><span class="vendo-status" data-s="{{.StatusLabel}}"><span class="dot"></span>{{.StatusLabel}}</span>{{if .UpSince}}<span class="secondary-text">Up since {{.UpSince}}</span>{{end}}{{if .LastSeen}}<span class="secondary-text">Last seen {{.LastSeen}}</span>{{end}}</div>
+  {{if .Error}}<p class="field-error" data-vendo-error role="alert">{{.Error}}</p>{{end}}
+  {{if .RouterDown}}<p class="banner" role="alert">Router unavailable; network choices and Online Devices cannot be loaded.</p>{{end}}
+  <div class="money"><div><span class="secondary-text">Current Sales</span><strong class="sales-amount peso">₱{{.Sales.Current}}</strong><span class="secondary-text" data-last-coins-out>{{if .CoinsOutAt}}Last Coins Out ₱{{.Sales.LastCoinsOut.Pesos}} · {{.CoinsOutAt}}{{else}}No Coins Out yet{{end}}</span></div></div>
+  <div class="acts">{{if .Sales.Current}}<form method="post" action="/admin/vendos/coins-out" data-vendo-action="coins" data-amount="{{.Sales.Current}}"><input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="through" value="{{.Sales.Through}}"><button class="btn sm">{{icon "coins"}} Coins Out</button></form>{{end}}
+    {{if ne .Vendo.Status "unpaired"}}<button type="button" class="btn outline sm" data-vendo-edit>{{icon "pencil"}} Edit</button>{{if eq .Vendo.Status "paired"}}<form method="post" action="/admin/vendos/active" data-vendo-action="power"><input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="active" value="{{if .Active}}0{{else}}1{{end}}"><button class="btn outline sm">{{icon "power"}} {{if .Active}}Deactivate{{else}}Reactivate{{end}}</button></form>{{end}}{{end}}
+  </div>
+  <dl class="vendo-properties"><dt>Total Sales</dt><dd>₱{{.Sales.Total}}</dd><dt>Online Devices (server)</dt><dd>{{if or .RouterDown (ne .Vendo.Status "paired") (not .HotspotServer)}}—{{else}}{{.OnlineDevices}}{{end}}</dd><dt>Location</dt><dd>{{if .Location}}{{.Location}}{{else}}—{{end}}</dd><dt>Profile</dt><dd>{{if .HotspotProfile}}{{.HotspotProfile}}{{else}}Base profiles{{end}}</dd><dt>Rate tiers</dt><dd>{{if .RateTiers}}Custom · {{len .Rates}} tiers{{else}}Shop tiers{{end}}</dd><dt>Points table</dt><dd>{{if .OwnPoints}}Custom · {{len .Points}} rows{{else}}Shop table{{end}}</dd><dt>IP</dt><dd class="mono">{{.IP}}</dd><dt>MAC</dt><dd class="mono">{{.MAC}}</dd>{{if .Hostname}}<dt>Hostname</dt><dd class="mono">{{.Hostname}}</dd>{{end}}</dl>
+  {{if ne .Vendo.Status "unpaired"}}<div class="unpair-zone"><button type="button" class="btn outline sm danger hold" data-hold="{{.ID}}" aria-describedby="unpair-note-{{.ID}}"><span class="hold-txt">Hold to unpair</span></button><p class="xs muted-fg" id="unpair-note-{{.ID}}">Press and hold for 3 seconds. It stops taking coins, and its Router rules are removed.</p></div>{{template "vendo_edit" .}}{{end}}
+</article>{{end}}
+
+{{define "vendo_edit"}}
+<template data-edit-source><div class="vendo-edit-body" data-edit-id="{{.ID}}">
+  <div class="vendo-dialog-head desktop-edit-head"><h3>Edit {{if .Name}}{{.Name}}{{else}}Vendo {{.ID}}{{end}}</h3><button type="button" class="btn ghost sm" data-edit-close>Close</button></div>
+  <div class="sheet-edit-head"><button type="button" class="btn ghost icon sheet-back" data-edit-close aria-label="Back to {{if .Name}}{{.Name}}{{else}}Vendo {{.ID}}{{end}} details"><span class="back-chevron">{{icon "chevron-right"}}</span></button><div class="sheet-edit-titles"><h3 tabindex="-1"><span class="eyebrow">Editing</span><span class="trunc">{{if .Name}}{{.Name}}{{else}}Vendo {{.ID}}{{end}}</span></h3><p class="sheet-ctx"><span class="vendo-status" data-s="{{.StatusLabel}}"><span class="dot"></span>{{.StatusLabel}}</span><span aria-hidden="true">·</span><span>Current Sales <strong>₱{{.Sales.Current}}</strong></span></p></div></div>
+  <div class="tabs" role="tablist" aria-label="Edit Vendo"><button type="button" role="tab" data-edit-tab="details" aria-selected="true">Details</button><button type="button" role="tab" data-edit-tab="rates" aria-selected="false" tabindex="-1">Rate tiers</button><button type="button" role="tab" data-edit-tab="points" aria-selected="false" tabindex="-1">Points table</button></div>
+  <div class="edit-panel">
+  <div role="tabpanel" data-edit-panel="details"><form class="form" method="post" action="/admin/vendos/edit"><input type="hidden" name="id" value="{{.ID}}">
+    <label class="field">Name <input name="name" value="{{if .Name}}{{.Name}}{{else}}{{.Hostname}}{{end}}" maxlength="80" autofocus></label>
+    <label class="field">Location <input name="location" value="{{.Location}}" maxlength="80"></label>
+    {{if eq .Vendo.Status "paired"}}<label class="field">HotSpot server <select name="hotspot_server"{{if .RouterDown}} disabled{{end}}><option value="">Not learned</option>{{$server := .HotspotServer}}{{range .Servers}}<option value="{{.}}"{{if eq . $server}} selected{{end}}>{{.}}</option>{{end}}</select></label>{{end}}
+    <label class="field">Profile <select name="hotspot_profile"{{if .RouterDown}} disabled{{end}}><option value="">Base profiles</option>{{$profile := .HotspotProfile}}{{range .Profiles}}<option{{if eq . $profile}} selected{{end}}>{{.}}</option>{{end}}</select></label>
+    {{if .ProfileGone}}<p role="alert" class="field-error">Profile {{.HotspotProfile}} no longer exists on the Router.</p>{{end}}{{if .RouterDown}}<p class="xs muted-fg">Router unavailable; HotSpot server and profile choices cannot be loaded.</p>{{end}}
+    <label class="field">IP <input class="mono" value="{{.IP}}" readonly></label><label class="field">MAC <input class="mono" value="{{.MAC}}" readonly></label>
+    <div class="vendo-dialog-foot save-foot"><button class="btn sm">Save</button></div></form></div>
+  <div role="tabpanel" data-edit-panel="rates" hidden>
+    {{if .RateTiers}}{{template "tier_editor" .RatesEditor}}<form method="post" action="/admin/vendos/rates" data-vendo-action="site"><input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="action" value="site"><button class="btn outline sm">Use Shop tiers</button></form>
+    {{else}}<form method="post" action="/admin/vendos/rates"><input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="action" value="customize"><p>Using Shop tiers</p><button class="btn sm">Customize for this Vendo</button><p class="xs muted-fg">Starts from a copy of the Shop tiers.</p></form><ul class="vendo-rates">{{range .Rates}}<li>₱{{.Pesos}} for <span data-duration="{{.Seconds}}">{{.Seconds}} seconds</span> · Validity {{.Label}} · Pause Limit {{.PauseLimit}} · {{.Points}} Points</li>{{end}}</ul>{{end}}
+  </div>
+  <div role="tabpanel" data-edit-panel="points" hidden>
+    {{if .OwnPoints}}{{template "tier_editor" .PointsEditor}}<form method="post" action="/admin/vendos/points" data-vendo-action="site"><input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="action" value="site"><button class="btn outline sm">Use Shop Points table</button></form>
+    {{else}}<form method="post" action="/admin/vendos/points"><input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="action" value="customize"><p>Using Shop Points table</p><button class="btn sm">Customize for this Vendo</button><p class="xs muted-fg">Starts from a copy of the Shop Points table.</p></form><ul class="vendo-rates">{{range .Points}}<li>{{.Points}} Points for <span data-duration="{{.Seconds}}">{{.Seconds}} seconds</span> · Validity {{.Label}} · Pause Limit {{.PauseLimit}}</li>{{else}}<li>No rows: customers can’t redeem Points here.</li>{{end}}</ul>{{end}}
+  </div></div>
+</div></template>{{end}}
+
+{{/* A Vendo's own sets; nothing while it follows the Shop. */}}
+{{define "custom_badges"}}{{if or .RateTiers .OwnPoints}}<span class="custom-badges">{{if .RateTiers}}<span class="badge">Custom tiers</span>{{end}}{{if .OwnPoints}}<span class="badge">Custom Points</span>{{end}}</span>{{end}}{{end}}
+
+{{/* Kept as the response targets for older htmx clients; the manager fetches the full page. */}}
+{{define "vendo_row"}}<div id="vendo-{{.ID}}">{{template "vendo_detail" .}}</div>{{end}}
+{{define "vendo_row_error"}}<p id="vendo-{{.ID}}" role="alert">{{.Error}}</p>{{end}}

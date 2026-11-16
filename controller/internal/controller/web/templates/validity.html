@@ -1,0 +1,12 @@
+{{define "content"}}
+<section class="card narrow">
+  <div class="card-head"><div><h3>Validity settings</h3>
+    <p>Unused time expires {{.Value}} {{.Label}} after the last Top-up.</p>
+    <p class="muted-fg">Changes apply to future purchases, not existing deadlines.</p></div></div>
+  <div class="card-body">
+    <form class="form" method="post" action="/admin/validity"><label class="field">Validity <input name="value" type="number" step="1" min="1" value="{{.Value}}" required></label>
+    <label class="field">Unit <select name="unit"><option value="seconds"{{if eq .Unit "seconds"}} selected{{end}}>seconds</option><option value="minutes"{{if eq .Unit "minutes"}} selected{{end}}>minutes</option><option value="hours"{{if eq .Unit "hours"}} selected{{end}}>hours</option><option value="days"{{if eq .Unit "days"}} selected{{end}}>days</option></select></label>
+    <p class="muted-fg">Default: 30 days. Choose a whole number, from 1 second to 36500 days.</p><div><button class="btn" type="submit">Save Validity</button></div></form>
+  </div>
+</section>
+{{end}}

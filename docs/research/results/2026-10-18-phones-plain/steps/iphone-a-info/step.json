@@ -1,0 +1,16 @@
+{
+  "phone": "iphone",
+  "step": "a-info",
+  "start": "2026-10-18T08:13:29+08:00",
+  "end": "2026-10-18T08:15:30+08:00",
+  "answers": [
+    {
+      "question": "Model and OS version?",
+      "answer": "Iphone"
+    },
+    {
+      "question": "Current private-address setting for openpiso-lab?",
+      "answer": "10.5.50.199"
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+# Starts openpiso-update.service when the admin page's Update button creates the request file.
+# Installed by install.sh. The file is empty: its existence is the whole message.
+[Unit]
+Description=Apply an OpenPiso Controller update requested from the admin page
+
+[Path]
+PathExists=/var/lib/openpiso/update-request
+Unit=openpiso-update.service
+
+[Install]
+WantedBy=paths.target

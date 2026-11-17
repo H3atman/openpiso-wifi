@@ -5,38 +5,47 @@
 {{end}}
 
 {{define "dashboard_body"}}
-{{if .PendingAudit}}<a class="audit-banner" href="/admin/time-credits?tab=audit">{{.PendingAudit}} coin {{if eq .PendingAudit 1}}report needs{{else}}reports need{{end}} review →</a>{{end}}
+{{/* The count must lead the link text (e2e); the icon is moved in front by CSS order. */}}
+{{if .PendingAudit}}<a class="audit-banner" href="/admin/time-credits?tab=audit">{{.PendingAudit}} coin {{if eq .PendingAudit 1}}report needs{{else}}reports need{{end}} review{{icon "alert"}}<span class="audit-banner-cta">Open Audit inbox{{icon "chevron-right"}}</span></a>{{end}}
 
-<div class="grid-4">
-  {{range .SalesTiles}}<a class="kpi-link" href="{{.Href}}"><section class="card tint"><div class="card-body">
-    <p class="kpi-label">{{.Label}}</p>
-    <p class="kpi-value">₱{{.Pesos}}</p>
-    <p class="kpi-detail">Sales</p>
-  </div></section></a>{{end}}
-</div>
+<section class="dash-section" aria-labelledby="dash-sales">
+  <div class="dash-section-head"><h2 class="section-heading" id="dash-sales">Sales</h2><a class="dash-more" href="/admin/sales">Sales Inventory{{icon "chevron-right"}}</a></div>
+  <div class="grid-4 dash-tiles">
+    {{range .SalesTiles}}<a class="card kpi-link" href="{{.Href}}">
+      <p class="kpi-label">{{.Label}}</p>
+      <p class="kpi-value">₱{{.Pesos}}</p>
+      <p class="kpi-detail">View Sales{{icon "chevron-right"}}</p>
+    </a>{{end}}
+  </div>
+</section>
 
-<div class="grid-2">
-  <section class="card tint"><div class="card-body">
+<section class="dash-section" aria-labelledby="dash-customers">
+  <div class="dash-section-head"><h2 class="section-heading" id="dash-customers">Customers</h2></div>
+  <div class="grid-2">
+    <div class="card tint"{{if not .ActiveHotspot}} data-unknown{{end}}><div class="card-body">
     <p class="kpi-label">Active Hotspot</p>
     <p class="kpi-value">{{with .ActiveHotspot}}{{.}}{{else}}unknown{{end}}</p>
-    <p class="kpi-detail">Time Credits online, confirmed by the Router</p>
-  </div></section>
-  <section class="card tint"><div class="card-body">
+    <p class="kpi-detail">{{if .ActiveHotspot}}Time Credits online, confirmed by the Router{{else}}Shown once the Router reports its HotSpot sessions{{end}}</p>
+    </div></div>
+    <div class="card tint"{{if not .CustomersWithTimeLeft}} data-unknown{{end}}><div class="card-body">
     <p class="kpi-label">Customers with time left</p>
     <p class="kpi-value">{{with .CustomersWithTimeLeft}}{{.}}{{else}}—{{end}}</p>
-    <p class="kpi-detail">Online or paused Time Credits</p>
-  </div></section>
-</div>
+    <p class="kpi-detail">{{if .CustomersWithTimeLeft}}Online or paused Time Credits{{else}}Shown once the Router has reported every Time Credit's usage{{end}}</p>
+    </div></div>
+  </div>
+</section>
 
 {{/* SYSTEM STATUS: #34 fills controller_card and #35 fills router_card. Keep each in its own define. */}}
-<h2 class="section-heading">System Status</h2>
-<div class="grid-2">
-  <section class="card">{{template "controller_card" .Controller}}</section>
-  <section class="card">{{template "router_card" .Router}}</section>
-</div>
+<section class="dash-section" aria-labelledby="dash-status">
+  <div class="dash-section-head"><h2 class="section-heading" id="dash-status">System Status</h2></div>
+  <div class="grid-2">
+    <section class="card status-card">{{template "controller_card" .Controller}}</section>
+    <section class="card status-card">{{template "router_card" .Router}}</section>
+  </div>
+</section>
 {{end}}
 
-{{define "controller_card"}}<div class="card-head"><h3>Controller</h3></div>
+{{define "controller_card"}}<div class="card-head"><span class="card-icon">{{icon "activity"}}</span><h3>Controller</h3></div>
 {{template "status_rows" .Rows}}{{with .Update}}{{template "update_notice" .}}{{end}}{{end}}
 
 {{/* Present only when the root update helper is installed; see update.go. */}}
@@ -49,9 +58,9 @@
   </form>{{end}}
 </div>{{end}}{{end}}
 
-{{define "router_card"}}<div class="card-head"><h3>Router</h3></div>
-{{if .Unreachable}}<div class="card-body"><p class="muted-fg">Router unreachable</p></div>{{else}}{{template "status_rows" .Rows}}{{end}}{{end}}
+{{define "router_card"}}<div class="card-head"><span class="card-icon">{{icon "router"}}</span><h3>Router</h3></div>
+{{if .Unreachable}}<div class="card-body status-empty">{{icon "alert"}}<p class="strong">Router unreachable</p><p class="xs muted-fg">CPU, memory, disk and uptime appear here once the Controller reaches the Router again.</p></div>{{else}}{{template "status_rows" .Rows}}{{end}}{{end}}
 
-{{define "status_rows"}}<dl class="card-body status-rows">{{range .}}
-  <div class="status-row"><dt>{{.Label}}</dt><dd class="num">{{.Value}}</dd>{{with .Bar}}<progress max="100" value="{{.}}"></progress>{{end}}</div>{{end}}
+{{define "status_rows"}}<dl class="card-body status-rows">{{range .}}{{$label := .Label}}
+  <div class="status-row"><dt>{{.Label}}</dt><dd class="num">{{.Value}}</dd>{{with .Bar}}<progress max="100" value="{{.}}" aria-label="{{$label}} in use"></progress>{{end}}</div>{{end}}
 </dl>{{end}}

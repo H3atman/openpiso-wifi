@@ -17,6 +17,7 @@ var iconPaths = map[string]string{
 	"chevrons-up-down": `<path d="m7 15 5 5 5-5"/><path d="m7 9 5-5 5 5"/>`,
 	"panel-left":       `<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/>`,
 	"more-horizontal":  `<circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>`,
+	"printer":          `<path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 9V3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v6"/><rect x="6" y="14" width="12" height="8" rx="1"/>`,
 	"download":         `<path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/>`,
 	"search":           `<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>`,
 	"circle-plus":      `<circle cx="12" cy="12" r="10"/><path d="M8 12h8"/><path d="M12 8v8"/>`,

@@ -1,19 +1,19 @@
 {
   "format_version": 1,
   "scenario": "browser-only",
-  "started_at": "2026-11-04T04:26:49.504703+00:00",
-  "git_commit": "0fac5073f1db8388f057820765dea4eb07c1691b",
-  "git_tree": "b9936cb3a5cb4f0723e855fc853d6c473c0b3bfd",
-  "git_dirty": false,
-  "binary_size_bytes": 22571104,
-  "binary_sha256": "2a765bd96420adce86a30acb1be9482d7ed8252e2d8fd7c59522ed46128e65d6",
+  "started_at": "2026-11-17T03:17:56.884110+00:00",
+  "git_commit": "f3501d3a061327ac683b7d95906dc2e94a5eaf53",
+  "git_tree": "15a47ff56286411dc95b4fe109f90cc6e6c066b2",
+  "git_dirty": true,
+  "binary_size_bytes": 23103312,
+  "binary_sha256": "bfc4c9de2980fccf94525a2771c246c632abff0fe23b8b9b43a9554f3a8c938c",
   "test_seam": "Controller binary via external HTTP against chr-lab and chr-client",
   "result": "pass",
   "browser_portal": {
     "browser": "chromium 156.0.8078.4",
     "device_profile": "Pixel 7",
     "code_bytes": {
-      "/portal": 6595,
+      "/portal": 6650,
       "/portal/portal.css": 7905,
       "/portal/core.js": 13218
     },
@@ -68,26 +68,26 @@
     "sales_report": {
       "shortcuts": {
         "Today": {
-          "from": "2026-11-04",
-          "to": "2026-11-04",
+          "from": "2026-11-17",
+          "to": "2026-11-17",
           "count": 30,
           "total_pesos": 57
         },
         "This week": {
-          "from": "2026-11-02",
-          "to": "2026-11-04",
+          "from": "2026-11-16",
+          "to": "2026-11-17",
           "count": 30,
           "total_pesos": 57
         },
         "This month": {
           "from": "2026-11-01",
-          "to": "2026-11-04",
+          "to": "2026-11-17",
           "count": 30,
           "total_pesos": 57
         },
         "This year": {
           "from": "2026-01-01",
-          "to": "2026-11-04",
+          "to": "2026-11-17",
           "count": 30,
           "total_pesos": 57
         }
@@ -175,7 +175,7 @@
     "result": "pass",
     "failures": []
   },
-  "finished_at": "2026-11-04T04:30:09.526670+00:00",
+  "finished_at": "2026-11-17T03:21:48.543159+00:00",
   "steps": [
     "boot-admin-password-persisted-and-rate-limited",
     "authenticated-post-route-policy",
@@ -194,5 +194,5 @@
     "browser-sales-report",
     "browser-signin-logout-restart"
   ],
-  "chr_client_cleanup_removed": 20
+  "chr_client_cleanup_removed": 19
 }

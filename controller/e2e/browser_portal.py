@@ -265,6 +265,9 @@ def scenario(run, opener, address, password, client_address, report, restart_con
         request(opener, "/admin/vendos/unpair", "POST", {"id": paired["id"]})
 
     phases = (first, rebind, out_of_time, custom, preview, operator, branded, sales, signin)
+    # browser-portal PNGs are committed; fail here, not in the pre-commit hook's 500 KB check.
+    heavy = {shot.name: shot.stat().st_size for shot in out.glob("*.png") if shot.stat().st_size > 500_000}
+    assert not heavy, f"screenshots over 500 KB: {heavy}"
     report.data["browser_portal"] = {
         "browser": first["browser"],
         "device_profile": first["device_profile"],

@@ -36,6 +36,9 @@ func parsePages() map[string]*template.Template {
 		"voucherCodeSpaceSize": ledger.VoucherCodeSpaceSize,
 		"asset":                func(name string) string { return "/admin/static/" + name + "?v=" + assetVersion },
 		"previewStates":        func() []string { return previewStates },
+		"duration":             duration,        // compact, for dense tables: 2h 30m
+		"longDuration":         voucherDuration, // spelled out: 2 hours 30 minutes
+		"stamp":                localStamp,
 	}
 	files, err := fs.Glob(templateFS, "*.html")
 	if err != nil {

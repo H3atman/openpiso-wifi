@@ -1,12 +1,12 @@
 {
   "format_version": 1,
   "scenario": "vendo-list-only",
-  "started_at": "2026-11-04T04:30:21.209884+00:00",
-  "git_commit": "a5d406fcfd61709c3cab6f3738cedb5b549f1af2",
-  "git_tree": "27d2974af44f3629bfedcea576e3dc6bef50b8cb",
+  "started_at": "2026-11-17T02:12:21.478620+00:00",
+  "git_commit": "b99792efdbd67500a4b6f25e5dd8ed99665ecdda",
+  "git_tree": "fc8cba0cb3d13b176277943cc578b68c290a1bbb",
   "git_dirty": true,
-  "binary_size_bytes": 22571104,
-  "binary_sha256": "9e82794ed0c8129aaf3a2659e90055bbf80e661d3883eca8d0bf12efafc0dce6",
+  "binary_size_bytes": 23103312,
+  "binary_sha256": "2509885d5fbf95ff10ee6825bc16681bde51f6c228de1171ce8b73b1609671c8",
   "test_seam": "Controller binary via external HTTP against chr-lab and chr-client",
   "result": "pass",
   "vendo_list": {
@@ -34,7 +34,7 @@
       "ip_mac_read_only": true,
       "deactivate_undo": true,
       "unpair_undo": true,
-      "unpair_real_grace_seconds": 29.568250045005698,
+      "unpair_real_grace_seconds": 29.533615818989347,
       "phone_sheet": true,
       "structured_rates_persisted": true,
       "browser": "chromium 156.0.8078.4",
@@ -80,7 +80,7 @@
     "result": "pass",
     "failures": []
   },
-  "finished_at": "2026-11-04T04:38:37.087273+00:00",
+  "finished_at": "2026-11-17T02:20:38.877048+00:00",
   "steps": [
     "boot-admin-password-persisted-and-rate-limited",
     "authenticated-post-route-policy",

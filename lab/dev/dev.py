@@ -2,7 +2,7 @@
 """Persistent local dev lab: a dev-build Controller on the shared chr-lab Router, with a
 browser standing in for the customer Device. See lab/dev/README.md.
 
-Run: python3 -I lab/dev/dev.py {up,vendo,phone,shots,down}
+Run: python3 -I lab/dev/dev.py {up,vendo,phone,shots,admin-shots,down}
 """
 
 import argparse
@@ -627,6 +627,46 @@ def cmd_shots(args) -> None:
         sys.exit(1)
 
 
+def cmd_admin_shots(args) -> None:
+    """Admin panel screenshots from fixture data: no Router, no sudo, no port 80."""
+    go = shutil.which("go") or str(Path.home() / ".local/go/bin/go")
+    binary = RUN / "adminshots"
+    say("building adminshots (-tags dev)")
+    if subprocess.run([go, "build", "-tags", "dev", "-o", str(binary), "./cmd/adminshots"],
+                      cwd=ROOT / "controller", env={**os.environ, "CGO_ENABLED": "0"}).returncode != 0:
+        die("go build failed")
+    ensure_image()
+    out = Path(args.out).resolve()
+    out.mkdir(parents=True, exist_ok=True)
+    started = time.time()
+    servers = [subprocess.Popen([str(binary), *flags], stdout=subprocess.PIPE, text=True) for flags in ([], ["-empty"])]
+    try:
+        # Each prints one JSON line once seeded; the populated one waits ~11 s for its Offline Vendos.
+        ready = [server.stdout.readline() for server in servers]
+        if not all(ready):
+            die("adminshots exited before it was ready")
+        populated, empty = (line.strip() for line in ready)
+        say(f"serving fixture at {json.loads(populated)['base']}, empty at {json.loads(empty)['base']}")
+        run = subprocess.run(
+            ["docker", "run", "--rm", "--init", "--ipc=host", "--name", "openpiso-dev-admin-shots",
+             "--label", "openpiso-dev=shots", "--network", "host",
+             "--user", f"{os.getuid()}:{os.getgid()}", "-e", "HOME=/tmp",
+             "-v", f"{ROOT / 'lab/dev/admin_shots.py'}:/work/admin_shots.py:ro", "-v", f"{out}:/out",
+             PLAYWRIGHT_IMAGE, "python", "-I", "/work/admin_shots.py",
+             "--populated", populated, "--empty", empty, "--out", "/out"], timeout=900)
+    finally:
+        for server in servers:
+            server.terminate()
+            try:
+                server.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                server.kill()
+    shots = [p for p in out.glob("*.png") if p.stat().st_mtime >= started]
+    say(f"{len(shots)} PNGs in {out}")
+    if run.returncode != 0:
+        die("some admin states failed (see FAIL lines above)")
+
+
 def cmd_down(args) -> None:
     ids = docker("ps", "-aq", "--filter", "label=openpiso-dev=shots").stdout.split()
     if ids:
@@ -654,6 +694,9 @@ def main() -> None:
     shots = commands.add_parser("shots", help="scripted phones through the HotSpot, with screenshots")
     shots.add_argument("profile", nargs="*", default=list(PROFILES), help=f"default: {' '.join(PROFILES)}")
     shots.set_defaults(run=cmd_shots)
+    admin_shots = commands.add_parser("admin-shots", help="admin panel screenshots from fixture data (no Router)")
+    admin_shots.add_argument("--out", required=True, help="directory for the PNGs")
+    admin_shots.set_defaults(run=cmd_admin_shots)
     down = commands.add_parser("down", help="remove shots containers, macvlan network and routing fixture")
     down.add_argument("--vm", action="store_true", help="also shut chr-lab down")
     down.set_defaults(run=cmd_down)

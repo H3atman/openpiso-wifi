@@ -1,12 +1,12 @@
 {
   "format_version": 1,
   "scenario": "vouchers-only",
-  "started_at": "2026-11-06T15:14:59.453716+00:00",
-  "git_commit": "4e52b9e925aaf73e9fd039a31ca681324b3411de",
-  "git_tree": "0c71923f0eeae9693d71b50d7f90e59b4ca6e979",
-  "git_dirty": false,
-  "binary_size_bytes": 22791686,
-  "binary_sha256": "8ee9801cf554fa098c243fe321a33765be9241c435f1b149e8e05ad2787ada1c",
+  "started_at": "2026-11-17T01:54:48.825565+00:00",
+  "git_commit": "b99792efdbd67500a4b6f25e5dd8ed99665ecdda",
+  "git_tree": "fc8cba0cb3d13b176277943cc578b68c290a1bbb",
+  "git_dirty": true,
+  "binary_size_bytes": 23103312,
+  "binary_sha256": "e64750fd6751c4b16168a4910053cd8255383ef543360ca0e9fac3ad3f3e5a9f",
   "test_seam": "Controller binary via external HTTP against chr-lab and chr-client",
   "result": "pass",
   "voucher_print_sheet": {
@@ -17,7 +17,7 @@
       "cards": 2,
       "rendered_event": true,
       "loads": [
-        "http://127.0.0.1:18080/admin/vouchers?batch=45ovZ-N8NyeOv2IHA9Irj2JFhkoVBUMqVPrE-jgaATY"
+        "http://127.0.0.1:18080/admin/vouchers?batch=P9jyddShPZP2IzUukmx1W-9wrh7mVdM-b53yksRDz3c"
       ],
       "browser": "chromium 156.0.8078.4",
       "device_profile": "desktop",
@@ -51,11 +51,32 @@
       "csp_violations": []
     }
   },
+  "vouchers_mobile": {
+    "screenshots": [
+      "vouchers-mobile/01-mobile-batches.png",
+      "vouchers-mobile/02-mobile-search.png"
+    ],
+    "browser": {
+      "viewport": "390x844",
+      "touch": true,
+      "search_matches": 50,
+      "no_horizontal_overflow": true,
+      "labelled_price_seller": true,
+      "actions_min_height": 44,
+      "browser": "chromium 156.0.8078.4",
+      "device_profile": "Pixel 7",
+      "screenshots": [
+        "01-mobile-batches",
+        "02-mobile-search"
+      ],
+      "csp_violations": []
+    }
+  },
   "cleanup": {
     "result": "pass",
     "failures": []
   },
-  "finished_at": "2026-11-06T15:16:39.249289+00:00",
+  "finished_at": "2026-11-17T01:56:48.221574+00:00",
   "steps": [
     "boot-admin-password-persisted-and-rate-limited",
     "authenticated-post-route-policy",
@@ -75,5 +96,5 @@
     "vouchers-delete-unused-and-append-only-audit",
     "vouchers-delete-redeemed-direct-post-refused"
   ],
-  "chr_client_cleanup_removed": 3
+  "chr_client_cleanup_removed": 4
 }

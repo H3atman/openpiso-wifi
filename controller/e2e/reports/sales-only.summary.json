@@ -1,0 +1,31 @@
+{
+  "format_version": 1,
+  "scenario": "sales-only",
+  "started_at": "2026-11-17T01:52:09.438511+00:00",
+  "git_commit": "b99792efdbd67500a4b6f25e5dd8ed99665ecdda",
+  "git_tree": "fc8cba0cb3d13b176277943cc578b68c290a1bbb",
+  "git_dirty": true,
+  "binary_size_bytes": 23103312,
+  "binary_sha256": "e64750fd6751c4b16168a4910053cd8255383ef543360ca0e9fac3ad3f3e5a9f",
+  "test_seam": "Controller binary via external HTTP against chr-lab and chr-client",
+  "result": "pass",
+  "cleanup": {
+    "result": "pass",
+    "failures": []
+  },
+  "finished_at": "2026-11-17T01:54:48.107888+00:00",
+  "steps": [
+    "boot-admin-password-persisted-and-rate-limited",
+    "authenticated-post-route-policy",
+    "non-v7-onboarding-refused-before-any-write",
+    "operator-compares-certificate",
+    "onboarded-with-special-character-admin-password",
+    "second-onboarding-is-idempotent",
+    "boot-reverified-with-bootstrap-admin-deleted",
+    "sales-report-search-ip-mac-user-literal-totals-navigation",
+    "sales-report-rows-late-stray-open-vouchers-pagination-auth",
+    "sales-report-vendo-filter-unpaired-history",
+    "sales-report-csv-export"
+  ],
+  "chr_client_cleanup_removed": 6
+}

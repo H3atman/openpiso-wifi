@@ -8,6 +8,15 @@
 const THEME_KEY = 'openpiso.theme';
 const SIDEBAR_KEY = 'openpiso.sidebar';
 
+// Sales Inventory state that outlives a #sales-report swap; see salesFilters.
+const salesUI = { panelOpen: false, sheetOpen: false, focus: '' };
+document.addEventListener('toggle', (e) => {
+  if (e.target instanceof Element && e.target.matches('.sales-filter-panel')) salesUI.panelOpen = e.target.open;
+}, true);
+document.addEventListener('focusin', (e) => {
+  salesUI.focus = (e.target instanceof HTMLElement && e.target.closest('#sales-report') && e.target.dataset.focus) || '';
+});
+
 const savedTheme = localStorage.getItem(THEME_KEY);
 document.documentElement.classList.toggle(
   'dark',
@@ -93,24 +102,54 @@ document.addEventListener('alpine:init', () => {
     },
   }));
 
+  // Each filter change re-renders #sales-report. salesUI carries what the
+  // replaced report had open (the table's filter panel, the phone filter sheet)
+  // and the focused control's data-focus, so the new report continues where the user was.
+  // Not ids: htmx settles id-matched elements with their old attributes, which leaves a
+  // focused input showing its previous value.
   Alpine.data('salesFilters', () => ({
     media: null,
     onResize: null,
     init() {
-      if (!this.$refs.filters) return;
-      this.media = matchMedia('(min-width: 1000px)');
-      this.onResize = () => {
-        this.$refs.filters.close();
-        if (this.media.matches) this.$refs.filters.show();
-      };
-      this.media.addEventListener('change', this.onResize);
-      this.onResize();
+      const focus = salesUI.focus;
+      const panel = this.$root.querySelector('.sales-filter-panel');
+      if (panel) panel.open = salesUI.panelOpen;
+      if (this.$refs.filters) {
+        this.media = matchMedia(panel ? '(min-width: 1180px)' : '(min-width: 1000px)');
+        const form = this.$root.querySelector('.sales-filters');
+        this.onResize = () => {
+          const focused = document.activeElement;
+          const filterFocused = form.contains(focused);
+          const sheet = this.$refs.filters;
+          if (sheet.open) sheet.close();
+          // Reuse the form without detaching controls already in the right place.
+          if (panel) {
+            const container = this.media.matches ? panel : sheet;
+            if (form.parentElement !== container) container.append(form);
+            if (this.media.matches && filterFocused) panel.open = true;
+          }
+          if (this.media.matches && !panel) {
+            // A desktop pane is non-modal; displaying it must not run dialog autofocus.
+            sheet.setAttribute('open', '');
+          } else if (!this.media.matches && (salesUI.sheetOpen || filterFocused)) {
+            salesUI.sheetOpen = true;
+            sheet.showModal();
+          }
+          if (filterFocused) focused.focus({ preventScroll: true });
+        };
+        this.$refs.filters.addEventListener('cancel', () => { salesUI.sheetOpen = false; });
+        this.media.addEventListener('change', this.onResize);
+        this.onResize();
+      }
+      // show()/showModal() move focus into the dialog; put it back on the control in use.
+      const focused = focus && this.$root.querySelector(`[data-focus="${focus}"]`);
+      if (focused) focused.focus();
     },
     destroy() {
       if (this.media) this.media.removeEventListener('change', this.onResize);
     },
-    show() { this.$refs.filters.showModal(); },
-    close() { this.$refs.filters.close(); },
+    show() { salesUI.sheetOpen = true; this.$refs.filters.showModal(); this.$refs.filters.querySelector('select').focus(); },
+    close() { salesUI.sheetOpen = false; this.$refs.filters.close(); },
   }));
 
   // WAI-ARIA Tabs (automatic activation). Markup: role="tablist" with the
@@ -404,7 +443,7 @@ const tierEditor = {
     root.querySelectorAll('[data-tiers]').forEach((form) => {
       const cols = document.createElement('div'); cols.className = 'tier-cols'; cols.setAttribute('aria-hidden', 'true');
       const grid = document.createElement('div'); grid.className = 'tier-grid';
-      const headings = form.dataset.tiers === 'rates' ? ['Price', 'Time', 'Points', 'Validity', 'Pauses'] : ['Points cost', 'Time', 'Validity', 'Pauses'];
+      const headings = form.dataset.tiers === 'rates' ? ['Price', 'Time', 'Points earned', 'Validity', 'Pause Limit'] : ['Points cost', 'Time', 'Validity', 'Pause Limit'];
       for (const name of headings) { const label = document.createElement('span'); label.textContent = name; grid.append(label); }
       cols.append(grid); form.querySelector('[data-tier-list]').before(cols);
       this.refresh(form);
@@ -426,7 +465,8 @@ const tierEditor = {
     const el = document.createElement('div'); el.className = 'tier';
     const title = document.createElement('span'); title.className = 'tier-title'; title.textContent = kind === 'rates' ? 'Tier' : 'Row';
     const sum = document.createElement('span'); sum.className = 'tier-sum trunc';
-    const del = document.createElement('button'); del.type = 'button'; del.className = 'btn ghost icon sm tier-del'; del.dataset.tierDelete = ''; del.textContent = '×'; del.title = 'Remove';
+    const del = document.createElement('button'); del.type = 'button'; del.className = 'btn ghost icon sm tier-del'; del.dataset.tierDelete = ''; del.title = 'Remove';
+    const glyph = document.createElement('span'); glyph.textContent = '×'; glyph.setAttribute('aria-hidden', 'true'); del.append(glyph);
     const grid = document.createElement('div'); grid.className = 'tier-grid';
     let validity = seed.validity || '86400', unit = 'days';
     if (validity === 'no limit') { validity = ''; unit = 'none'; }
@@ -438,7 +478,7 @@ const tierEditor = {
     }
     const fields = [[kind === 'rates' ? 'price' : 'cost', kind === 'rates' ? 'Price' : 'Points cost', seed.cost || '', kind === 'rates' ? 1 : 0.001], ['minutes', 'Time', seed.seconds ? Number(seed.seconds) / 60 : '', 1 / 60]];
     if (kind === 'rates') fields.push(['points', 'Points earned', seed.points || '0', 0]);
-    fields.push(['validity', 'Validity', String(validity), 1], ['pause', 'Pause limit', seed.pause || '0', 0]);
+    fields.push(['validity', 'Validity', String(validity), 1], ['pause', 'Pause Limit', seed.pause || '0', 0]);
     for (const [name, label, value, min] of fields) {
       const field = document.createElement('label'); field.className = 'field f-' + (name === 'pause' ? 'pauses' : name) + ' tier-span-' + (kind === 'rates' && !['validity', 'pause'].includes(name) ? 'two' : 'three');
       const caption = document.createElement('span'); caption.className = 'field-label'; caption.textContent = label;

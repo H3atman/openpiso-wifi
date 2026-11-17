@@ -1,12 +1,12 @@
 {
   "format_version": 1,
   "scenario": "6-skeleton-7-vouchers-8-pause-9-top-up-10-rebind-11-reconciler-13-admin-dashboard-15-vendo-16-coin-window-41-vlan-auto-select-61-default-portal-62-custom-portal",
-  "started_at": "2026-11-06T15:50:23.131195+00:00",
-  "git_commit": "90a9198ef27b41d07592849cdf91be4f4bd6fe12",
-  "git_tree": "e701a2193a537f3340aa5c22c8dce5af96b85ad1",
+  "started_at": "2026-11-17T02:36:46.701747+00:00",
+  "git_commit": "b99792efdbd67500a4b6f25e5dd8ed99665ecdda",
+  "git_tree": "fc8cba0cb3d13b176277943cc578b68c290a1bbb",
   "git_dirty": true,
-  "binary_size_bytes": 22791686,
-  "binary_sha256": "0657a9ff48e1e49f83acd6a3c085cc1fd2d0a8456c7a7451059fc23308fced44",
+  "binary_size_bytes": 23103312,
+  "binary_sha256": "436ee4147f5e2584ca6c67956fa37bfe24b101da9f6717ad665c1a7694451ab6",
   "test_seam": "Controller binary via external HTTP against chr-lab and chr-client",
   "result": "pass",
   "browser_portal": {
@@ -68,35 +68,35 @@
     "sales_report": {
       "shortcuts": {
         "Today": {
-          "from": "2026-11-07",
-          "to": "2026-11-07",
-          "count": 69,
-          "total_pesos": 102
+          "from": "2026-11-17",
+          "to": "2026-11-17",
+          "count": 84,
+          "total_pesos": 4294967743
         },
         "This week": {
-          "from": "2026-11-02",
-          "to": "2026-11-07",
+          "from": "2026-11-16",
+          "to": "2026-11-17",
           "count": 84,
           "total_pesos": 4294967743
         },
         "This month": {
           "from": "2026-11-01",
-          "to": "2026-11-07",
+          "to": "2026-11-17",
           "count": 84,
           "total_pesos": 4294967743
         },
         "This year": {
           "from": "2026-01-01",
-          "to": "2026-11-07",
+          "to": "2026-11-17",
           "count": 84,
           "total_pesos": 4294967743
         }
       },
       "single_vendo_named": true,
-      "search_count": 78,
+      "search_count": 77,
       "later_page": 2,
       "reload_back_forward_restored": true,
-      "csv_rows": 78,
+      "csv_rows": 77,
       "csv_matches_filtered_json": true,
       "total_pesos": 4294967743,
       "csp_violations": []
@@ -175,7 +175,7 @@
     "result": "pass",
     "failures": []
   },
-  "finished_at": "2026-11-06T16:14:02.441477+00:00",
+  "finished_at": "2026-11-17T02:58:50.659195+00:00",
   "steps": [
     "boot-admin-password-persisted-and-rate-limited",
     "authenticated-post-route-policy",

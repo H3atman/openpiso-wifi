@@ -24,6 +24,17 @@ func localMidnight(t time.Time) time.Time {
 	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.Local)
 }
 
+// localStamp shows an RFC 3339 timestamp (a Sale's Validity, a Voucher Batch's
+// creation) as Controller-local "2006-01-02 15:04" for the admin pages; any other
+// value is returned as is.
+func localStamp(value string) string {
+	at, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		return value
+	}
+	return at.In(time.Local).Format("2006-01-02 15:04")
+}
+
 // monthStart is 00:00 on the 1st of t's month, local time.
 func monthStart(t time.Time) time.Time {
 	return time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, time.Local)
@@ -62,8 +73,9 @@ type salesView struct {
 }
 
 type salesShortcut struct {
-	Label string
-	URL   string
+	Label   string
+	URL     string
+	Current bool // the report shows exactly this period
 }
 
 type salesVendo struct {
@@ -174,9 +186,10 @@ func (s *Server) salesPage(response http.ResponseWriter, request *http.Request) 
 	}
 	for _, period := range salesPeriods(today) {
 		query := view.filterQuery()
-		query.Set("from", period.From.Format(salesDateLayout))
-		query.Set("to", period.To.Format(salesDateLayout))
-		view.Shortcuts = append(view.Shortcuts, salesShortcut{Label: period.Label, URL: "/admin/sales?" + query.Encode()})
+		from, to := period.From.Format(salesDateLayout), period.To.Format(salesDateLayout)
+		query.Set("from", from)
+		query.Set("to", to)
+		view.Shortcuts = append(view.Shortcuts, salesShortcut{Label: period.Label, URL: "/admin/sales?" + query.Encode(), Current: view.From == from && view.To == to})
 	}
 	if request.URL.Query().Get("format") == "json" {
 		response.Header().Set("Content-Type", "application/json")

@@ -44,7 +44,8 @@ MEASURE_ELEMENT = """element => {
 WHITE, GREEN, RED, BLUE = (255, 255, 255), (46, 125, 50), (198, 40, 40), (21, 101, 192)
 # Init scripts run before the page's own scripts and outside its CSP, so every refusal is seen.
 CSP_LISTENER = ("document.addEventListener('securitypolicyviolation', e =>"
-                " console.error('csp-violation ' + e.effectiveDirective + ' ' + e.blockedURI))")
+                " console.error('csp-violation ' + e.effectiveDirective + ' ' + e.blockedURI + ' at ' + location.pathname"
+                " + ' ' + e.sourceFile + ':' + e.lineNumber + ' ' + (e.target instanceof Element ? e.target.outerHTML.slice(0, 160) : '')))")
 
 
 def ask(wait: str) -> dict:
@@ -584,16 +585,16 @@ def sales(device: Device, inputs: dict) -> dict:
         expect(details.locator("dd[data-user]")).to_have_text(table_data["rows"][0]["user"])
         assert details.locator("summary").bounding_box()["height"] >= 44
         shot("34-sales-mobile-" + mode)
-        if mode == "feed":
-            export = report.locator(".sales-bottom-actions").get_by_role("link", name="Export", exact=True)
-            expect(export).to_be_visible()
-            expect(export).to_have_attribute("href", report.locator(".sales-heading .sales-export").get_attribute("href"))
-            with page.expect_download() as mobile_download:
-                export.click()
-            assert mobile_download.value.failure() is None
-            report.get_by_role("button", name="Filter Sales", exact=True).click()
-            expect(report.locator("dialog")).to_be_visible()
-            report.get_by_role("button", name="Close filters").click()
+        export = report.get_by_role("link", name="Export", exact=True)
+        expect(export).to_have_count(1)
+        expect(export).to_be_visible()
+        with page.expect_download() as mobile_download:
+            export.click()
+        assert mobile_download.value.failure() is None
+        report.get_by_role("button", name="Filter Sales", exact=True).click()
+        expect(report.locator("dialog")).to_be_visible()
+        expect(report.get_by_role("combobox", name="Vendo", exact=True)).to_be_focused()
+        report.get_by_role("button", name="Close filters").click()
     page.set_viewport_size(desktop)
     assert not device.violations, device.violations
     return {"shortcuts": views, "single_vendo": single, "search": searched, "later_page": later,
@@ -1069,8 +1070,8 @@ def vouchers_mobile(device: Device, inputs: dict) -> dict:
         popup.value.close()
 
     check(page.locator(".voucher-batch-row").first)
-    for action in (page.get_by_role("link", name="CSV", exact=True).first,
-                   page.get_by_role("button", name="Delete", exact=True).first):
+    for action in (page.get_by_role("link", name=re.compile(r"^CSV for Batch ")).first,
+                   page.get_by_role("button", name=re.compile(r"^Delete Batch ")).first):
         expect(action).to_be_visible()
         box = action.bounding_box()
         assert box["height"] >= 44 and box["width"] >= 44, box

@@ -836,7 +836,7 @@ def vouchers_batch_pricing(opener, report, address, password):
     assert_login_redirect("/admin/vouchers")
     assert request(opener, "/admin/rates", "POST", {"tiers": "1=120,7200,2\n5=600,10800,7"}).status == 200
     page = request(opener, "/admin/vouchers").read().decode()
-    assert "10800 seconds Validity" in page and "7 Pauses" in page
+    assert "3 hours Validity" in page and "7 Pauses" in page
     tier = generate_vouchers(opener, {"tier": "5", "count": "2"})
     tier_rows = voucher_csv(opener, tier)
     assert len(tier_rows) == 2 and all(r["time"] == "600" and r["pesos"] == "5" and not r["redeemed_at"] for r in tier_rows)
@@ -1004,7 +1004,7 @@ def vouchers_code_search(opener, report, address, password, client_address):
     document = request(opener, path).read().decode()
     results = document.split('id="voucher-search-results"', 1)[1].split("All Voucher Batches", 1)[0]
     assert "1 Voucher contains" in results and code in results
-    assert html.escape(seller) in results and "₱7" in results and "73 seconds" in results
+    assert html.escape(seller) in results and "₱7" in results and "1 minute 13 seconds" in results
     assert "Redeemed" in results and device_ip in results and _lab_module.DEVICE_MAC in results
     assert voucher_csv(opener, generated)[0]["redeemed_at"] in results
     assert voucher_print_url(generated) in results and 'target="_blank"' in results and 'hx-boost="false"' in results
@@ -2323,7 +2323,9 @@ def admin_dashboard(opener, report, address, password, client_address, device_ip
     assert dashboard_after["pending_audit"] == len(pending) >= 3
     # Controller status: shape only, because the lab host varies. Every metric is
     # present as a number or null, and free never exceeds total.
-    controller_status = dashboard_after["controller"]
+    controller_status = dict(dashboard_after["controller"])
+    # The release fields ride along (ADR 0010); a dev run has no root update helper, so no notice.
+    assert isinstance(controller_status.pop("version"), str) and controller_status.pop("update") is None
     assert set(controller_status) == {"cpu_percent", "memory_free_bytes", "memory_total_bytes", "disk_free_bytes",
                                       "disk_total_bytes", "temperature_c", "uptime_seconds"}, controller_status
     for key, value in controller_status.items():
@@ -3061,7 +3063,7 @@ def sales_report(opener, report, address, password, client_address):
     assert request(opener, "/admin/vendos/edit", "POST", {"id": second.id, "name": " \t ", "location": ""}).status == 200
     assert next(v for v in json.load(request(opener, "/admin/state"))["vendos"] if v["id"] == second.id)["name"] == ""
     selector = request(opener, filtered_path).read().decode()
-    options = re.findall(r'<option value="(\d+)"[^>]*>([^<]+)</option>', re.search(r'<select name="vendo">(.*?)</select>', selector, re.S).group(1))
+    options = re.findall(r'<option value="(\d+)"[^>]*>([^<]+)</option>', re.search(r'<select name="vendo"[^>]*>(.*?)</select>', selector, re.S).group(1))
     assert next(label for value, label in options if value == str(vendo.id)) == "Zone 12 (unpaired)"
     assert next(label for value, label in options if value == str(second.id)) == f"Vendo {second.id}"
     assert [value for value, _ in options].index(str(second.id)) < [value for value, _ in options].index(str(vendo.id))
@@ -3602,7 +3604,7 @@ def vendo_list_details(opener, report, address, password, client_address):
     assert stored["ip"] in edit and stored["mac"] in edit
     assert not re.search(r'name="(ip|mac)"', edit), edit
     assert f'data-hold="{vendo.id}"' in row and 'Press and hold for 3 seconds' in row, row
-    servers = re.findall(r'<option(?: selected)?>([^<]+)</option>', re.search(r'<select name="hotspot_server".*?</select>', edit, re.S).group(0))
+    servers = re.findall(r'<option value="([^"]+)"', re.search(r'<select name="hotspot_server".*?</select>', edit, re.S).group(0))
     assert stored["hotspot_server"] in servers, (stored, servers)
 
     form = {"id": vendo.id, "name": "  Plaza  ", "location": "  Near the sari-sari store  ",
@@ -3615,7 +3617,7 @@ def vendo_list_details(opener, report, address, password, client_address):
     row = vendo_row(request(opener, "/admin/vendos").read().decode(), vendo.id)
     assert "Plaza" in row and "Near the sari-sari store" in row
     selector = request(opener, "/admin/sales").read().decode()
-    options = dict(re.findall(r'<option value="(\d+)"[^>]*>([^<]+)</option>', re.search(r'<select name="vendo">(.*?)</select>', selector, re.S).group(1)))
+    options = dict(re.findall(r'<option value="(\d+)"[^>]*>([^<]+)</option>', re.search(r'<select name="vendo"[^>]*>(.*?)</select>', selector, re.S).group(1)))
     assert options[str(vendo.id)] == "Plaza", options
     for rejected, status in (({**form, "name": "X" * 81}, 400), ({**form, "location": "X" * 81}, 400),
                              ({**form, "hotspot_server": "missing-server"}, 400), ({**form, "id": "0"}, 400),
@@ -4138,7 +4140,7 @@ def shop_defaults_vendo_list(opener, report, address, password, client_address):
         assert 'data-tiers="rates"' in row and 'data-cost="1" data-seconds="60" data-validity="3600" data-pause="1" data-points="1"' in row, row
         assert ">Custom tiers<" in item(html, custom) and ">Custom tiers<" in header(html, custom), row
         assert ">Custom Points<" not in item(html, custom), item(html, custom)
-        assert "<dd>Custom · 1 tiers</dd>" in row and "<dd>Shop table</dd>" in row and ">Use Shop tiers<" in row, row
+        assert "<dd>Custom · 1 tier</dd>" in row and "<dd>Shop table</dd>" in row and ">Use Shop tiers<" in row, row
         assert ">Custom tiers<" not in item(html, follower), item(html, follower)
         post("/admin/vendos/rates", custom, {"action": "save", "tiers": "1=120,7200,2,1"})
         assert buy(10, custom, 5) == 600 and buy(20, follower, 1) == 60
@@ -4150,7 +4152,7 @@ def shop_defaults_vendo_list(opener, report, address, password, client_address):
         row = vendo_row(html, custom.id)
         assert 'data-tiers="points"' in row and 'data-cost="1" data-seconds="60" data-validity="3600" data-pause="1"' in row, row
         assert ">Custom Points<" in item(html, custom) and ">Custom Points<" in header(html, custom), row
-        assert "<dd>Custom · 1 rows</dd>" in row and ">Use Shop Points table<" in row, row
+        assert "<dd>Custom · 1 row</dd>" in row and ">Use Shop Points table<" in row, row
         post("/admin/vendos/points", custom, {"action": "save", "tiers": "2=300,7200,3"})
         assert portal(10)["points"] == own_points and portal(20)["points"] == shop_points, (portal(10), portal(20))
         refused(10, shop_points[0])
@@ -4963,12 +4965,12 @@ def shop_defaults_rate_tiers(opener, report, address, password, client_address):
     def stored():
         return json.load(request(opener, "/admin/state"))["rate_tiers"]
 
-    # Nav: Shop sits after Coins, directly above Vendo List, and holds Rate tiers
-    # and Points table; Coins keeps only Coin sales and Credit intents.
+    # Nav: Shop sits directly below Vendo List and holds Rate tiers and Points
+    # table; Coins keeps only Coin sales and Credit intents.
     response, body = page()
     main = re.search(r'<div class="group-label">Main</div>\s*<ul class="sb-menu">(.*?)</ul>\s*</div>', body, re.S).group(1)
     groups = re.findall(r'data-tooltip="([^"]+)"', main)
-    assert groups.index("Coins") < groups.index("Shop") and groups[groups.index("Shop") + 1] == "Vendo List", groups
+    assert groups[groups.index("Vendo List") + 1] == "Shop", groups
     item = lambda label: re.search(rf'<li class="menu-item"[^>]*>\s*<a[^>]*data-tooltip="{label}".*?</li>\s*</ul>\s*</li>', main, re.S).group(0)
     subs = lambda label: re.findall(r'<a class="menu-sub-btn" href="([^"]+)"[^>]*>([^<]+)</a>', item(label))
     assert subs("Shop") == [("/admin/rates", "Rate tiers"), ("/admin/points", "Points table")], subs("Shop")

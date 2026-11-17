@@ -25,7 +25,7 @@ This step is optional. Without it, Vouchers show `OpenPiso WiFi`.
 
 Below **Custom** the window also shows the Shop's Validity (how long the customer has to use up the time) and Pauses (how many times they may pause it). You can change them later under **Settings › Validity** and **Settings › Pause**.
 
-> **Screenshot to come:** admin panel, the Generate Voucher Batch window filled in for one 1-hour ₱5 Voucher.
+![The Generate Voucher Batch window in the admin panel, with Rate tier, Time (seconds), Price (pesos), Seller, Code characters, Code length, Prefix and Vouchers set to 1, above the Generate Voucher Batch button](assets/screenshots/generate-voucher-batch.png)
 
 The page shows `Voucher Batch generated.` and the new Batch at the top of **Voucher Batches**.
 
@@ -61,7 +61,7 @@ Back in the admin panel:
 - **Vouchers**: the Batch's **Redeemed** column shows `1`. On its Print sheet, the Voucher is marked `USED`.
 - **Sales Inventory**: the price appears under **Voucher Sales**. A Voucher counts as a sale when the customer uses it, not when you print it.
 
-> **Screenshot to come:** admin panel, the Vouchers page with the Batch showing 1 Redeemed.
+![The Vouchers page in the admin panel, listing Voucher Batches with their Seller, Rate tier, Price, Time, number of Vouchers and the Redeemed column, each with Print and CSV buttons](assets/screenshots/vouchers.png)
 
 Your Shop is selling WiFi time. Now sell Vouchers the same way: make a Batch of as many as you need, print the sheet, and cut them out.
 

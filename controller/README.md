@@ -1003,7 +1003,15 @@ key did not sign.
 
 ### Cutting a release
 
-Maintainers only. The version comes from the tag; bump nothing in code.
+Maintainers only. Bump nothing in code; the version is the release tag.
+
+Every merge to `main` that touches `controller/` releases automatically. The
+Release workflow bumps the latest release's patch number (`v0.1.0` → `v0.1.1`).
+Label the PR `release:minor` or `release:major` before merging to bump that part
+instead (`v0.2.0`, `v1.0.0`). Merges that don't touch `controller/` release
+nothing.
+
+To release a specific version by hand instead:
 
 1. Make sure the commit you want to release is on `main`.
 2. Tag it with a strict vMAJOR.MINOR.PATCH version, higher than the last
@@ -1014,12 +1022,12 @@ Maintainers only. The version comes from the tag; bump nothing in code.
    git push origin v1.2.3
    ```
 
-3. Watch the Release workflow in Actions. It refuses tags not on `main`, vets,
-   cross-compiles the three binaries, signs `release.json` with the
-   `RELEASE_SIGNING_KEY` secret, verifies the signature against the committed
-   `controller/release.pub`, packages `openpiso-install.tar.gz`, uploads
-   everything to a draft release and then publishes it as latest. Installed
-   Controllers see it at their next daily check.
+Either way, watch the Release workflow in Actions. It refuses commits not on
+`main`, vets, cross-compiles the three binaries, signs `release.json` with the
+`RELEASE_SIGNING_KEY` secret, verifies the signature against the committed
+`controller/release.pub`, packages `openpiso-install.tar.gz`, uploads everything
+to a draft release and then publishes it as latest. Installed Controllers see it
+at their next daily check, and the Operator applies it from the admin page.
 
 `v1.2`, `1.2.3`, `v1.02.3` and pre-release suffixes do not trigger the workflow
 or are rejected by it. The Release key is set up once with

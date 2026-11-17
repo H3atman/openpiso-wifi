@@ -387,7 +387,8 @@ def preview(device: Device, inputs: dict) -> dict:
             card.get_by_role("button", name="paused", exact=True).click()
             expect(frame.locator("html")).to_have_attribute("data-portal-state", "paused")
         page.wait_for_timeout(300)
-        page.screenshot(path=f"{device.out}/{number}-preview-{draft}.png", full_page=True)
+        # The Preview card alone: the full page with its editors outgrows the 500 KB hook.
+        card.screenshot(path=f"{device.out}/{number}-preview-{draft}.png")
         device.screenshots.append(f"{number}-preview-{draft}")
 
     for state, row in reports["good"].items():

@@ -1,12 +1,12 @@
 {
   "format_version": 1,
   "scenario": "browser-only",
-  "started_at": "2026-11-17T02:33:15.912966+00:00",
-  "git_commit": "b99792efdbd67500a4b6f25e5dd8ed99665ecdda",
-  "git_tree": "fc8cba0cb3d13b176277943cc578b68c290a1bbb",
+  "started_at": "2026-11-17T03:17:56.884110+00:00",
+  "git_commit": "f3501d3a061327ac683b7d95906dc2e94a5eaf53",
+  "git_tree": "15a47ff56286411dc95b4fe109f90cc6e6c066b2",
   "git_dirty": true,
   "binary_size_bytes": 23103312,
-  "binary_sha256": "436ee4147f5e2584ca6c67956fa37bfe24b101da9f6717ad665c1a7694451ab6",
+  "binary_sha256": "bfc4c9de2980fccf94525a2771c246c632abff0fe23b8b9b43a9554f3a8c938c",
   "test_seam": "Controller binary via external HTTP against chr-lab and chr-client",
   "result": "pass",
   "browser_portal": {
@@ -175,7 +175,7 @@
     "result": "pass",
     "failures": []
   },
-  "finished_at": "2026-11-17T02:36:36.971496+00:00",
+  "finished_at": "2026-11-17T03:21:48.543159+00:00",
   "steps": [
     "boot-admin-password-persisted-and-rate-limited",
     "authenticated-post-route-policy",
@@ -194,5 +194,5 @@
     "browser-sales-report",
     "browser-signin-logout-restart"
   ],
-  "chr_client_cleanup_removed": 4
+  "chr_client_cleanup_removed": 19
 }

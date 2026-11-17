@@ -54,17 +54,13 @@ links from _data/guide.yml; the home page sets `home: true` and gets neither.
     {{ content }}
     {%- if current %}
     {%- assign prev_index = current | minus: 1 -%}
-    {%- assign next_index = current | plus: 1 -%}
     {%- assign prev = steps[prev_index] -%}
-    {%- assign next = steps[next_index] %}
+    {%- comment %} Forward links are the pages' own "Next:" lines, which also work on github.com. {% endcomment %}
+    {%- if current > 0 %}
     <nav class="prevnext">
-      {%- if current > 0 %}
       <span class="prev">{% if prev.page %}<a href="{{ prev.page | replace: '.md', '.html' | relative_url }}">← {{ prev.title }}</a>{% else %}← {{ prev.title }} (coming soon){% endif %}</span>
-      {%- endif %}
-      {%- if next %}
-      <span class="next">{% if next.page %}<a href="{{ next.page | replace: '.md', '.html' | relative_url }}">{{ next.title }} →</a>{% else %}{{ next.title }} (coming soon) →{% endif %}</span>
-      {%- endif %}
     </nav>
+    {%- endif %}
     {%- endif %}
   </main>
 </div>

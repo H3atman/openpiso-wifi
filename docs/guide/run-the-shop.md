@@ -87,7 +87,7 @@ Each sale shows its date and time, the customer's Device, whether it was a **Coi
 
 ## Help a customer who lost their time
 
-A customer's time is kept on the Controller, not on their phone. They do not lose it when they close the Portal, switch off WiFi, or change phone. Only one phone at a time can use it.
+A customer's time is kept on the Controller, not on their phone. They do not lose it when they close the Portal, switch off WiFi, or change phone. Only one **Device** (a phone, as your WiFi sees it) at a time can use it.
 
 ### Same phone, same browser
 
@@ -101,7 +101,7 @@ The customer needs their **Resume Code**: the 8-character code the Portal showed
 2. Tap **Resume Code**.
 3. Type the code in **Got a code from another phone?** and tap **Recover time**.
 
-The time moves to this phone, which goes online, even if the customer had paused it. The old phone goes offline. Moving time from one phone to another is called **Rebind**; it never adds or loses time.
+The time moves to this phone, which goes online, even if the customer had paused it. The old phone goes offline. Moving a Time Credit from one Device to another is called **Rebind**; it never adds or loses time.
 
 ![The Portal on a phone with no time yet, with the Resume Code window open: a code typed under Got a code from another phone? above the Recover time button](assets/screenshots/portal-resume-code.png)
 
@@ -113,13 +113,16 @@ What the customer may see:
 
 ### The customer has no Resume Code
 
-You can give them time yourself:
+Only the Resume Code can move time to another phone. The admin panel cannot move it, but you can make up the time.
+
+First find the customer's time:
 
 1. Open **Time Credits**. Each **Time Credit** is one customer's time. Search by MAC, IP or state, or pick **Online now**, **Paused** or **Expired** in the sidebar.
 2. Select the customer's Time Credit. It shows **Bought**, **Used · Router-metered**, **Remaining** and **Validity**, and a **Timeline** of what happened to it.
-3. Type the time to add in **Seconds** and why in **Reason**, then select **Grant time**.
 
-The page says `Grant recorded and applied to the Router.` Granted time uses your Shop's Validity and Pause Limit, and it is never Sales. You cannot grant time to a Time Credit whose Validity has ended.
+**If they are on the same phone**, add time to that Time Credit: type the time in **Seconds** and why in **Reason**, then select **Grant time**. The page says `Grant recorded and applied to the Router.` The time goes to the Device the Time Credit is on now, so this does not help a customer on a new phone. Granted time uses your Shop's Validity and Pause Limit, and it is never Sales. You cannot grant time to a Time Credit whose Validity has ended.
+
+**If they have a new phone**, give them a free Voucher instead. On **Vouchers**, generate a Batch of 1 with **Custom**, **Price (pesos)** `0` and **Time (seconds)** set to the time left on their old Time Credit (1 hour is 3600 seconds), as in [Make and print Vouchers](#make-and-sell-vouchers). The customer types it on the Portal of the new phone. A ₱0 Voucher adds ₱0 to Sales. The old Time Credit keeps its time, and the old phone can still use it.
 
 ## Change Pause and Validity rules
 

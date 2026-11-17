@@ -1,6 +1,6 @@
 # What you need
 
-OpenPiso WiFi lets you sell WiFi time at your **Shop** (the place you sell WiFi time) with **Vouchers**: printed codes, each worth a fixed amount of time, that a customer types on their phone to go online. Coin **Vendos** (networked coin slots) are coming.
+OpenPiso WiFi lets you sell WiFi time at your **Shop** (the place you sell WiFi time) with **Vouchers**: printed codes, each worth a fixed amount of time, that a customer types on their phone to go online. **Vendos** (coin-accepting units on your network that report each coin to the Controller) are coming.
 
 Three things work together:
 

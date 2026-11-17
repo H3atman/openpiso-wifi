@@ -1,6 +1,6 @@
 # Add a Vendo
 
-A **Vendo** is a networked coin slot: customers drop coins in it to buy WiFi time, and it reports each coin to the Controller.
+A **Vendo** is a coin-accepting unit on your network: customers drop coins in it to buy WiFi time, and it reports each coin to the Controller. Every coin unit at your Shop is a Vendo.
 
 Vendos are coming soon. They will use ESP8266 LAN coin boards with 4 MB of flash, the kind sold as KiTifi or JuanFi boards. You will flash a board from your Windows PC in Chrome or Edge, then add it to the Controller from the admin panel.
 

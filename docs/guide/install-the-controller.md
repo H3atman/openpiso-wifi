@@ -109,3 +109,5 @@ sudo systemctl restart openpiso
 To check that the Controller is running, use `systemctl status openpiso`; to read its log, use `sudo journalctl -u openpiso`.
 
 For every detail of the installer, see the [Controller reference](https://github.com/H3atman/openpiso-wifi/blob/main/controller/README.md#install-on-armbian--raspberry-pi-os-lite).
+
+Next: [Connect the Router](connect-the-router.md).

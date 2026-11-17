@@ -35,15 +35,9 @@ The Controller card then shows `Update to â€¦ was rolled back:` or `Update to â€
 sudo journalctl -u 'openpiso-update*'
 ```
 
-## Update from the board instead
+## Check from the board
 
-Over SSH, this installs the latest Release straight away:
-
-```sh
-sudo openpiso update apply
-```
-
-And this checks for a Release now instead of waiting for the daily check:
+Over SSH, this checks for a Release now instead of waiting for the daily check:
 
 ```sh
 sudo openpiso update check
@@ -57,7 +51,7 @@ To stop the daily check, and stop the **Update** button from installing anything
 sudo systemctl disable --now openpiso-update-check.timer openpiso-update.path
 ```
 
-`sudo openpiso update apply` still works. To turn the check back on:
+To turn the check and the **Update** button back on:
 
 ```sh
 sudo systemctl enable --now openpiso-update-check.timer openpiso-update.path

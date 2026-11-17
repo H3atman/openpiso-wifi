@@ -34,7 +34,6 @@ th, td { border: 1px solid var(--line); padding: 0.3em 0.7em; text-align: left; 
 .page { flex: 1; min-width: 0; padding: 24px 32px; max-width: 760px; }
 .page img { max-width: 100%; height: auto; border: 1px solid var(--line); border-radius: 8px; }
 .prevnext { display: flex; justify-content: space-between; gap: 1em; margin-top: 3em; padding-top: 1em; border-top: 1px solid var(--line); }
-.prevnext .next { margin-left: auto; }
 
 /* Home page: full-width bands, each with a centred .wrap. */
 .wrap { max-width: 1080px; margin: 0 auto; padding: 0 16px; }
@@ -43,7 +42,7 @@ th, td { border: 1px solid var(--line); padding: 0.3em 0.7em; text-align: left; 
 .band h2 { font-size: 2em; line-height: 1.2; margin: 0 0 0.4em; }
 .section-lede { margin-top: 0; font-size: 1.15em; }
 .button { display: inline-block; background: var(--forest); color: var(--white); font-weight: 700; text-decoration: none; padding: 0.7em 1.4em; border-radius: 999px; }
-.button:hover { background: var(--leaf); }
+.button:hover { color: var(--mint); }
 
 .hero { background: var(--forest); color: var(--white); padding: 72px 0 80px; }
 .hero-grid { display: grid; grid-template-columns: 1fr 280px; gap: 48px; align-items: center; }

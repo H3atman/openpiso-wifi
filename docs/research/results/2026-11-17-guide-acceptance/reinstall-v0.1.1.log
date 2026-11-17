@@ -1,0 +1,32 @@
+** WARNING: connection is not using a post-quantum key exchange algorithm.
+** This session may be vulnerable to "store now, decrypt later" attacks.
+** The server may need to be upgraded. See https://openssh.com/pq.html
+Welcome to Ubuntu 18.04.6 LTS (GNU/Linux 4.15.0-212-generic-lpae armv7l)
+
+ * Documentation:  https://help.ubuntu.com
+ * Management:     https://landscape.canonical.com
+ * Support:        https://ubuntu.com/advantage
+
+ System information disabled due to load higher than 1.0
+
+
+Expanded Security Maintenance for Infrastructure is not enabled.
+
+0 updates can be applied immediately.
+
+Enable ESM Infra to receive additional future security updates.
+See https://ubuntu.com/esm or run: sudo pro status
+
+New release '20.04.6 LTS' available.
+Run 'do-release-upgrade' to upgrade to it.
+
+
+Last login: Tue Nov 17 06:45:23 2026 from 192.168.122.1
+$ cd install
+$ sudo sh install.sh --binary ../openpiso-linux-armv7 \
+>   --portal-url http://192.168.122.247 \
+>   --admin-network 192.168.122.1/32
+Existing ledger at /var/lib/openpiso/openpiso.db: keeping it and its admin password.
+OpenPiso Controller is running on 0.0.0.0:80 (portal http://192.168.122.247).
+$ exit
+Connection to 192.168.122.247 closed.

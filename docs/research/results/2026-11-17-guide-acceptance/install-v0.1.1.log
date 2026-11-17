@@ -1,0 +1,46 @@
+** WARNING: connection is not using a post-quantum key exchange algorithm.
+** This session may be vulnerable to "store now, decrypt later" attacks.
+** The server may need to be upgraded. See https://openssh.com/pq.html
+base=https://github.com/H3atman/openpiso-wifi/releases/latest/download
+Welcome to Ubuntu 18.04.6 LTS (GNU/Linux 4.15.0-212-generic-lpae armv7l)
+
+ * Documentation:  https://help.ubuntu.com
+ * Management:     https://landscape.canonical.com
+ * Support:        https://ubuntu.com/advantage
+
+ System information disabled due to load higher than 1.0
+
+
+Expanded Security Maintenance for Infrastructure is not enabled.
+
+0 updates can be applied immediately.
+
+Enable ESM Infra to receive additional future security updates.
+See https://ubuntu.com/esm or run: sudo pro status
+
+New release '20.04.6 LTS' available.
+Run 'do-release-upgrade' to upgrade to it.
+
+
+Last login: Tue Nov 17 06:45:09 2026 from 192.168.122.1
+$ $ curl -fLO "$base/openpiso-linux-armv7"
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:--  0:00:01 --:--:--     0
+  0     0    0     0    0     0      0      0 --:--:--  0:00:01 --:--:--     0
+  0     0    0     0    0     0      0      0 --:--:--  0:00:01 --:--:--     0 11 20.9M   11 2381k    0     0   828k      0  0:00:25  0:00:02  0:00:23 1819k 29 20.9M   29 6254k    0     0  1619k      0  0:00:13  0:00:03  0:00:10 2725k 47 20.9M   47  9.8M    0     0  2153k      0  0:00:09  0:00:04  0:00:05 3227k 69 20.9M   69 14.6M    0     0  2609k      0  0:00:08  0:00:05  0:00:03 3584k 81 20.9M   81 17.1M    0     0  2647k      0  0:00:08  0:00:06  0:00:02 3465k 98 20.9M   98 20.7M    0     0  2804k      0  0:00:07  0:00:07 --:--:-- 4013k100 20.9M  100 20.9M    0     0  2807k      0  0:00:07  0:00:07 --:--:-- 4015k
+$ curl -fLO "$base/openpiso-install.tar.gz"
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+  0     0    0     0    0     0      0      0 --:--:--  0:00:01 --:--:--     0
+  0     0    0     0    0     0      0      0 --:--:--  0:00:01 --:--:--     0100  4413  100  4413    0     0   2274      0  0:00:01  0:00:01 --:--:-- 14808
+$ tar -xzf openpiso-install.tar.gz
+$ cd install
+$ sudo sh install.sh --binary ../openpiso-linux-armv7 \
+>   --portal-url http://192.168.122.247 \
+>   --admin-network 192.168.122.1/32
+Admin password: 
+Confirm password: 
+echo "exit=$?"
+exit

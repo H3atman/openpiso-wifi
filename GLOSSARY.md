@@ -50,6 +50,14 @@ _Avoid_: Cash out, collection report
 Taking a paired Vendo out of service: no new Coin Windows open on it, but it stays paired and keeps its Sales; Reactivate reverses it, and Unpair is the permanent removal.
 _Avoid_: Disable, delete
 
+**Pairing code**:
+A one-time code the admin panel shows for one Vendo, carrying what its coin board needs to become that Vendo.
+_Avoid_: Token, activation key, license
+
+**Web flasher**:
+The page on the Website that writes the Vendo firmware and a Pairing code onto a coin board from the Operator's browser.
+_Avoid_: Installer, uploader, flash tool
+
 **HotSpot profile**:
 The Router user profile a Vendo gives the customers who buy time with its coins; the Controller runs its own copy that keeps the one-Device rule and the Shop's Idle Pause.
 _Avoid_: Plan, package
@@ -127,6 +135,16 @@ _Avoid_: PIN, voucher, password
 **Rebind**:
 Moving a Time Credit from one Device to another; a Time Credit is on at most one Device at a time.
 _Avoid_: Transfer, takeover, MAC repair
+
+### Public documentation
+
+**Website**:
+The project's public site, where a prospective Operator learns what openpiso-wifi is and finds the Guide.
+_Avoid_: Landing page, docs site, homepage
+
+**Guide**:
+The step-by-step instructions that take an Operator from nothing to a running Shop and through its day-to-day tasks.
+_Avoid_: Manual, tutorial, wiki, docs
 
 ### Updates
 

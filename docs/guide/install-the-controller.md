@@ -80,7 +80,7 @@ When it finishes, it prints:
 OpenPiso Controller is running on 0.0.0.0:80 (portal http://192.168.10.2).
 ```
 
-If it prints `openpiso service did not become healthy; see journalctl -u openpiso` instead, run `journalctl -u openpiso` to see why.
+If it prints `openpiso service did not become healthy; see journalctl -u openpiso` instead, run `sudo journalctl -u openpiso` to see why.
 
 The Controller now starts by itself every time the board powers on. Running the installer again keeps your data and your password.
 
@@ -100,12 +100,12 @@ If the browser shows `management network only`, your PC is not inside the `--adm
 
 ## If you need to change a setting later
 
-The installer saves the portal URL, the admin network and the listen address in `/etc/openpiso/openpiso.env`. Edit that file on the board, then restart the Controller:
+The installer saves the portal URL, the admin network and the listen address in `/etc/openpiso/openpiso.env`. Only root can read it, so edit it with `sudo`, for example `sudo nano /etc/openpiso/openpiso.env`, then restart the Controller:
 
 ```sh
 sudo systemctl restart openpiso
 ```
 
-To check that the Controller is running, use `systemctl status openpiso`; to read its log, use `journalctl -u openpiso`.
+To check that the Controller is running, use `systemctl status openpiso`; to read its log, use `sudo journalctl -u openpiso`.
 
 For every detail of the installer, see the [Controller reference](https://github.com/H3atman/openpiso-wifi/blob/main/controller/README.md#install-on-armbian--raspberry-pi-os-lite).

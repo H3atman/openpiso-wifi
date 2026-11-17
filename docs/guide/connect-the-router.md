@@ -20,7 +20,7 @@ The Controller now reads only the Router's certificate. It does not send your pa
 
 The page **Confirm Router certificate** shows a fingerprint: a long line of letters and numbers that belongs to the Router's certificate, like `SHA256:4F:2A:…`. Checking it proves the Controller is talking to your Router and not to another device pretending to be it.
 
-1. On the Router, open **New Terminal** in WebFig or Winbox and type:
+1. On the Router, open the terminal (**Terminal** in WebFig, **New Terminal** in Winbox) and type:
 
    ```
    /certificate print detail

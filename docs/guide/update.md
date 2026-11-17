@@ -32,7 +32,7 @@ If the new version does not start properly, the Controller goes back to the vers
 The Controller card then shows `Update to … was rolled back:` or `Update to … failed:`, followed by the reason. Your Shop keeps working on the old version. To see more, run this on the board over SSH:
 
 ```sh
-journalctl -u 'openpiso-update*'
+sudo journalctl -u 'openpiso-update*'
 ```
 
 ## Update from the board instead

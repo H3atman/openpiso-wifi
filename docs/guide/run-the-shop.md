@@ -176,7 +176,7 @@ If you get lost, **Download default** gives you the Default Portal's files to st
 1. Under **Preview**, select each sample state (`new`, `online`, `coin`, `paused`, `out`, `error`), or **Check every state**. The preview runs your draft with sample data; no customer sees it. The table under it lists any problem.
 2. Under **Versions**, select **Publish draft**. Customers now see your Portal.
 
-If something is wrong after publishing, **Revert to previous** brings back what customers saw before. **Reset to default** brings back the Default Portal; **Revert to previous** undoes that too.
+If something is wrong after publishing, **Revert to previous** brings back the version customers saw before. After your first publish there is no earlier version, so **Revert to previous** is greyed out; use **Reset to default** instead. **Reset to default** brings back the Default Portal; **Revert to previous** undoes that too.
 
 ![The Preview on Settings › Portal with the online state selected: the draft Portal with a new cover, logo and Shop name showing sample time left, beside the table of states where online reads OK](assets/screenshots/portal-preview-online.png)
 

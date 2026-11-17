@@ -8,7 +8,7 @@ If your problem is not here, [open an issue on GitHub](https://github.com/H3atma
 
 | Message | What to do |
 | --- | --- |
-| `openpiso service did not become healthy; see journalctl -u openpiso` | The Controller did not start. Run `journalctl -u openpiso` on the board and read the last lines for the reason. Fix it, then run the installer again; it keeps your data. |
+| `openpiso service did not become healthy; see journalctl -u openpiso` | The Controller did not start. Run `sudo journalctl -u openpiso` on the board and read the last lines for the reason. Fix it, then run the installer again; it keeps your data. |
 
 ## Opening the admin panel
 
@@ -74,14 +74,14 @@ When you select **Save draft** on **Settings › Portal**, the page lists every 
 | Message | What to do |
 | --- | --- |
 | `index.html: external URL "…"; the Portal loads only from the Controller` | The Portal cannot load anything from the internet. Remove the link, or upload the picture as the cover or logo instead. The same message names `portal.css` or `custom.js` when the link is there. |
-| `core.js must be loaded exactly once with <script src="/portal/core.js">; found …` | Put back the line `<script src="/portal/core.js"></script>` in `index.html`, once. |
+| `core.js must be loaded exactly once with <script src="/portal/core.js">; found …` | Put back the line `<script src="/portal/core.js" defer></script>` in `index.html`, once. |
 | `required marker … is missing` | You removed a part of the page the Portal needs. Put it back; the [Portal contract](https://github.com/H3atman/openpiso-wifi/blob/main/docs/portal-contract.md#required-markers) lists them. If you are lost, use **Download default** and start again. |
 
 ## Updating
 
 | Message | What to do |
 | --- | --- |
-| `Update to … was rolled back: …` or `Update to … failed: …` | The new version did not install, and the Controller went back to the version you had. Your Shop keeps working. Read the reason after the colon, and run `journalctl -u 'openpiso-update*'` on the board for more. See [Update](update.md#if-an-update-goes-wrong). |
+| `Update to … was rolled back: …` or `Update to … failed: …` | The new version did not install, and the Controller went back to the version you had. Your Shop keeps working. Read the reason after the colon, and run `sudo journalctl -u 'openpiso-update*'` on the board for more. See [Update](update.md#if-an-update-goes-wrong). |
 | `The update is taking longer than expected. Open the Dashboard to see its status.` | Open the Dashboard and read the **Controller** card. |
 
 ## Reading the Controller's log
@@ -90,7 +90,7 @@ For any other problem, the Controller's log says what went wrong. On the board, 
 
 ```sh
 systemctl status openpiso
-journalctl -u openpiso
+sudo journalctl -u openpiso
 ```
 
 For every detail, see the [Controller reference](https://github.com/H3atman/openpiso-wifi/blob/main/controller/README.md).

@@ -48,7 +48,7 @@ This Guide starts from a MikroTik that already sells WiFi through a working **Ho
 
 Skip this if `www-ssl` already has a certificate for the Router's address.
 
-In WebFig or Winbox, open **New Terminal** and paste these lines one at a time. Replace `192.168.10.1` with the address of your Router on the board's network, in both places:
+Open the terminal (**Terminal** in WebFig, **New Terminal** in Winbox) and paste these lines one at a time. Replace `192.168.10.1` with the address of your Router on the board's network, in both places:
 
 ```
 /certificate add name=openpiso-ca common-name=openpiso-ca key-usage=key-cert-sign,crl-sign

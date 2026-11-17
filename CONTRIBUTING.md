@@ -39,6 +39,13 @@ To build the Website locally into `/tmp/openpiso-site` (needs Docker only):
 docker run --rm --user "$(id -u):$(id -g)" -v "$PWD/docs/guide":/src:ro -v /tmp/openpiso-site:/out -e JEKYLL_ENV=production -e PAGES_REPO_NWO=H3atman/openpiso-wifi --entrypoint sh ghcr.io/actions/jekyll-build-pages:v1.0.13 -c 'cd "$BUNDLE_APP_CONFIG" && bin/github-pages build --verbose --source /src --destination /out'
 ```
 
+Then check it for broken internal links, anchors and missing images, as the Pages
+workflow does (external URLs are not checked; exit code 2 means a broken link):
+
+```sh
+docker run --rm -v /tmp/openpiso-site:/check/openpiso-wifi:ro -w /check lycheeverse/lychee:0.24.2 --offline --include-fragments --no-progress --root-dir /check 'openpiso-wifi/**/*.html'
+```
+
 ## Evidence policy
 
 Use compressed PNG for screenshots and MP4 for demos, no GIF. The staged-file

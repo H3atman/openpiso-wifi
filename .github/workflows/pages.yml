@@ -29,12 +29,21 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+      # Built one level down, so root-relative links resolve as on Pages, under /openpiso-wifi/.
       - uses: actions/jekyll-build-pages@v1
         with:
           source: docs/guide
-          destination: ./_site
+          destination: ./_site/openpiso-wifi
+      # Fails on a broken internal link, anchor or missing image; --offline skips external URLs.
+      # CONTRIBUTING.md has the same check in Docker.
+      - uses: lycheeverse/lychee-action@v2
+        with:
+          lycheeVersion: v0.24.2
+          args: --offline --include-fragments --no-progress --root-dir ${{ github.workspace }}/_site '_site/openpiso-wifi/**/*.html'
       - uses: actions/upload-pages-artifact@v5
         if: github.event_name != 'pull_request'
+        with:
+          path: _site/openpiso-wifi
 
   deploy:
     needs: build

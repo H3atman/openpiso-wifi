@@ -2,17 +2,26 @@
 title: OpenPiso WiFi
 home: true
 ---
-<section class="hero">
-  <h1>Sell WiFi time by Voucher on your MikroTik, <span class="accent">today</span>.</h1>
-  <p>OpenPiso WiFi turns a small Linux board into the Controller for your Shop: it prints Vouchers, keeps the record of the time each customer bought, and tells your MikroTik Router who may go online. Coin Vendos are coming.</p>
+<section class="band hero">
+  <div class="wrap hero-grid">
+    <div>
+      <p class="eyebrow">Open source piso WiFi</p>
+      <h1>Sell WiFi time by Voucher on your MikroTik, <span class="accent">today</span>.</h1>
+      <p class="lede">OpenPiso WiFi turns a small Linux board into the <strong>Controller</strong> for your <strong>Shop</strong>, the place you sell WiFi time. It prints <strong>Vouchers</strong> (codes worth a fixed amount of time), keeps the record of the time each customer bought, and tells your MikroTik <strong>Router</strong> who may go online. Coin <strong>Vendos</strong> are coming.</p>
+      <p class="hero-actions"><a class="button" href="{{ '/what-you-need.html' | relative_url }}">Read the guide</a> <a class="button ghost" href="https://github.com/{{ site.repository }}">See it on GitHub</a></p>
+    </div>
+    <svg class="hero-mark" viewBox="-58.1 -76.1 324.1 324.1" role="img" aria-label="OpenPiso WiFi"><path fill="#fff" d="M0 1.5H24V228H0ZM0 64a64 64 0 1 1 128 0a64 64 0 1 1 -128 0ZM24 64a40 40 0 1 0 80 0a40 40 0 1 0 -80 0Z"/><path fill="#71DA88" d="M44 64a20 20 0 1 1 40 0a20 20 0 1 1 -40 0ZM123.65 -21.19A104 104 0 0 1 123.65 149.19A12.0 12.0 0 0 1 109.89 129.53A80 80 0 0 0 109.89 -1.53A12.0 12.0 0 0 1 123.65 -21.19ZM146.60 -53.96A144 144 0 0 1 146.60 181.96A12.0 12.0 0 0 1 132.83 162.30A120 120 0 0 0 132.83 -34.30A12.0 12.0 0 0 1 146.60 -53.96Z"/></svg>
+  </div>
 </section>
 
-<blockquote class="notice">
-  <strong>Early release.</strong> OpenPiso WiFi is new and still changing; if something does not work, please <a href="https://github.com/{{ site.repository }}/issues">tell us on GitHub Issues</a>.
-</blockquote>
+<div class="wrap">
+  <p class="notice"><strong>Early release.</strong> OpenPiso WiFi is new and still changing. If something does not work, please <a href="https://github.com/{{ site.repository }}/issues">tell us on GitHub Issues</a>.</p>
+</div>
 
-<h2>Install</h2>
-<p>On the board, over SSH (this example is for an Orange Pi Zero at 192.168.10.2):</p>
+<section class="band" id="install">
+  <div class="wrap">
+    <h2>Install</h2>
+    <p>On the board, over SSH. This example is for an Orange Pi Zero at <code>192.168.10.2</code>; the Guide explains each value.</p>
 <pre><code>base=https://github.com/H3atman/openpiso-wifi/releases/latest/download
 curl -fLO "$base/openpiso-linux-armv7"
 curl -fLO "$base/openpiso-install.tar.gz"
@@ -21,4 +30,107 @@ cd install
 sudo sh install.sh --binary ../openpiso-linux-armv7 \
   --portal-url http://192.168.10.2 \
   --admin-network 192.168.10.0/24</code></pre>
-<p><a class="button" href="{{ '/install-the-controller.html' | relative_url }}">Read the guide</a></p>
+    <p><a class="button" href="{{ '/install-the-controller.html' | relative_url }}">Read the guide</a></p>
+  </div>
+</section>
+
+<section class="band tint" id="how-it-works">
+  <div class="wrap">
+    <h2>How it works</h2>
+    <p class="section-lede">Three parts, on the network you already have.</p>
+    <ol class="parts">
+      <li>
+        <svg viewBox="0 0 240 160" role="img" aria-label="A small Linux board with a chip and a network port">
+          <rect x="34" y="40" width="172" height="96" rx="12" fill="#fff" stroke="#123C1C" stroke-width="6"/>
+          <path d="M58 40V26M76 40V26M94 40V26M112 40V26M130 40V26M148 40V26" stroke="#123C1C" stroke-width="5" stroke-linecap="round"/>
+          <rect x="62" y="64" width="54" height="48" rx="6" fill="#123C1C"/>
+          <rect x="150" y="66" width="56" height="44" rx="4" fill="#fff" stroke="#123C1C" stroke-width="6"/>
+          <path d="M164 92h28" stroke="#123C1C" stroke-width="5" stroke-linecap="round"/>
+          <circle cx="132" cy="120" r="7" fill="#2E9E4F"/>
+        </svg>
+        <h3>Controller</h3>
+        <p>A small Linux board, such as an Orange Pi Zero. It keeps the record of every customer's time, serves the <strong>Portal</strong> (the page a phone opens when it joins your WiFi) and runs the admin panel where you set prices and print Vouchers.</p>
+      </li>
+      <li>
+        <svg viewBox="0 0 240 160" role="img" aria-label="A router with two antennas sending out WiFi">
+          <path d="M70 92V40M170 92V40" stroke="#123C1C" stroke-width="6" stroke-linecap="round"/>
+          <rect x="30" y="92" width="180" height="46" rx="12" fill="#fff" stroke="#123C1C" stroke-width="6"/>
+          <circle cx="62" cy="115" r="6" fill="#2E9E4F"/><circle cx="84" cy="115" r="6" fill="#2E9E4F"/><circle cx="106" cy="115" r="6" fill="#123C1C"/>
+          <path d="M150 115h36" stroke="#123C1C" stroke-width="5" stroke-linecap="round"/>
+          <path d="M106 52a20 20 0 0 1 28 0M96 40a34 34 0 0 1 48 0M86 28a48 48 0 0 1 68 0" fill="none" stroke="#2E9E4F" stroke-width="6" stroke-linecap="round"/>
+        </svg>
+        <h3>Router</h3>
+        <p>Your MikroTik, with the HotSpot server it already runs. It lets customers online and counts the time they use, on the Controller's instructions.</p>
+      </li>
+      <li>
+        <svg viewBox="0 0 240 160" role="img" aria-label="A coin Vendo with a coin dropping into its slot">
+          <rect x="72" y="34" width="96" height="114" rx="12" fill="#fff" stroke="#123C1C" stroke-width="6"/>
+          <rect x="88" y="52" width="64" height="30" rx="4" fill="#123C1C"/>
+          <path d="M112 104h16" stroke="#123C1C" stroke-width="7" stroke-linecap="round"/>
+          <circle cx="190" cy="44" r="22" fill="#fff" stroke="#2E9E4F" stroke-width="6"/>
+          <circle cx="190" cy="44" r="7" fill="#2E9E4F"/>
+          <path d="M162 74l-18 18" stroke="#2E9E4F" stroke-width="5" stroke-linecap="round" stroke-dasharray="2 10"/>
+        </svg>
+        <h3>Vendo <span class="tag">coming</span></h3>
+        <p>A coin slot on your network: an ESP8266 coin board. The customer drops a coin and gets time, just like a Voucher. The Guide for setting one up is coming.</p>
+      </li>
+    </ol>
+  </div>
+</section>
+
+<section class="band" id="screenshots">
+  <div class="wrap">
+    <h2>What you will see</h2>
+    <div class="shots">
+      <figure class="shot wide">
+        <img src="{{ '/assets/screenshots/dashboard.png' | relative_url }}" width="1280" height="900" loading="lazy" alt="The admin panel Dashboard: today's, this week's, this month's and this year's Sales, the customers online, and the Controller's and Router's status.">
+        <figcaption><strong>Dashboard.</strong> Today's Sales and the health of your Controller and Router at a glance.</figcaption>
+      </figure>
+      <figure class="shot phone">
+        <img src="{{ '/assets/screenshots/portal-online.png' | relative_url }}" width="1082" height="2202" loading="lazy" alt="The Portal on a phone after a Voucher is used: You are online, 30 minutes of time left, and buttons for Voucher, Pause, Rates and Resume Code.">
+        <figcaption><strong>Portal.</strong> What your customer sees on their phone.</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="{{ '/assets/screenshots/sales.png' | relative_url }}" width="1280" height="900" loading="lazy" alt="The Sales Inventory page: total, Vendo and Voucher Sales, and a list of each sale with its seller and price.">
+        <figcaption><strong>Sales Inventory.</strong> Every sale, by Vendo or by Voucher seller.</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="{{ '/assets/screenshots/shop-rate-tiers.png' | relative_url }}" width="1280" height="900" loading="lazy" alt="The Shop Rate tiers page: ₱1 for 10 minutes, ₱5 for 1 hour and ₱10 for 2 hours 30 minutes, each with Points, Validity and a Pause Limit.">
+        <figcaption><strong>Rate tiers.</strong> Your prices, your Validity and Pause rules.</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="{{ '/assets/screenshots/vouchers.png' | relative_url }}" width="1280" height="900" loading="lazy" alt="The Vouchers page listing Voucher Batches with their seller, price, time, and how many are Redeemed, each with Print and CSV buttons.">
+        <figcaption><strong>Vouchers.</strong> Generate a Batch, print it, see what is Redeemed.</figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<section class="band tint" id="what-you-need">
+  <div class="wrap">
+    <h2>What you need</h2>
+    <div class="needs">
+      <div>
+        <h3>A board for the Controller</h3>
+        <p>Tested on an Orange Pi Zero with Armbian. Should work on Raspberry Pi OS Lite, or any arm64 or amd64 Linux with systemd. Plus a microSD card and a network cable.</p>
+      </div>
+      <div>
+        <h3>A MikroTik Router</h3>
+        <p>RouterOS v7, a HotSpot server your customers already join, and <code>www-ssl</code> turned on with a certificate. The Guide shows how to make one.</p>
+      </div>
+      <div>
+        <h3>A PC and a printer</h3>
+        <p>A Windows PC on the same network to set things up, and a printer, or a PDF, for your Vouchers.</p>
+      </div>
+    </div>
+    <p><a href="{{ '/what-you-need.html' | relative_url }}">The full checklist is in What you need →</a></p>
+  </div>
+</section>
+
+<section class="band" id="links">
+  <div class="wrap links">
+    <a href="https://github.com/{{ site.repository }}"><strong>GitHub</strong><span>The source code and Issues</span></a>
+    <a href="https://github.com/{{ site.repository }}/releases"><strong>Releases</strong><span>Every version of the Controller</span></a>
+    <a href="https://github.com/{{ site.repository }}/blob/main/LICENSE"><strong>Licence</strong><span>GNU GPL version 3</span></a>
+  </div>
+</section>

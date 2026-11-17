@@ -12,7 +12,7 @@ It takes about 5 minutes.
    - **Admin username** and **Admin password**: your MikroTik admin login.
 3. Select **Read certificate**.
 
-> **Screenshot to come:** admin panel, the Router onboarding page with Router address, Admin username and Admin password filled in.
+![The Router onboarding page in the admin panel, with Router address, Admin username and Admin password filled in above the Read certificate button](assets/screenshots/router-onboarding.png)
 
 The Controller now reads only the Router's certificate. It does not send your password yet.
 
@@ -29,7 +29,7 @@ The page **Confirm Router certificate** shows a fingerprint: a long line of lett
 2. Find the certificate `www-ssl` uses (`openpiso-router` if you made it with [What you need](what-you-need.md#make-a-certificate-for-www-ssl)) and its `fingerprint`. RouterOS shows it in small letters and without the `SHA256:` and the colons. The letters and numbers must be the same as on the admin panel, in the same order.
 3. If they match, select **Fingerprint matches**. If they do not, stop: check the Router address and try again.
 
-> **Screenshot to come:** Router, the Confirm Router certificate page showing the fingerprint and the Fingerprint matches button.
+![The Confirm Router certificate page in the admin panel, showing the certificate's SHA256 fingerprint above the Fingerprint matches button](assets/screenshots/router-confirm-certificate.png)
 
 Nothing changes on the Router before you select **Fingerprint matches**. From then on, the Controller trusts only this certificate.
 
@@ -37,7 +37,7 @@ Nothing changes on the Router before you select **Fingerprint matches**. From th
 
 The page **Router connected** shows `RouterOS 7.… is ready.` The Controller has set up the Router as listed in [What the Controller changes on your Router](what-you-need.md#what-the-controller-changes-on-your-router), and it forgets your admin password.
 
-> **Screenshot to come:** Router, the Router connected page.
+![The Router connected page in the admin panel, saying RouterOS 7.23.8 (long-term) is ready](assets/screenshots/router-connected.png)
 
 ## If it does not work
 

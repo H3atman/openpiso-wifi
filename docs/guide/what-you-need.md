@@ -60,7 +60,7 @@ In WebFig or Winbox, open **New Terminal** and paste these lines one at a time. 
 
 Signing can take a few seconds each. The Controller accepts this certificate because you confirm its fingerprint when you connect the Router.
 
-> **Screenshot to come:** Router, the MikroTik terminal after the certificate commands, with `/certificate print` listing both certificates.
+![The WebFig Terminal after the certificate commands: each sign command reports progress: done, and /certificate print lists openpiso-ca and openpiso-router among the Router's certificates](assets/screenshots/router-certificates.png)
 
 ## What the Controller changes on your Router
 

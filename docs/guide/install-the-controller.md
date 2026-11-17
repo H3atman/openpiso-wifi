@@ -94,7 +94,7 @@ http://192.168.10.2/admin/login
 
 Type the admin password and select **Log in**. You see the Dashboard.
 
-> **Screenshot to come:** the admin panel login page.
+![The admin panel login page: OpenPiso WiFi, Controller admin, a Password box with a Show button, and the Log in button](assets/screenshots/admin-login.png)
 
 If the browser shows `management network only`, your PC is not inside the `--admin-network` you chose. After five wrong passwords, the login is blocked from your PC for five minutes.
 

@@ -36,7 +36,7 @@ The page shows `Voucher Batch generated.` and the new Batch at the top of **Vouc
 
 Each Voucher shows the price, the code, the time, the Validity and the Pauses, and a QR code that opens the Portal. You can open the Print sheet again at any time with **Print** on the Batch's row.
 
-> **Screenshot to come:** admin panel, the Print sheet with one Voucher.
+![The Print sheet with one Voucher: the price ₱5 down the side, the Shop name, the code, 1 hour, Validity, Pauses, the Batch and Seller, and a QR code, under a bar with the Print button](assets/screenshots/print-sheet.png)
 
 ## 4. Use it on a phone
 
@@ -48,7 +48,7 @@ Try the Voucher yourself before you sell one. If its price is not `0`, your test
 
 The Portal shows `You are online.` and the time counting down. The phone can now browse.
 
-> **Screenshot to come:** Router, the Portal on a phone after the Voucher is used, showing You are online and the time left.
+![The Portal on a phone after the Voucher is used: the message You are online, and the remaining time 00:59:58 with Online and the date the Validity ends](assets/screenshots/portal-voucher-online.png)
 
 The Portal also shows a **Resume Code**: a short code the customer keeps to get their time back if they change phone or browser.
 

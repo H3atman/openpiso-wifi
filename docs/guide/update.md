@@ -17,7 +17,7 @@ The board needs internet access for this check. Without it, the Controller keeps
 1. Open the **Dashboard**. Under **System Status**, the **Controller** card shows your **Version**.
 2. When a Release is newer, the card shows `Update available:` and its version, with an **Update** button. Select **Update**.
 
-> **Screenshot to come:** admin panel, the Dashboard's Controller card showing Update available and the Update button.
+![The Dashboard's Controller card showing Version v0.1.0 and, at the bottom, Update available: v0.1.1 with the Update button](assets/screenshots/dashboard-update-available.png)
 
 The page **Updating to …** opens. The Controller downloads the new version, checks it, saves a copy of your data, and restarts. The page opens the Dashboard again by itself when the Controller is back.
 

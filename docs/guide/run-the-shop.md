@@ -19,7 +19,7 @@ You made your first Voucher in [Sell your first Voucher](sell-your-first-voucher
 5. In **Vouchers**, type how many to make, up to 1000.
 6. Select **Generate Voucher Batch**, then **Open Print sheet**, and print it.
 
-> **Screenshot to come:** admin panel, the Generate Voucher Batch window with a Rate tier selected and a Seller typed in.
+![The Generate Voucher Batch window with the ₱5 · 1 hour Rate tier selected, a Seller typed in, the prefix ANW with its sample code, and 20 Vouchers](assets/screenshots/generate-rate-tier-seller.png)
 
 The **Voucher Batches** table lists every Batch, newest first, with its **Seller**, **Rate tier**, **Price**, **Time**, how many **Vouchers** it has and how many are **Redeemed** (used). On each row:
 
@@ -37,7 +37,7 @@ A Voucher counts as Sales when a customer uses it, not when you print it.
 
 Your prices live under **Shop**. A Vendo uses the Shop's prices unless you give it its own, so you set them once for the whole Shop.
 
-> **Screenshot to come:** admin panel, Shop › Rate tiers with three tiers.
+![Shop › Rate tiers with three tiers: ₱1 for 10 minutes, ₱5 for 1 hour and ₱10 for 2 hours 10 minutes, each with Points earned, a 30-day Validity and a Pause Limit of 3, above Add tier and Save Shop tiers](assets/screenshots/shop-rate-tiers-three.png)
 
 ### Rate tiers
 
@@ -83,7 +83,7 @@ The **Dashboard** shows your Sales for today, this week, this month and this yea
 
 Each sale shows its date and time, the customer's Device, whether it was a **Coin** or a **Voucher**, who sold it, how much time it gave and the **Amount**. A Voucher from a Batch with no price shows `Unknown`.
 
-> **Screenshot to come:** admin panel, Sales Inventory showing Today's Sales.
+![Sales Inventory with Today selected: Total Sales ₱10, split into Vendo Sales ₱0 and Voucher Sales ₱10, and two Voucher sales, one sold by the Shop and one by a Seller](assets/screenshots/sales-today.png)
 
 ## Help a customer who lost their time
 
@@ -103,7 +103,7 @@ The customer needs their **Resume Code**: the 8-character code the Portal showed
 
 The time moves to this phone, which goes online, even if the customer had paused it. The old phone goes offline. Moving time from one phone to another is called **Rebind**; it never adds or loses time.
 
-> **Screenshot to come:** Portal, the Resume Code window with Got a code from another phone? and Recover time.
+![The Portal on a phone with no time yet, with the Resume Code window open: a code typed under Got a code from another phone? above the Recover time button](assets/screenshots/portal-resume-code.png)
 
 What the customer may see:
 
@@ -148,7 +148,7 @@ The Pause Limit here applies to Custom Voucher Batches and time you grant. A Rat
 
 The page shows `Unused time expires … after the last Top-up.` A change applies to purchases from now on, not to time customers already have. Like the Pause Limit, it applies to Custom Voucher Batches and granted time; Rate tiers carry their own Validity.
 
-> **Screenshot to come:** admin panel, Settings › Pause with Idle Pause turned on.
+![Settings › Pause with Pause Limit 3, Idle Pause set to On and Idle period 120 seconds, above the Save Pause settings button](assets/screenshots/pause-idle-on.png)
 
 ## Customize the Portal
 
@@ -178,7 +178,7 @@ If you get lost, **Download default** gives you the Default Portal's files to st
 
 If something is wrong after publishing, **Revert to previous** brings back what customers saw before. **Reset to default** brings back the Default Portal; **Revert to previous** undoes that too.
 
-> **Screenshot to come:** admin panel, Settings › Portal with the Preview showing the online state.
+![The Preview on Settings › Portal with the online state selected: the draft Portal with a new cover, logo and Shop name showing sample time left, beside the table of states where online reads OK](assets/screenshots/portal-preview-online.png)
 
 ## Other pages
 

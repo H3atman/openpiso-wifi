@@ -1,0 +1,24 @@
+---
+title: OpenPiso WiFi
+home: true
+---
+<section class="hero">
+  <h1>Sell WiFi time by Voucher on your MikroTik, <span class="accent">today</span>.</h1>
+  <p>OpenPiso WiFi turns a small Linux board into the Controller for your Shop: it prints Vouchers, keeps the record of the time each customer bought, and tells your MikroTik Router who may go online. Coin Vendos are coming.</p>
+</section>
+
+<blockquote class="notice">
+  <strong>Early release.</strong> OpenPiso WiFi is new and still changing; if something does not work, please <a href="https://github.com/{{ site.repository }}/issues">tell us on GitHub Issues</a>.
+</blockquote>
+
+<h2>Install</h2>
+<p>On the board, over SSH (this example is for an Orange Pi Zero at 192.168.10.2):</p>
+<pre><code>base=https://github.com/H3atman/openpiso-wifi/releases/latest/download
+curl -fLO "$base/openpiso-linux-armv7"
+curl -fLO "$base/openpiso-install.tar.gz"
+tar -xzf openpiso-install.tar.gz
+cd install
+sudo sh install.sh --binary ../openpiso-linux-armv7 \
+  --portal-url http://192.168.10.2 \
+  --admin-network 192.168.10.0/24</code></pre>
+<p><a class="button" href="{{ '/install-the-controller.html' | relative_url }}">Read the guide</a></p>

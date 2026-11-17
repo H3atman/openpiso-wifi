@@ -1,0 +1,61 @@
+<!doctype html>
+{%- comment -%}
+The one layout for the Website. Guide pages get the step sidebar and previous/next
+links from _data/guide.yml; the home page sets `home: true` and gets neither.
+{%- endcomment -%}
+{%- assign steps = site.data.guide -%}
+{%- for step in steps -%}
+  {%- if step.page == page.path -%}{%- assign current = forloop.index0 -%}{%- endif -%}
+{%- endfor -%}
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{% if page.home %}{{ site.title }}{% else %}{{ page.title }} · {{ site.title }} Guide{% endif %}</title>
+<meta name="description" content="{{ page.description | default: site.description }}">
+<link rel="icon" href="{{ '/assets/favicon.svg' | relative_url }}" type="image/svg+xml">
+<link rel="stylesheet" href="{{ '/assets/style.css' | relative_url }}">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="{{ '/' | relative_url }}"><img src="{{ '/assets/logo.svg' | relative_url }}" alt="OpenPiso WiFi" height="36"></a>
+  <nav><a href="{{ '/install-the-controller.html' | relative_url }}">Guide</a> <a href="https://github.com/{{ site.repository }}">GitHub</a></nav>
+</header>
+{%- if page.home %}
+<main class="home">{{ content }}</main>
+{%- else %}
+<div class="guide">
+  <aside class="steps">
+    <p class="steps-title">Guide</p>
+    <ol>
+    {%- for step in steps %}
+      {%- if step.page %}
+      <li{% if forloop.index0 == current %} class="current"{% endif %}><a href="{{ step.page | replace: '.md', '.html' | relative_url }}">{{ step.title }}</a></li>
+      {%- else %}
+      <li class="soon">{{ step.title }}</li>
+      {%- endif %}
+    {%- endfor %}
+    </ol>
+  </aside>
+  <main class="page">
+    {{ content }}
+    {%- if current %}
+    {%- assign prev_index = current | minus: 1 -%}
+    {%- assign next_index = current | plus: 1 -%}
+    {%- assign prev = steps[prev_index] -%}
+    {%- assign next = steps[next_index] %}
+    <nav class="prevnext">
+      {%- if current > 0 %}
+      <span class="prev">{% if prev.page %}<a href="{{ prev.page | replace: '.md', '.html' | relative_url }}">← {{ prev.title }}</a>{% else %}← {{ prev.title }} (coming soon){% endif %}</span>
+      {%- endif %}
+      {%- if next %}
+      <span class="next">{% if next.page %}<a href="{{ next.page | replace: '.md', '.html' | relative_url }}">{{ next.title }} →</a>{% else %}{{ next.title }} (coming soon) →{% endif %}</span>
+      {%- endif %}
+    </nav>
+    {%- endif %}
+  </main>
+</div>
+{%- endif %}
+<footer class="foot">OpenPiso WiFi is open source. <a href="https://github.com/{{ site.repository }}">Source</a> · <a href="https://github.com/{{ site.repository }}/releases">Releases</a> · <a href="https://github.com/{{ site.repository }}/blob/main/LICENSE">Licence</a></footer>
+</body>
+</html>

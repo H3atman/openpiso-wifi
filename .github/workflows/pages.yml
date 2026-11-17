@@ -1,0 +1,52 @@
+name: Pages
+
+# Builds the Website and the Guide from docs/guide/ with Jekyll. Pull requests only
+# build; a push to main publishes to GitHub Pages (Settings › Pages › Source must be
+# "GitHub Actions").
+
+on:
+  pull_request:
+    paths:
+      - 'docs/guide/**'
+      - '.github/workflows/pages.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'docs/guide/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/jekyll-build-pages@v1
+        with:
+          source: docs/guide
+          destination: ./_site
+      - uses: actions/upload-pages-artifact@v5
+        if: github.event_name != 'pull_request'
+
+  deploy:
+    needs: build
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5

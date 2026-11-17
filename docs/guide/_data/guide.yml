@@ -1,0 +1,11 @@
+# The eight Guide steps, in order. Give a step `page` (its .md file) once it has one;
+# until then the sidebar shows it as plain text.
+- title: What you need
+- title: Install the Controller
+  page: install-the-controller.md
+- title: Connect the Router
+- title: Sell your first Voucher
+- title: Add a Vendo
+- title: Run the Shop day to day
+- title: Update
+- title: Troubleshooting

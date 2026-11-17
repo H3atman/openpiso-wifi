@@ -1,0 +1,50 @@
+/* Shared by the home page and the Guide. Brand greens from brand/logo/kit/GUIDELINES.md:
+   Forest for text, Leaf only for large graphics, Mint only on Forest. */
+:root {
+  --forest: #123C1C;
+  --mint: #71DA88;
+  --leaf: #2E9E4F;
+  --white: #FFFFFF;
+  --paper: #F4FAF5;
+  --line: #D5E8DA;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; font: 17px/1.6 system-ui, sans-serif; color: var(--forest); background: var(--white); }
+a { color: var(--forest); text-decoration-color: var(--leaf); text-underline-offset: 3px; }
+code, pre { font-family: ui-monospace, monospace; font-size: 0.9em; }
+code { background: var(--paper); padding: 0.1em 0.3em; border-radius: 4px; }
+pre { background: var(--forest); color: var(--white); padding: 1em; border-radius: 8px; overflow-x: auto; }
+pre code { background: none; padding: 0; color: inherit; }
+blockquote { margin: 1em 0; padding: 0.6em 1em; background: var(--paper); border-left: 4px solid var(--leaf); }
+table { border-collapse: collapse; }
+th, td { border: 1px solid var(--line); padding: 0.3em 0.7em; text-align: left; }
+
+.top { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+.top nav a { margin-left: 1em; font-weight: 600; }
+.foot { padding: 24px 16px; border-top: 1px solid var(--line); font-size: 0.9em; text-align: center; }
+
+.guide { display: flex; max-width: 1100px; margin: 0 auto; }
+.steps { flex: 0 0 240px; padding: 24px 16px; border-right: 1px solid var(--line); }
+.steps-title { font-weight: 700; margin: 0 0 0.5em; }
+.steps ol { margin: 0; padding-left: 1.4em; }
+.steps li { margin: 0.3em 0; }
+.steps li.current a { font-weight: 700; }
+.steps li.soon { opacity: 0.6; }
+.page { flex: 1; min-width: 0; padding: 24px 32px; max-width: 760px; }
+.prevnext { display: flex; justify-content: space-between; gap: 1em; margin-top: 3em; padding-top: 1em; border-top: 1px solid var(--line); }
+.prevnext .next { margin-left: auto; }
+
+.home { max-width: 760px; margin: 0 auto; padding: 48px 16px; }
+.hero { background: var(--forest); color: var(--white); border-radius: 12px; padding: 40px 32px; }
+.hero h1 { margin-top: 0; font-size: 2.2em; line-height: 1.2; }
+.hero .accent { color: var(--mint); }
+.notice { margin-top: 1.5em; }
+.button { display: inline-block; background: var(--mint); color: var(--forest); font-weight: 700; text-decoration: none; padding: 0.6em 1.2em; border-radius: 8px; }
+
+@media (max-width: 720px) {
+  .guide { display: block; }
+  .steps { border-right: none; border-bottom: 1px solid var(--line); }
+  .page { padding: 24px 16px; }
+  .hero { padding: 28px 20px; }
+}

@@ -1,0 +1,10 @@
+Issues found in 1 input. Find details below.
+
+[openpiso-wifi/update.html]:
+[ERROR] file:///check/openpiso-wifi/assets/screenshots/missing.png (at 109:155) | File not found. Check if file exists and path is correct
+[ERROR] file:///check/openpiso-wifi/no-such-page.md (at 109:32) | File not found. Check if file exists and path is correct
+[ERROR] file:///check/openpiso-wifi/what-you-need.html#no-such-anchor (at 109:76) | Cannot find fragment
+
+🔍 211 Total (in 6ms) 🔗 47 Unique ✅ 151 OK 🚫 3 Errors 👻 57 Excluded
+
+exit=2

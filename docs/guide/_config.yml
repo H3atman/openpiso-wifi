@@ -1,0 +1,18 @@
+# Jekyll source for the Website and the Guide, built by .github/workflows/pages.yml.
+# Guide pages are plain Markdown with no front matter so they read the same on GitHub;
+# links between them use the .md file name and jekyll-relative-links rewrites them.
+title: OpenPiso WiFi
+description: Sell WiFi time by Voucher on your MikroTik.
+baseurl: /openpiso-wifi
+repository: H3atman/openpiso-wifi
+
+defaults:
+  - scope:
+      path: ""
+    values:
+      layout: guide
+# No theme: the site uses only _layouts/guide.html and assets/style.css.
+theme: null
+# Publish Guide pages only as HTML, not also as their .md source.
+optional_front_matter:
+  remove_originals: true

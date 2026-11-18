@@ -1,42 +1,46 @@
 # OpenPiso WiFi
 
-## Repo map
+Sell WiFi time by Voucher on your MikroTik, today. Coin Vendos are coming.
 
-- **Controller** — [README](controller/README.md). Installed Controllers update from signed releases; see [Updates](controller/README.md#updates).
-- **Vendo firmware** — [bench README](firmware/subvendo/bench/README.md) and [test plan](firmware/subvendo/TEST-PLAN.md).
-- **Labs** — [CHR README](lab/chr/README.md), [phone README](lab/phones/README.md) and [dev README](lab/dev/README.md).
-- **Docs** — [architecture](ARCHITECTURE.md), [glossary](GLOSSARY.md), [ADRs](docs/adr/) and [research](docs/research/).
-- **Brand** — [logo handover](brand/logo/kit/HANDOVER.md) and [guidelines](brand/logo/kit/GUIDELINES.md).
+OpenPiso WiFi turns a small Linux board into the **Controller** for your **Shop** (the place you sell WiFi time). It prints **Vouchers** (single-use codes worth a fixed amount of time), keeps the record of the time each customer bought, and tells your MikroTik **Router** who may go online.
 
-## Tasks
+> **Early release.** OpenPiso WiFi is new and still changing; if something does not work, please [tell us on GitHub Issues](https://github.com/H3atman/openpiso-wifi/issues).
 
-Run from the repo root; prerequisites and procedures live in the linked docs.
+![The Controller's admin panel Dashboard](docs/guide/assets/screenshots/dashboard.png)
 
-| Task | Command |
-| --- | --- |
-| Set up the pinned firmware venv and enable the shared git hook for every worktree | `make setup` |
-| Run the offline CI checks: Go vet, native build, armv7 build and firmware host sim | `make check` |
-| Run the firmware host sim only | `make sim` |
-| Rebuild the firmware venv from [pinned requirements](firmware/subvendo/requirements.txt), including after deleting it | `make venv` |
-| Run the CHR E2E (exclusive shared-lab access; read the Controller README first) | `make e2e` |
-| Start the dev lab (shared CHR; read the dev README first) | `make dev` |
+## What you need
 
-`setup`, `check`, `sim` and `venv` do not access the CHR lab or a physical board.
-`e2e` and `dev` are explicit lab operations; do not run them concurrently.
-Physical-board procedures are not part of these targets; see the firmware bench README.
+- A small Linux board for the Controller: an Orange Pi Zero on Armbian (tested), a Raspberry Pi on Raspberry Pi OS Lite, or any arm64 or amd64 computer that runs Linux with systemd.
+- A MikroTik on RouterOS v7 (tested) that already has a working HotSpot server, with `www-ssl` turned on and a certificate.
+- A Windows PC on the same network, to set up the board.
 
-`make setup` sets the clone's shared `core.hooksPath` to `.githooks`, covering
-all worktrees. The pre-commit hook checks staged files, not unstaged edits:
-no `*.pyc`, `.env`, files over 500 KB (500000 bytes), or unformatted Go.
-Controller changes also run `go vet` against the staged snapshot. Existing,
-unchanged files are not checked. Put `go` and `gofmt` on `PATH`; `GO` (as in
-`controller/Makefile`) and `GOFMT` can select explicit tool paths.
+The full list is in [What you need](docs/guide/what-you-need.md).
 
-## Evidence policy
+## Quick start
 
-Use compressed PNG for screenshots and MP4 for demos, no GIF. The staged-file
-limit of 500 KB applies inside `evidence/` too: compress evidence rather than
-exempting it. Existing committed files are left alone unless staged again.
+1. **Prepare the board.** Write Armbian or Raspberry Pi OS Lite to a microSD card, start the board on your MikroTik's LAN, make its DHCP lease static, and connect to it from PowerShell with `ssh root@192.168.10.2` (your board's address).
+2. **Install the Controller.** On the board, run the commands below. Use the file for your board (`openpiso-linux-armv7`, `openpiso-linux-arm64` or `openpiso-linux-amd64`), and change the two addresses to your board's address and your network. The installer asks you for an admin password.
+
+   ```sh
+   base=https://github.com/H3atman/openpiso-wifi/releases/latest/download
+   curl -fLO "$base/openpiso-linux-armv7"
+   curl -fLO "$base/openpiso-install.tar.gz"
+   tar -xzf openpiso-install.tar.gz
+   cd install
+   sudo sh install.sh --binary ../openpiso-linux-armv7 \
+     --portal-url http://192.168.10.2 \
+     --admin-network 192.168.10.0/24
+   ```
+
+3. **Log in.** On your PC, open `http://192.168.10.2/admin/login` and log in with the admin password.
+4. **Connect the Router.** Give the Controller your MikroTik's address and admin login, and confirm its certificate. See [Connect the Router](docs/guide/connect-the-router.md).
+5. **Sell your first Voucher.** Generate Vouchers, print them, and redeem one on a phone. See [Sell your first Voucher](docs/guide/sell-your-first-voucher.md).
+
+The [Guide](docs/guide/what-you-need.md) explains each step in full, starting with [Install the Controller](docs/guide/install-the-controller.md) for steps 1 to 3. It is also on the Website at [h3atman.github.io/openpiso-wifi](https://h3atman.github.io/openpiso-wifi/).
+
+## Contributing
+
+To work on the code, see [CONTRIBUTING.md](CONTRIBUTING.md). The technical reference for the Controller is [controller/README.md](controller/README.md).
 
 ## License
 

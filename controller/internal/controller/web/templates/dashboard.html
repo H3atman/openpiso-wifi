@@ -5,6 +5,7 @@
 {{end}}
 
 {{define "dashboard_body"}}
+{{if not .RouterSetupFinished}}<a class="setup-banner" href="/admin">Router setup is not finished: Adopt a HotSpot server{{icon "alert"}}<span class="audit-banner-cta">Open Router setup{{icon "chevron-right"}}</span></a>{{end}}
 {{/* The count must lead the link text (e2e); the icon is moved in front by CSS order. */}}
 {{if .PendingAudit}}<a class="audit-banner" href="/admin/time-credits?tab=audit">{{.PendingAudit}} coin {{if eq .PendingAudit 1}}report needs{{else}}reports need{{end}} review{{icon "alert"}}<span class="audit-banner-cta">Open Audit inbox{{icon "chevron-right"}}</span></a>{{end}}
 

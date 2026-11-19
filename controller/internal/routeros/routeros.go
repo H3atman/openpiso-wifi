@@ -279,7 +279,8 @@ func changedFields(current, desired map[string]string) map[string]string {
 	return changes
 }
 
-func (c *Client) readVersion(ctx context.Context) (string, error) {
+// Version is the RouterOS version the Router reports.
+func (c *Client) Version(ctx context.Context) (string, error) {
 	var resource map[string]string
 	if err := c.request(ctx, http.MethodGet, "/system/resource", nil, &resource); err != nil {
 		return "", err
@@ -288,7 +289,7 @@ func (c *Client) readVersion(ctx context.Context) (string, error) {
 }
 
 func (c *Client) systemVersion(ctx context.Context) (string, error) {
-	version, err := c.readVersion(ctx)
+	version, err := c.Version(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -312,10 +313,19 @@ type Provisioned struct {
 	Version     string
 }
 
-func Onboard(ctx context.Context, admin *Client, portalURL, existingSecret string) (Provisioned, error) {
+// Onboard connects a Router: with the Operator's admin login it saves a Router
+// backup named openpiso-<date>-<time>, then creates the Controller's limited
+// user and verifies it. It changes no HotSpot configuration. The backup is
+// saved here, before the Controller's first change, because saving one needs
+// the policy permission the limited user does not have.
+func Onboard(ctx context.Context, admin *Client, existingSecret string) (Provisioned, error) {
 	version, err := admin.systemVersion(ctx)
 	if err != nil {
 		return Provisioned{}, err
+	}
+	backup := "openpiso-" + time.Now().Format("20060102-150405")
+	if err := admin.request(ctx, http.MethodPost, "/system/backup/save", map[string]string{"name": backup, "dont-encrypt": "yes"}, nil); err != nil {
+		return Provisioned{}, fmt.Errorf("save Router backup: %w", err)
 	}
 	if err := admin.ensureNamed(ctx, "/user/group", controllerGroup, map[string]string{
 		"policy": controllerPolicy,
@@ -348,9 +358,6 @@ func Onboard(ctx context.Context, admin *Client, portalURL, existingSecret strin
 	}
 	if _, err := limited.systemVersion(ctx); err != nil {
 		return Provisioned{}, fmt.Errorf("verify limited Router user: %w", err)
-	}
-	if err := limited.EnsureBaseline(ctx, portalURL); err != nil {
-		return Provisioned{}, err
 	}
 	return Provisioned{
 		Address:     admin.baseURL.String(),

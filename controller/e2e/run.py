@@ -20,6 +20,7 @@ import json
 import os
 import re
 import socket
+import sqlite3
 import ssl
 import subprocess
 import sys
@@ -59,6 +60,9 @@ _lab_spec.loader.exec_module(_lab_module)
 _vlan_spec = importlib.util.spec_from_file_location("vlan_lab", ROOT / "lab/chr/vlan_lab.py")
 _vlan_module = importlib.util.module_from_spec(_vlan_spec)
 _vlan_spec.loader.exec_module(_vlan_module)
+_hotspot_spec = importlib.util.spec_from_file_location("hotspot_lab", ROOT / "lab/chr/hotspot_lab.py")
+_hotspot_module = importlib.util.module_from_spec(_hotspot_spec)
+_hotspot_spec.loader.exec_module(_hotspot_module)
 
 
 def load_lab_env() -> dict[str, str]:
@@ -629,7 +633,7 @@ def capture_baseline(address: str, password: str) -> dict:
     profiles = router_rest(address, "admin", password, "/ip/hotspot/user/profile")
     hotspot_profiles = router_rest(address, "admin", password, "/ip/hotspot/profile")
     walled = router_rest(address, "admin", password, "/ip/hotspot/walled-garden/ip")
-    files = router_rest(address, "admin", password, "/file?name=hotspot%2Flogin.html")
+    files = router_rest(address, "admin", password, "/file?name=openpiso%2Flogin.html")
     return {
         "group": [{key: item.get(key, "") for key in ("name", "policy")} for item in groups],
         "user": [{key: item.get(key, "") for key in ("name", "group", "disabled")} for item in users],
@@ -650,8 +654,9 @@ def capture_baseline(address: str, password: str) -> dict:
             for item in walled
             if item.get("comment") == "openpiso-controller"
         ],
-        "login_html": files[0]["contents"],
-        "login_file": {key: files[0].get(key, "") for key in ("name", "size", "last-modified")},
+        # The Controller's login page exists once a HotSpot server is Adopted.
+        "login_html": files[0]["contents"] if files else None,
+        "login_file": {key: files[0].get(key, "") for key in ("name", "size", "last-modified")} if files else None,
     }
 
 
@@ -5577,6 +5582,158 @@ def vlan_host_evidence(address, password, client_address, report, write_hosts):
         fixture.teardown()
 
 
+def hotspot_tree(address, password):
+    """Everything connecting must leave alone: HotSpot servers, server profiles, login pages and walled garden."""
+    def rows(path):
+        return router_rest(address, "admin", password, path)
+    # A full /file listing includes binary contents that are not UTF-8, so list names only.
+    pages = sorted(row["name"] for row in rows("/file?.proplist=name") if row["name"].endswith("login.html"))
+    return {
+        "servers": rows("/ip/hotspot"),
+        "server_profiles": rows("/ip/hotspot/profile"),
+        "walled_garden": rows("/ip/hotspot/walled-garden/ip"),
+        "login_pages": {name: rows("/file?name=" + urllib.parse.quote(name, safe=""))[0] for name in pages},
+    }
+
+
+def router_backups(address, password):
+    return sorted(row["name"] for row in router_rest(address, "admin", password, "/file?type=backup&.proplist=name")
+                  if row["name"].startswith("openpiso-"))
+
+
+def router_setup_finished(opener):
+    """The Dashboard's Router setup notice: (finished, page has the notice linking to Router setup)."""
+    html = request(opener, "/admin/dashboard").read().decode()
+    notice = bool(re.search(r'<a class="setup-banner" href="/admin">Router setup is not finished', html))
+    return dashboard(opener)["router_setup_finished"], notice
+
+
+def use_existing(opener, report, address, password, existing, tree_before, other_before, users_before):
+    """Router setup's Use existing: Adopt hs1 and leave the second server unticked."""
+    server, other = _hotspot_module.SERVER, _hotspot_module.OTHER
+    page = request(opener, "/admin").read().decode()
+    for name in (server, other):
+        assert f'<input type="checkbox" name="server" value="{name}" checked>' in page, page
+    response = request(opener, "/admin/router/use-existing?" + urllib.parse.urlencode({"server": server}))
+    review = response.read().decode()
+    assert response.status == 200, review
+    assert "login page" in review and "login method" in review and server in review and other not in review, review
+    assert 'action="/admin/router/adopt"' in review
+    for form, status in (({}, 400), ({"server": "opnw-missing"}, 400)):
+        assert request(opener, "/admin/router/adopt", "POST", form).status == status, form
+    assert hotspot_tree(address, password) == tree_before, "reviewing or a refused Adopt changed the Router"
+    assert json.load(request(opener, "/admin/state"))["router"]["adopted_hotspot_servers"] == []
+    report.snapshot("use-existing-lists-servers-ticked-and-names-both-changes", address, password, opener,
+                    review_html=review)
+
+    response = request(opener, "/admin/router/adopt", "POST", {"server": server})
+    page = response.read().decode()
+    assert response.status == 200 and urllib.parse.urlsplit(response.url).path == "/admin", page
+    assert f'<input type="checkbox" name="server" value="{other}" checked>' in page, page
+    assert f'<input type="checkbox" name="server" value="{server}"' not in page, page
+    state = json.load(request(opener, "/admin/state"))
+    assert state["router"]["adopted_hotspot_servers"] == [server]
+    assert state["router"]["status"] == "ready"
+    profile = router_rest(address, "admin", password, f"/ip/hotspot/profile?name={_hotspot_module.SERVER_PROFILE}")[0]
+    assert (profile["login-by"], profile["html-directory"]) == ("http-pap", _hotspot_module.CONTROLLER_LOGIN_DIRECTORY), profile
+    files = router_rest(address, "admin", password, "/file?name=openpiso%2Flogin.html")
+    assert len(files) == 1
+    assert f"{PORTAL_URL}/portal" in files[0]["contents"]
+    assert "$(mac-esc)" in files[0]["contents"] and "$(ip)" in files[0]["contents"]
+    # The second server, its server profile and the default login page read back unchanged.
+    assert existing.other() == other_before
+    assert other_before["login_page"][0]["contents"] == _hotspot_module.LOGIN_HTML
+    assert existing.users() == users_before
+
+    profiles = router_rest(address, ROUTER_ADMIN, ROUTER_ADMIN_PASSWORD, "/ip/hotspot/user/profile")
+    by_name = {profile["name"]: profile for profile in profiles}
+    assert by_name["openpiso-no-idle"]["idle-timeout"] == "none"
+    assert by_name["openpiso-idle"]["idle-timeout"] == "2m"
+    for name in ("openpiso-no-idle", "openpiso-idle"):
+        assert by_name[name]["shared-users"] == "1"
+        assert by_name[name]["keepalive-timeout"] == "none"
+        assert by_name[name]["add-mac-cookie"] == "false"
+    walled = router_rest(address, ROUTER_ADMIN, ROUTER_ADMIN_PASSWORD, "/ip/hotspot/walled-garden/ip")
+    controller_rules = [entry for entry in walled if entry.get("comment") == "openpiso-controller"]
+    assert len(controller_rules) == 1
+    assert controller_rules[0]["dst-address"] == urllib.parse.urlsplit(PORTAL_URL).hostname
+    assert controller_rules[0]["dst-port"] == "18080"
+    assert router_setup_finished(opener) == (True, False)
+    report.snapshot("use-existing-adopts-only-the-ticked-server", address, password, opener,
+                    adopted=[server], unticked=other, server_profile=profile,
+                    default_login_page_unchanged=True)
+
+
+def without_hotspot_servers(address, password, check):
+    """Run check() while the lab Router has no HotSpot server, then put hs1 back as it was."""
+    row = router_rest(address, "admin", password, f"/ip/hotspot?name={_hotspot_module.SERVER}")[0]
+    kept = {key: row[key] for key in ("name", "interface", "profile", "address-pool", "idle-timeout",
+                                      "addresses-per-mac", "keepalive-timeout", "login-timeout", "disabled") if key in row}
+    router_rest(address, "admin", password, f"/ip/hotspot/{row['.id']}", "DELETE")
+    try:
+        check()
+    finally:
+        router_rest(address, "admin", password, "/ip/hotspot", "PUT", kept)
+
+
+def onboarding(controller, args, data_dir, opener, report, address, password, client_address, existing, other_before):
+    """Use existing on someone else's HotSpot, after the shared onboarding Adopted hs1 (see use_existing)."""
+    assert existing.other() == other_before, "Controller boot changed the server that was not ticked"
+    report.snapshot("boot-leaves-the-unticked-server-unchanged", address, password, opener, unticked=existing.other())
+    existing.teardown_other()
+
+    redirect_page, _ = device_redirect(client_address, password)
+    assert f"{PORTAL_URL}/portal" in redirect_page, redirect_page
+    device_ip = router_rest(client_address, "admin", password, "/ip/address?interface=lan1", scheme="http")[0]["address"].split("/")[0]
+    response = generate_vouchers(opener, {"seconds": "600", "count": "2"})
+    assert response.status == 200
+    codes = voucher_codes(opener, response)
+    state = portal_state(pause_device_fetch(client_address, password, device_ip, "/portal/api/redeem", {"code": codes[0]}))
+    assert_message(state, "success", "online")
+    target, internet = device_internet(client_address, password, device_ip)
+    assert PORTAL_URL.removeprefix("http://") + "/portal" not in internet
+    report.snapshot("adopted-server-sends-a-device-online-with-a-voucher", address, password, opener,
+                    redirect_html=redirect_page, internet_target=target)
+
+    # A ledger from before Router setup: a saved Router connection and no record of Adopted servers.
+    # The Router is as that Controller left it, the server profile on the default directory.
+    controller.stop()
+    with sqlite3.connect(Path(data_dir) / "openpiso.db") as db:
+        db.execute("DROP TABLE adopted_hotspot_servers")
+    db.close()
+    profile = router_rest(address, "admin", password, f"/ip/hotspot/profile?name={_hotspot_module.SERVER_PROFILE}")[0]
+    router_rest(address, "admin", password, f"/ip/hotspot/profile/{profile['.id']}", "PATCH", {"html-directory": "hotspot"})
+    for active in router_rest(address, "admin", password, "/ip/hotspot/active"):
+        if active.get("user", "").startswith("op-"):
+            router_rest(address, "admin", password, f"/ip/hotspot/active/{active['.id']}", "DELETE")
+    controller = Controller(args.binary, data_dir, initialize=False)
+    opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+    assert request(opener, "/admin/login", "POST", {"password": ADMIN_PASSWORD}).status == 200
+    state = json.load(request(opener, "/admin/state"))
+    assert state["router"]["status"] == "ready", state["router"]
+    assert state["router"]["adopted_hotspot_servers"] == [_hotspot_module.SERVER]
+    assert router_setup_finished(opener) == (True, False)
+    page = request(opener, "/admin").read().decode()
+    assert 'name="server"' not in page, page
+    profile = router_rest(address, "admin", password, f"/ip/hotspot/profile?name={_hotspot_module.SERVER_PROFILE}")[0]
+    assert profile["html-directory"] == _hotspot_module.CONTROLLER_LOGIN_DIRECTORY, profile
+    connected = portal_state(pause_device_fetch(client_address, password, device_ip, "/portal/api/connect", {}))
+    assert_message(connected, "success", "online")
+    target, internet = device_internet(client_address, password, device_ip)
+    assert PORTAL_URL.removeprefix("http://") + "/portal" not in internet
+    report.snapshot("ledger-from-before-router-setup-starts-adopted-and-brings-a-device-online", address, password, opener,
+                    adopted=state["router"]["adopted_hotspot_servers"], internet_target=target)
+
+    # Last: a re-created HotSpot server takes a while before a Device fetch through it works.
+    def no_use_existing():
+        page = request(opener, "/admin").read().decode()
+        assert 'action="/admin/router/use-existing"' not in page, page
+        assert "no HotSpot server" in page, page
+    without_hotspot_servers(address, password, no_use_existing)
+    report.snapshot("use-existing-hidden-without-a-hotspot-server", address, password, opener)
+    return controller, opener
+
+
 def scenario(args, report: Report, lab: dict[str, str]) -> None:
     address = router_address()
     configure_router_tls(address, lab["CHR_PASSWORD"])
@@ -5593,6 +5750,8 @@ def scenario(args, report: Report, lab: dict[str, str]) -> None:
     resource = router_rest(address, ROUTER_ADMIN, ROUTER_ADMIN_PASSWORD, "/system/resource")
     assert resource["version"].startswith("7.")
     original_hotspot_names = {entry["name"] for entry in router_rest(address, "admin", lab["CHR_PASSWORD"], "/ip/hotspot/user")}
+    existing = _hotspot_module.ExistingHotspotLab(
+        lambda path, method="GET", body=None: router_rest(address, "admin", lab["CHR_PASSWORD"], path, method, body))
     try:
         with tempfile.TemporaryDirectory(prefix="openpiso-e2e-") as data_dir:
             def restart_browser_controller():
@@ -5677,6 +5836,15 @@ def scenario(args, report: Report, lab: dict[str, str]) -> None:
 
                 non_v7_refusal(opener, report, address, lab["CHR_PASSWORD"])
 
+                # Every run connects to someone else's HotSpot (lab/chr/hotspot_lab.py) and Adopts hs1.
+                existing.setup()
+                tree_before_connect = hotspot_tree(address, lab["CHR_PASSWORD"])
+                other_before = existing.other()
+                users_before = existing.users()
+                assert router_backups(address, lab["CHR_PASSWORD"]) == []
+                report.snapshot("router-holds-someone-elses-hotspot", address, lab["CHR_PASSWORD"], opener,
+                                hotspot=tree_before_connect, users=users_before)
+
                 response = request(
                     opener,
                     "/admin/router/probe",
@@ -5698,16 +5866,25 @@ def scenario(args, report: Report, lab: dict[str, str]) -> None:
                 report.snapshot("operator-compares-certificate", address, lab["CHR_PASSWORD"], opener,
                                 displayed_fingerprint=fingerprint.group(0), router_fingerprint=router_fingerprint)
 
+                # Connecting lands on Router setup and changes no HotSpot configuration.
                 response = request(opener, "/admin/router/confirm", "POST")
-                connected_page = response.read().decode()
-                assert response.status == 200, connected_page
-                assert "Router connected" in connected_page
-                assert "RouterOS 7." in connected_page
+                setup_page = response.read().decode()
+                assert response.status == 200, setup_page
+                assert urllib.parse.urlsplit(response.url).path == "/admin", response.url
+                assert "Router setup" in setup_page and "RouterOS 7." in setup_page, setup_page
+                assert hotspot_tree(address, lab["CHR_PASSWORD"]) == tree_before_connect, "connecting changed the HotSpot"
+                assert existing.users() == users_before
+                backups = router_backups(address, lab["CHR_PASSWORD"])
+                assert len(backups) == 1 and backups[0].endswith(".backup"), backups
+                assert router_setup_finished(opener) == (False, True)
+                report.snapshot("connecting-changes-no-hotspot-and-saves-a-backup", address, lab["CHR_PASSWORD"], opener,
+                                backups=backups, setup_html=setup_page)
 
                 response = request(opener, "/admin/state")
                 state = json.load(response)
                 assert state["router"] == {
                     "address": f"https://{address}",
+                    "adopted_hotspot_servers": [],
                     "configured": True,
                     "fingerprint": fingerprint.group(0),
                     "status": "ready",
@@ -5723,32 +5900,13 @@ def scenario(args, report: Report, lab: dict[str, str]) -> None:
                 policies = set(groups[0]["policy"].split(","))
                 assert {"read", "write", "test", "api", "rest-api"} <= policies
                 assert not ({"local", "telnet", "ssh", "ftp", "reboot", "policy", "password", "winbox", "web", "sniff", "sensitive", "romon"} & policies)
-
-                profiles = router_rest(address, ROUTER_ADMIN, ROUTER_ADMIN_PASSWORD, "/ip/hotspot/user/profile")
-                by_name = {profile["name"]: profile for profile in profiles}
-                assert by_name["openpiso-no-idle"]["idle-timeout"] == "none"
-                assert by_name["openpiso-idle"]["idle-timeout"] == "2m"
-                for name in ("openpiso-no-idle", "openpiso-idle"):
-                    assert by_name[name]["shared-users"] == "1"
-                    assert by_name[name]["keepalive-timeout"] == "none"
-                    assert by_name[name]["add-mac-cookie"] == "false"
-
-                hotspot_profiles = router_rest(address, ROUTER_ADMIN, ROUTER_ADMIN_PASSWORD, "/ip/hotspot/profile")
-                assert next(profile for profile in hotspot_profiles if profile["name"] == "hs-prof")["login-by"] == "http-pap"
-                walled = router_rest(address, ROUTER_ADMIN, ROUTER_ADMIN_PASSWORD, "/ip/hotspot/walled-garden/ip")
-                controller_rules = [entry for entry in walled if entry.get("comment") == "openpiso-controller"]
-                assert len(controller_rules) == 1
-                assert controller_rules[0]["dst-address"] == urllib.parse.urlsplit(PORTAL_URL).hostname
-                assert controller_rules[0]["dst-port"] == "18080"
-                files = router_rest(address, ROUTER_ADMIN, ROUTER_ADMIN_PASSWORD, "/file?name=hotspot%2Flogin.html")
-                assert len(files) == 1
-                assert f"{PORTAL_URL}/portal" in files[0]["contents"]
-                assert "$(mac-esc)" in files[0]["contents"]
-                assert "$(ip)" in files[0]["contents"]
-
                 report.snapshot("onboarded-with-special-character-admin-password", address, lab["CHR_PASSWORD"], opener,
                                 password_contains_ampersand_equals_plus_hash_and_non_ascii=True,
                                 admin_readback_write_only=True)
+
+                use_existing(opener, report, address, lab["CHR_PASSWORD"], existing, tree_before_connect, other_before, users_before)
+                if args.only != "onboarding":
+                    existing.teardown_other()  # the onboarding scenario checks it again after a boot
                 baseline_before_restart = capture_baseline(address, lab["CHR_PASSWORD"])
                 response = request(opener, "/admin/router/probe", "POST", {
                     "address": f"https://{address}", "username": ROUTER_ADMIN, "password": ROUTER_ADMIN_PASSWORD,
@@ -5806,6 +5964,9 @@ def scenario(args, report: Report, lab: dict[str, str]) -> None:
                         shop_defaults_points_table(opener, report, address, lab["CHR_PASSWORD"], client_address)
                     elif args.only == "vouchers":
                         vouchers(opener, report, address, lab["CHR_PASSWORD"], client_address)
+                    elif args.only == "onboarding":
+                        controller, opener = onboarding(controller, args, data_dir, opener, report, address, lab["CHR_PASSWORD"],
+                                                        client_address, existing, other_before)
                     elif args.only == "browser":
                         device_redirect(client_address, lab["CHR_PASSWORD"])
                         device_ip = router_rest(client_address, "admin", lab["CHR_PASSWORD"],
@@ -5946,6 +6107,7 @@ def scenario(args, report: Report, lab: dict[str, str]) -> None:
             ("coin board", lambda: cleanup_coin_board(client_address, lab["CHR_PASSWORD"])),
             ("Vendo Router rules", lambda: cleanup_vendo_router(address, lab["CHR_PASSWORD"])),
             ("HotSpot users", lambda: cleanup_hotspot_users(address, lab["CHR_PASSWORD"], original_hotspot_names)),
+            ("existing HotSpot fixture", existing.teardown),
             ("bootstrap admin", lambda: cleanup_router(lab["CHR_PASSWORD"])),
             ("fixture Router address", lambda: rcon(lab["CHR_PASSWORD"], '/ip address remove [find where comment="openpiso-e2e-routing"]')),
             ("fixture source NAT", lambda: rcon(lab["CHR_PASSWORD"], '/ip firewall nat remove [find where comment="openpiso-e2e-routing"]')),
@@ -5968,6 +6130,7 @@ def assert_arm_install(vm, report: Report) -> None:
 # Partial scenarios for --only: each runs onboarding, then just that scenario, and
 # writes `<name>-only.json` with scenario `<name>-only`. `boot` is the ARMv7 guest boot check.
 ONLY_SCENARIOS = {
+    "onboarding": "Router setup from someone else's HotSpot: Use existing, a Device online, the unticked server and a ledger from before Router setup",
     "vouchers": "Voucher batch generation, pricing snapshots, CSV and redemption",
     "pairing": "flash pairing",
     "vlan": "VLAN auto-select",

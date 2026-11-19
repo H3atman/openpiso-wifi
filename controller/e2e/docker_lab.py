@@ -335,7 +335,6 @@ class DockerLab:
     """The lab interface (see LibvirtLab) on a Docker lab. run is the loaded run.py module; `running`
     sets its BASE_URL, PORTAL_URL and CONTROLLER_HOST for the lab's published ports and Controller."""
 
-    not_ported = frozenset({33})  # tickets whose scenarios run.py skips here
     router_url = f"https://{ROUTER_WAN}"
     router_password = ROUTER_PASSWORD
     browser_limits = ["--memory", f"{BROWSER_MEMORY >> 20}m", "--memory-swap", f"{BROWSER_MEMORY >> 20}m"]

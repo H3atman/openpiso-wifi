@@ -226,8 +226,6 @@ class LibvirtLab:
     module; PORTAL_URL is read from it at call time because ARM mode changes it.
     """
 
-    not_ported = frozenset()  # tickets whose scenarios this lab skips (run.ported)
-
     def __init__(self, run, password: str):
         self.run = run
         self.router_password = password

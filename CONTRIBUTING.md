@@ -4,7 +4,7 @@
 
 - **Controller** — [README](controller/README.md). Installed Controllers update from signed releases; see [Updates](controller/README.md#updates).
 - **Vendo firmware** — [bench README](firmware/subvendo/bench/README.md) and [test plan](firmware/subvendo/TEST-PLAN.md).
-- **Labs** — [CHR README](lab/chr/README.md), [phone README](lab/phones/README.md) and [dev README](lab/dev/README.md).
+- **Labs** — [dev README](lab/dev/README.md), [phone README](lab/phones/README.md) and the [CHR research labs](lab/chr/README.md). E2E runs on the Docker lab in [`lab/docker`](lab/docker).
 - **Docs** — [architecture](ARCHITECTURE.md), [glossary](GLOSSARY.md), [ADRs](docs/adr/) and [research](docs/research/).
 - **Guide** — [docs/guide/](docs/guide/), the only source of the Website.
 - **Brand** — [logo handover](brand/logo/kit/HANDOVER.md) and [guidelines](brand/logo/kit/GUIDELINES.md).
@@ -19,12 +19,12 @@ Run from the repo root; prerequisites and procedures live in the linked docs.
 | Run the offline CI checks: Go vet, native build, armv7 build and firmware host sim | `make check` |
 | Run the firmware host sim only | `make sim` |
 | Rebuild the firmware venv from [pinned requirements](firmware/subvendo/requirements.txt), including after deleting it | `make venv` |
-| Run the E2E on a throwaway Docker lab of its own (needs Docker and `/dev/kvm`; see the [Controller README](controller/README.md#the-docker-lab-default)) | `make e2e` |
-| Start the dev lab (shared CHR; read the dev README first) | `make dev` |
+| Run the E2E on a throwaway Docker lab of its own (needs Docker and `/dev/kvm`; see the [Controller README](controller/README.md#the-docker-lab)) | `make e2e` |
+| Start the Docker dev lab (read the dev README first) | `make dev` |
 
-`setup`, `check`, `sim` and `venv` do not access the CHR lab or a physical board.
-`e2e` creates and removes its own lab, so several can run at once. `dev` uses the
-shared libvirt CHR lab; do not run it beside `make -C controller e2e LAB=libvirt`.
+`setup`, `check`, `sim` and `venv` do not access a lab or a physical board.
+`e2e` creates and removes its own lab, so several can run at once, and beside the
+dev lab ([ADR 0011](docs/adr/0011-e2e-runs-on-a-docker-lab-per-run.md)).
 Physical-board procedures are not part of these targets; see the firmware bench README.
 
 `make setup` sets the clone's shared `core.hooksPath` to `.githooks`, covering

@@ -62,6 +62,22 @@ VLAN_DEVICE_MACS = {10: "02:00:00:00:0C:10", 20: "02:00:00:00:0C:20"}  # vlan_up
 SIGNALS = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
 
 
+def unwind_on_signals() -> None:
+    """SIGINT, SIGTERM and SIGHUP raise KeyboardInterrupt, so the run unwinds through its teardown however
+    it ends. SIGINT is set explicitly because a background job of a non-interactive shell inherits it
+    ignored. Call ignore_signals when teardown starts."""
+    def interrupted(signum, _frame):
+        raise KeyboardInterrupt(signal.Signals(signum).name)
+    for signum in SIGNALS:
+        signal.signal(signum, interrupted)
+
+
+def ignore_signals() -> None:
+    """A second signal must not cut the removal short."""
+    for signum in SIGNALS:
+        signal.signal(signum, signal.SIG_IGN)
+
+
 def sh(*command: str, check: bool = True, env=None) -> str:
     result = subprocess.run(command, capture_output=True, text=True, env=env)
     if check and result.returncode != 0:
@@ -381,12 +397,8 @@ class DockerLab:
     @contextlib.contextmanager
     def running(self, report):
         """The lab, up and ready for onboarding, for the length of the with block. SIGINT, SIGTERM and
-        SIGHUP unwind, so the lab is removed however the run ends; SIGINT is set explicitly because a
-        background job of a non-interactive shell inherits it ignored."""
-        def interrupted(signum, _frame):
-            raise KeyboardInterrupt(signal.Signals(signum).name)
-        for signum in SIGNALS:
-            signal.signal(signum, interrupted)
+        SIGHUP unwind (unwind_on_signals), so the lab is removed however the run ends."""
+        unwind_on_signals()
         started = time.monotonic()
         self._report = report  # vendo_report records where each Report came from
         chr_image = router_image()
@@ -411,8 +423,7 @@ class DockerLab:
                     report.data["lab_logs"] = str(error)
                 raise
         finally:
-            for signum in SIGNALS:
-                signal.signal(signum, signal.SIG_IGN)  # a second signal must not cut the removal short
+            ignore_signals()
             report.data["lab"]["run_seconds"] = round(time.monotonic() - started, 1)
             if self.arm is not None and self.arm.created:
                 with contextlib.suppress(AssertionError, ValueError):

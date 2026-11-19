@@ -5427,7 +5427,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--only", choices=ONLY_SCENARIOS,
                         help="run onboarding, then one scenario: " + "; ".join(f"{name}: {what}" for name, what in ONLY_SCENARIOS.items()))
-    parser.add_argument("--keep", action="store_true", help="leave the Docker lab running and print how to reach and remove it")
+    parser.add_argument("--keep", action="store_true", help="leave the Docker lab (or the --only boot/update ARMv7 guest) running and print how to reach and remove it")
     parser.add_argument("--build", action="store_true", help="build the Controller first")
     parser.add_argument("--binary", help="Controller binary under test; --only update builds its own")
     parser.add_argument("--report", type=Path)
@@ -5487,7 +5487,8 @@ def run(args: argparse.Namespace) -> None:
             ARM_VM = module.ArmContainer(Path(args.binary), args.arm_boot_timeout, serial, _docker_module)
             if lab is not None:
                 lab.arm = ARM_VM  # the lab boots it on its WAN, in the Controller's place
-            else:
+            else:  # no lab to remove the guest: the run does, however it ends, as a lab run does
+                _docker_module.unwind_on_signals()
                 ARM_VM.boot()
                 BASE_URL = PORTAL_URL = ARM_VM.base_url
             if boot_only:
@@ -5524,8 +5525,9 @@ def run(args: argparse.Namespace) -> None:
     else:
         report.finish("pass")
     finally:
+        _docker_module.ignore_signals()
         if ARM_VM is not None:
-            ARM_VM.close()
+            ARM_VM.close(args.keep)
         if releases is not None:
             releases.close()
 

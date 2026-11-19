@@ -3616,6 +3616,7 @@ def shop_defaults_vendo_list(opener, report, address, password, lab):
                 pause_device_fetch(lab, ips[vlan], "/portal/api/points/redeem", form)
             except urllib.error.HTTPError as error:
                 assert "400" in json.load(error).get("detail", "")
+                assert_refused(error, "points-row-unknown")
                 assert portal(vlan)["time_credit"]["points_milli"] == before["points_milli"]
                 return
             raise AssertionError(f"VLAN {vlan} redeemed a row outside its Points table")
@@ -4851,6 +4852,7 @@ def shop_defaults_points_table(opener, report, address, password, lab):
                 pause_device_fetch(lab, ips[vlan], "/portal/api/points/redeem", form)
             except urllib.error.HTTPError as error:
                 assert "400" in json.load(error).get("detail", "")
+                assert_refused(error, "points-row-unknown")
                 assert portal(vlan)["time_credit"]["points_milli"] == before["points_milli"]
                 return
             raise AssertionError(f"VLAN {vlan} redeemed a row outside its Points table")

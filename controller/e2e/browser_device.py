@@ -1092,7 +1092,9 @@ def vouchers_mobile(device: Device, inputs: dict) -> dict:
         page.get_by_role("button", name="Search", exact=True).click()
     expect(page.locator(".voucher-search-row")).to_have_count(50)
     check(page.locator(".voucher-search-row").first)
-    page.screenshot(path=f"{device.out}/02-mobile-search.png", full_page=True)
+    # 50 matches make a page ~20000 CSS px tall; at the phone's device scale its bitmap alone is ~217 MB,
+    # more than Chromium can copy under the Docker lab's 1 GB browser cap, so that lab asks for CSS scale.
+    page.screenshot(path=f"{device.out}/02-mobile-search.png", full_page=True, scale=inputs.get("scale", "device"))
     device.screenshots.append("02-mobile-search")
     return {"viewport": "390x844", "touch": True, "search_matches": 50,
             "no_horizontal_overflow": True, "labelled_price_seller": True, "actions_min_height": 44}

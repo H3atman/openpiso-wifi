@@ -5,6 +5,10 @@ Playwright container (browser_device.py) on a Docker macvlan over virbr-hs, with
 IP, so the Controller resolves it through the Router exactly like a phone. The container asks this
 side for Vendo actions over stdin/stdout JSON lines, so the Vendo key never leaves this process.
 Rootless: it needs docker, and the CHR lab lock that run.py already holds.
+On the Docker lab (#34), DockerLab sets LAN: every browser container then carries the lab's name and
+the browser cap, and a Device's container joins the lab LAN with its MAC and takes a DHCP lease from
+the Router (DockerLab.browser_joined) instead of using the macvlan. Screenshots go to
+<report stem>-browser-portal/ there, beside the run's own report.
 
 Phases: Device A walks new, Voucher error, online, paused -> Resume and Coin Window -> Done;
 Device B takes A's signed cookie and Rebinds; Device A comes back with a fresh browser and runs a
@@ -34,6 +38,7 @@ IMAGE = "openpiso-e2e-browser:pw1.64.1"  # BASE_IMAGE ships the browsers; this l
 NETWORK = "openpiso-e2e-hs"
 CONTAINER = "openpiso-e2e-browser"
 LEASE_COMMENT = "openpiso-e2e-browser"
+LAN = None  # the Docker lab sets itself here; None is the libvirt lab's macvlan over virbr-hs
 DEVICE_A = (_lab_module.BROWSER_MACS[0], "10.5.50.171")
 DEVICE_B = (_lab_module.BROWSER_MACS[1], "10.5.50.172")
 DEVICE_C = (_lab_module.BROWSER_MACS[2], "10.5.50.173")
@@ -62,10 +67,21 @@ def forget_device(run, address, password, mac, ip) -> None:
             run.router_rest(address, "admin", password, f"{path}/{entry['.id']}", "DELETE")
 
 
+def container_name(name: str) -> str:
+    return f"{CONTAINER}-{name}" if LAN is None else f"{LAN.lab.name}-browser-{name}"
+
+
+def screenshots(report, name: str) -> Path:
+    """The screenshot directory for one browser scenario; on the Docker lab it is named after the
+    run's report, so it never replaces the committed libvirt screenshots or a parallel run's."""
+    return report.path.parent.resolve() / (name if LAN is None else f"{report.path.stem}-{name}")  # docker -v needs it absolute
+
+
 def teardown(run, address, password) -> None:
     for name in ("a", "b", "c", "d", "admin"):
-        docker("rm", "-f", f"{CONTAINER}-{name}", check=False)
-    docker("network", "rm", NETWORK, check=False)
+        docker("rm", "-f", container_name(name), check=False)
+    if LAN is None:
+        docker("network", "rm", NETWORK, check=False)
     for mac, ip in (DEVICE_A, DEVICE_B, DEVICE_C, DEVICE_D):
         forget_device(run, address, password, mac, ip)
 
@@ -76,15 +92,20 @@ def run_device(run, address, password, name, device, phase, inputs, out, hooks, 
     forget_device(run, address, password, mac, ip)
     run.router_rest(address, "admin", password, "/ip/dhcp-server/lease", "PUT", {
         "address": ip, "mac-address": mac, "server": "hs-dhcp", "comment": LEASE_COMMENT})
-    network = ["--network", NETWORK, "--ip", ip, "--mac-address", mac.lower(), "--dns", "10.5.50.1"]
-    return run_browser(name, network, run.PORTAL_URL, phase, inputs, out, hooks, report)
+    if LAN is None:
+        network = ["--network", NETWORK, "--ip", ip, "--mac-address", mac.lower(), "--dns", "10.5.50.1"]
+    else:  # the static lease above is what the Device's DHCP request gets
+        network = ["--network", f"name={LAN.lab.name}-lan", "--mac-address", mac.lower()]
+    return run_browser(name, network, run.PORTAL_URL, phase, inputs, out, hooks, report, mac)
 
 
-def run_browser(name, network, controller, phase, inputs, out, hooks, report) -> dict:
-    """Run one browser phase in a Playwright container; answer its waits with hooks; return its result."""
-    container = f"{CONTAINER}-{name}"
+def run_browser(name, network, controller, phase, inputs, out, hooks, report, mac=None) -> dict:
+    """Run one browser phase in a Playwright container; answer its waits with hooks; return its result.
+    mac marks a Device on the HotSpot LAN, which the Docker lab leases an address before the phase starts."""
+    container = container_name(name)
+    limits = [] if LAN is None else LAN.browser_limits
     process = subprocess.Popen(
-        ["docker", "run", "--rm", "-i", "--init", "--ipc=host", "--name", container, *network,
+        ["docker", "run", "--rm", "-i", "--init", "--ipc=host", "--name", container, *network, *limits,
          "--user", f"{os.getuid()}:{os.getgid()}", "-e", "HOME=/tmp",
          "-v", f"{Path(__file__).with_name('browser_device.py')}:/work/browser_device.py:ro",
          "-v", f"{out}:/out", IMAGE,
@@ -94,6 +115,8 @@ def run_browser(name, network, controller, phase, inputs, out, hooks, report) ->
     timer.start()
     result = None
     try:
+        if LAN is not None:  # the browser reads its inputs before it starts, so it waits for this
+            LAN.browser_joined(container, phase, mac)
         process.stdin.write(json.dumps(inputs) + "\n")
         process.stdin.flush()
         for line in process.stdout:  # the browser prints only JSON lines; Playwright logs go to stderr
@@ -166,14 +189,15 @@ def scenario(run, opener, address, password, lab, report, restart_controller) ->
         assert vendo.heartbeat()[0] == 200 and not vendo.window_id, "Closed was not acknowledged"
         return {}
 
-    out = report.path.parent / "browser-portal"
+    out = screenshots(report, "browser-portal")
     out.mkdir(parents=True, exist_ok=True)
     for old in out.glob("*.png"):
         old.unlink()
     ensure_image()
     teardown(run, address, password)  # leftovers from an interrupted run
-    docker("network", "create", "-d", "macvlan", "--subnet", "10.5.50.0/24", "--gateway", "10.5.50.1",
-           "-o", "parent=virbr-hs", NETWORK)
+    if LAN is None:
+        docker("network", "create", "-d", "macvlan", "--subnet", "10.5.50.0/24", "--gateway", "10.5.50.1",
+               "-o", "parent=virbr-hs", NETWORK)
     try:
         hooks = {"coins": coins, "closed": closed}
         first = run_device(run, address, password, "a", DEVICE_A, "first", {"voucher": voucher(1800)}, out, hooks, report)
@@ -297,39 +321,39 @@ def scenario(run, opener, address, password, lab, report, restart_controller) ->
         "http_only_cookie_survived_fetch_posts": first["http_only_cookie"],
         "cover_logo_cropped_in_browser": operator["images"],
         "cover_logo_on_device_match": branded["images"] == operator["images"],
-        "screenshots": [f"browser-portal/{name}.png" for phase in phases for name in phase["screenshots"]],
+        "screenshots": [f"{out.name}/{name}.png" for phase in phases for name in phase["screenshots"]],
     }
 
 
 def vouchers_mobile(run, report):
-    out = report.path.parent / "vouchers-mobile"
+    out = screenshots(report, "vouchers-mobile")
     out.mkdir(parents=True, exist_ok=True)
     ensure_image()
-    browser = run_browser("admin", ["--network", "host"], run.BASE_URL, "vouchers-mobile",
-                          {"password": run.ADMIN_PASSWORD}, out, {}, report)
+    inputs = {"password": run.ADMIN_PASSWORD} if LAN is None else {"password": run.ADMIN_PASSWORD, "scale": "css"}
+    browser = run_browser("admin", ["--network", "host"], run.BASE_URL, "vouchers-mobile", inputs, out, {}, report)
     report.data["vouchers_mobile"] = {
-        "screenshots": [f"vouchers-mobile/{name}.png" for name in browser["screenshots"]], "browser": browser}
+        "screenshots": [f"{out.name}/{name}.png" for name in browser["screenshots"]], "browser": browser}
     return browser
 
 
 def voucher_print_sheet(run, report, path, rows):
     """Operator browser on the management network; leave a reprint screenshot."""
-    out = report.path.parent / "voucher-print-sheet"
+    out = screenshots(report, "voucher-print-sheet")
     out.mkdir(parents=True, exist_ok=True)
     ensure_image()
     browser = run_browser("admin", ["--network", "host"], run.BASE_URL, "voucher-print-sheet",
                           {"password": run.ADMIN_PASSWORD, "path": path, "rows": rows}, out, {}, report)
     report.data["voucher_print_sheet"] = {
-        "screenshots": [f"voucher-print-sheet/{name}.png" for name in browser["screenshots"]], "browser": browser}
+        "screenshots": [f"{out.name}/{name}.png" for name in browser["screenshots"]], "browser": browser}
     return browser
 
 
 def voucher_template_editor(run, report, path, rows):
-    out = report.path.parent / "voucher-template-editor"
+    out = screenshots(report, "voucher-template-editor")
     out.mkdir(parents=True, exist_ok=True)
     ensure_image()
     browser = run_browser("admin", ["--network", "host"], run.BASE_URL, "voucher-template-editor",
                           {"password": run.ADMIN_PASSWORD, "path": path, "rows": rows}, out, {}, report)
     report.data["voucher_template_editor"] = {
-        "screenshots": [f"voucher-template-editor/{name}.png" for name in browser["screenshots"]], "browser": browser}
+        "screenshots": [f"{out.name}/{name}.png" for name in browser["screenshots"]], "browser": browser}
     return browser

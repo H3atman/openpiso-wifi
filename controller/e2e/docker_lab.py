@@ -9,6 +9,8 @@ Device 1 has MAC 0C:01 and Device 2 0C:02, each its own container. A MAC change 
 Device 1's interface: Device 2 leaves and Device 1 takes its MAC, as the scenarios expect.
 A Vendo board is a container too, with its own MAC, lease and opnw-XXXX DHCP hostname (#30). It sends
 its first contact and every later Report itself, from its own address and MAC.
+Browsers are Playwright containers named after the lab, under a 1 GB cap; a browser Device joins the
+LAN with its own MAC and lease (#34, browser_joined).
 The lab's own scenarios (sealed internet, memory caps, VLAN HotSpot login, IPv6) run in own_scenarios.
 """
 
@@ -49,6 +51,7 @@ GOOGLE_ADDRESS = "142.250.4.100"  # what the stand-in resolves google.com to
 REAL_INTERNET = "9.9.9.9"  # a public address the stand-in does not answer
 ROUTER_MEMORY = 320 << 20
 OTHER_MEMORY = 128 << 20
+BROWSER_MEMORY = 1 << 30
 DEVICE_MACS = {1: "02:00:00:00:0C:01", 2: "02:00:00:00:0C:02"}  # Device 1 is lab/chr/e2e_lab.py's DEVICE_MAC
 OWN_DEVICE_MAC = "02:00:00:00:0C:31"
 VLAN_DEVICE_MAC = "02:00:00:00:0C:11"
@@ -291,15 +294,17 @@ def sealed_from_internet(lab: Lab, device: str) -> dict:
 
 
 def memory_caps(lab: Lab) -> dict:
-    """Every lab container has a hard memory cap (no swap beyond it): the Router 320 MB, the rest 128 MB."""
-    caps = {}
-    for container in lab.containers():
-        memory, swap = sh("docker", "inspect", "-f", "{{.HostConfig.Memory}} {{.HostConfig.MemorySwap}}",
-                          container).split()
-        want = ROUTER_MEMORY if "-router-" in container else OTHER_MEMORY
-        assert int(memory) == int(swap) == want, (container, memory, swap)
-        caps[container] = f"{want >> 20} MB"
-    return caps
+    """Every lab container has a hard memory cap (no swap beyond it): the Router 320 MB, browsers 1 GB,
+    the rest 128 MB."""
+    return {container: memory_cap(container) for container in lab.containers()}
+
+
+def memory_cap(container: str) -> str:
+    memory, swap = sh("docker", "inspect", "-f", "{{.HostConfig.Memory}} {{.HostConfig.MemorySwap}}",
+                      container).split()
+    want = ROUTER_MEMORY if "-router-" in container else BROWSER_MEMORY if "-browser-" in container else OTHER_MEMORY
+    assert int(memory) == int(swap) == want, (container, memory, swap)
+    return f"{want >> 20} MB"
 
 
 class ContainerProcess(subprocess.Popen):
@@ -334,9 +339,10 @@ class DockerLab:
     """The lab interface (see LibvirtLab) on a Docker lab. run is the loaded run.py module; `running`
     sets its BASE_URL, PORTAL_URL and CONTROLLER_HOST for the lab's published ports and Controller."""
 
-    not_ported = frozenset({32, 33, 34})  # tickets whose scenarios run.py skips here
+    not_ported = frozenset({32, 33})  # tickets whose scenarios run.py skips here
     router_url = f"https://{ROUTER_WAN}"
     router_password = ROUTER_PASSWORD
+    browser_limits = ["--memory", f"{BROWSER_MEMORY >> 20}m", "--memory-swap", f"{BROWSER_MEMORY >> 20}m"]
 
     def __init__(self, run, binary: Path, keep: bool):
         self.run = run
@@ -400,6 +406,7 @@ class DockerLab:
         self.run.PORTAL_URL = PORTAL_URL
         self.run.CONTROLLER_HOST = self
         self.run.SimulatedVendo = container_vendo(self.run.SimulatedVendo, self._vendo_senders)
+        self.run._browser_module.LAN = self
 
         def stock(path, method="GET", body=None):
             return self.run.router_rest(self._router_http, "admin", "", path, method, body, scheme="http")
@@ -872,6 +879,34 @@ class DockerLab:
             "vendo_id": int.from_bytes(frame[1:5]), "container": board, "ip": ip,
             "source_address": re.findall(r"inet (\S+)/", source), "source_mac": source.split()[-1].upper(),
             "status": status})
+
+    # Browsers: browser_portal.py starts them; a browser Device is on the LAN like any other.
+
+    def browser_joined(self, container: str, phase: str, mac=None) -> None:
+        """Before a browser phase starts: check the browser's cap and, for a Device (mac), drop Docker's
+        IPv4 address and take a lease from the Router. The Playwright image has no ip or DHCP client, so a
+        lab-image helper sharing the browser's network namespace (and so its resolv.conf) does both, then
+        goes. Recorded in the report's lab.browsers."""
+        deadline = time.monotonic() + 60
+        while sh("docker", "inspect", "-f", "{{.State.Running}}", container, check=False).strip() != "true":
+            assert time.monotonic() < deadline, f"{container} did not start"
+            time.sleep(0.2)
+        row = {"container": container, "phase": phase, "memory_cap": memory_cap(container)}
+        if mac is not None:
+            helper = f"{self.lab.name}-lease-{container.rpartition('-')[2]}"
+            sh("docker", "run", "-d", "--name", helper, "--network", f"container:{container}", "--cap-add", "NET_ADMIN",
+               "--memory", "128m", "--memory-swap", "128m", self.lab.image, "sleep", "infinity")
+            try:
+                device_exec(helper, "ip -4 addr flush dev eth0; ip -4 route flush dev eth0")
+                row["ip"] = device_lease(helper)
+                row["mac"] = device_exec(helper, "cat /sys/class/net/eth0/address").strip().upper()
+                row["resolv_conf"] = sh("docker", "exec", container, "cat", "/etc/resolv.conf").strip()
+            finally:
+                sh("docker", "rm", "-f", helper, check=False)
+            leases = self._rest(f"/ip/dhcp-server/lease?mac-address={mac}")
+            assert row["mac"] == mac.upper() and [lease["address"] for lease in leases] == [row["ip"]], (row, leases)
+            row["router_lease"] = {key: leases[0].get(key) for key in ("address", "mac-address", "server", "status")}
+        self._report.data["lab"].setdefault("browsers", []).append(row)
 
     # Two HotSpot VLANs (10 and 20, both part of the lab), each with a Device; Vendo boards join either.
 

@@ -58,6 +58,14 @@ _Avoid_: Token, activation key, license
 The page on the Website that writes the Vendo firmware and a Pairing code onto a coin board from the Operator's browser.
 _Avoid_: Installer, uploader, flash tool
 
+**HotSpot server**:
+One captive network on the Router: the interface customers join, with its own login page and address range; a Router may run several.
+_Avoid_: HotSpot profile, hotspot, SSID, network
+
+**Adopt**:
+The Operator placing a HotSpot server under the Controller's management, so its customers are sent to the Portal; the Controller leaves every HotSpot server it has not Adopted alone.
+_Avoid_: Onboard, claim, take over, import
+
 **HotSpot profile**:
 The Router user profile a Vendo gives the customers who buy time with its coins; the Controller runs its own copy that keeps the one-Device rule and the Shop's Idle Pause.
 _Avoid_: Plan, package

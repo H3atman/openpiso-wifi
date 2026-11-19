@@ -57,6 +57,7 @@ type dashboardView struct {
 	ActiveHotspot         *int                `json:"active_hotspot"`           // Time Credits with a live Router HotSpot session
 	CustomersWithTimeLeft *int                `json:"customers_with_time_left"` // online + paused Time Credits
 	PendingAudit          int                 `json:"pending_audit"`            // coin reports awaiting review
+	RouterSetupFinished   bool                `json:"router_setup_finished"`    // a HotSpot server is Adopted, or will be at boot
 	Controller            dashboardController `json:"controller"`
 	Router                dashboardRouter     `json:"router"`
 	SalesTiles            []salesTile         `json:"-"`
@@ -83,6 +84,16 @@ func (s *Server) dashboard() (dashboardView, error) {
 		href := "/admin/sales?" + url.Values{"from": {period.From.Format(salesDateLayout)}, "to": {period.To.Format(salesDateLayout)}}.Encode()
 		view.SalesTiles = append(view.SalesTiles, salesTile{period.Label, report.Total(), href})
 	}
+
+	adopted, err := s.ledger.AdoptedHotspotServers()
+	if err != nil {
+		return view, err
+	}
+	pending, err := s.ledger.AdoptAllPending()
+	if err != nil {
+		return view, err
+	}
+	view.RouterSetupFinished = len(adopted) > 0 || pending
 
 	review, err := s.ledger.AuditReview()
 	if err != nil {

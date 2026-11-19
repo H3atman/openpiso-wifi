@@ -42,12 +42,23 @@ SameSite=Strict. Browser cross-origin POSTs are refused. Explicit actions use PO
 `/admin/state` is an authenticated, explicitly whitelisted readback; passwords and
 Router API secrets are write-only.
 
-## Router onboarding
+## Router setup
 
-The Router needs RouterOS v7, an existing HotSpot server/LAN/DHCP configuration,
-and `www-ssl` enabled with a certificate whose IP/DNS SAN matches its HTTPS
-address. The Controller does not guess which interface to convert into a
-customer LAN. Supply an HTTPS origin, the Router admin username, and password.
+Router setup (**Settings › Router setup**, `/admin`) connects a Router, then
+Adopts the HotSpot servers the Controller manages
+([ADR 0011](../docs/adr/0011-controller-manages-only-adopted-hotspot-servers.md)).
+Router prerequisites:
+
+- RouterOS v7.
+- `www-ssl` enabled with a certificate whose IP/DNS SAN matches its HTTPS address.
+- A full-rights admin login, used once at connect.
+- A route from the Controller back to each Adopted HotSpot server's network
+  (the Router as the Controller's gateway is enough). Source NAT need not
+  change: the checklist adds the Controller's own exemption.
+
+No HotSpot server is required: Fresh start and Add alongside create one. The
+Controller never picks an interface on its own; the Operator chooses or accepts
+each placement. Supply an HTTPS origin, the Router admin username, and password.
 
 1. The Controller reads the public certificate without sending credentials.
    Normal TLS verification remains enabled; for a private certificate the failed
@@ -59,11 +70,70 @@ customer LAN. Supply an HTTPS origin, the Router admin username, and password.
    request verifies the TLS chain, hostname, validity period, and exact pinned
    leaf; redirects are refused. Certificate replacement fails closed until an
    operator explicitly confirms the new certificate.
-4. Onboarding verifies v7, creates `openpiso-controller` with a random API secret
-   in its own `read,write,test,api,rest-api` group, verifies it works, and uses it
-   to apply the baseline. No Router admin credentials are written to the ledger
+4. Connecting verifies v7, saves a Router backup `openpiso-YYYYMMDD-HHMMSS.backup`
+   with the admin login (the limited user cannot), creates `openpiso-controller`
+   with a random API secret in its own `read,write,test,api,rest-api` group and
+   verifies it works. It changes no HotSpot server. No Router admin credentials are written to the ledger
    or returned in a page. They exist only in the in-memory pending confirmation
-   and are discarded after successful onboarding/restart.
+   and are discarded after successful onboarding/restart. The page returns to
+   Router setup, where the Operator picks one of three starts.
+5. **Use existing** lists the HotSpot servers not yet Adopted, ticked. The review
+   page names the two changes, then **Adopt** records the servers in the ledger
+   and applies the baseline below. Servers left unticked, their server profiles
+   and `hotspot/login.html` are never changed. A server profile shared with an
+   unticked server is refused. If a server profile later comes to serve a server
+   that is not Adopted, its login method and login page items show manual steps,
+   and neither their fixes nor boot repair write it.
+6. **Add alongside** creates a HotSpot server `openpiso-<interface>` and Adopts
+   it, leaving existing servers alone. The default placement is a new VLAN
+   `<parent>-vlan<id>` on an Ethernet, bridge or bond interface, suggesting the
+   parent under the first HotSpot server and the lowest free VLAN ID from 2; the
+   other placement is an interface with no HotSpot server (not a bridge port,
+   dynamic, the loopback or the Controller's own path to the Router). The range
+   must be a private IPv4 range overlapping no address or route on the Router;
+   the suggestion searches 10.0.0.0/8, then 172.16.0.0/12 and 192.168.0.0/16.
+   It adds only what is missing: VLAN interface, address, pool, DHCP server and
+   network, a server profile (`http-pap`, `openpiso` directory), the server, and
+   the NAT exemption. A bridge with VLAN filtering on is refused before any
+   write, with the manual RouterOS commands in the message. So is any object
+   that holds a name the Controller would use and is not its own: the VLAN,
+   pool and DHCP server are its own when their comment is the server's name,
+   the server profile when no other server uses it, the server when it is on
+   that interface with that profile. A create that failed midway, or whose
+   response was lost, is finished by sending it again, which Adopts the server.
+   When the Router cannot suggest a placement, only this card says why.
+7. **Fresh start** deletes the HotSpot tree (servers, server profiles, users,
+   user profiles, active sessions, IP bindings, walled garden; RouterOS defaults
+   and dynamic rows stay) and creates one server like Add alongside, by default
+   on the first old server's interface and range, or on a new VLAN. Login page
+   files, addresses, pools, DHCP, bridges, VLANs, routes and firewall rules are
+   kept. It is offered only with no Time Credits, no Vendo other than unpaired,
+   and the connect backup still listed on the Router; the Operator types
+   `DELETE`. Before any write it applies Add alongside's refusals, waiving only
+   the HotSpot servers the wipe removes. Vendo pairing waits while it runs. The
+   ledger forgets every Adopted server before the wipe.
+
+Every start ends at the checklist on Router setup, read live on each page load.
+Router items: RouterOS v7 with the limited user working, the two base HotSpot
+profiles, the walled-garden entry. Per Adopted server: enabled on an interface
+that is up; address, DHCP server and pool; login method exactly `http-pap`;
+login page in the `openpiso` directory; Devices reach the Portal without source
+NAT; a Device has been sent to the Portal from it. Item 8 verifies that the
+`openpiso-controller-<server>` srcnat accept rule (server network to the
+Controller) precedes every enabled static Operator srcnat rule, then pings the
+Controller from the server's address; its fix adds or moves only that rule, and
+a failed ping is a manual step. A fix exists only where it adds or enables a
+Controller-owned object; anything else shows manual steps.
+
+An Adopted server missing on the Router reports that on its first item and offers
+**Forget this server** (`POST /admin/router/forget`). It removes the server and
+its Portal arrivals from the ledger and writes nothing to the Router; it is
+refused for a server that is not Adopted or is still on the Router.
+
+Once a server is Adopted, **Next steps** lists four ledger-read items, each
+linked to its existing page and none blocking anything: Shop settings saved
+(the Pause settings have been saved once), Rate tiers saved once (even at the
+shipped ₱1 = 60 s tier), a Vendo paired, and a Voucher Batch generated.
 
 RouterOS permissions are coarse: this group can read/write configuration, but
 cannot manage Router accounts/groups, reboot, or use SSH/FTP/console/Winbox.
@@ -75,17 +145,25 @@ Baseline resources:
 - `openpiso-no-idle` and `openpiso-idle` HotSpot user profiles, shared-users=1,
   no MAC cookies, keepalive-timeout=none; Idle Pause period defaults to 2m and
   follows the saved site setting on onboarding and boot.
-- Active HotSpot server profiles set to `login-by=http-pap` only and the
-  `hotspot` HTML directory.
+- Each Adopted server's server profile set to `login-by=http-pap` only and the
+  Controller's `openpiso` HTML directory.
 - One `openpiso-controller` walled-garden IP rule permitting TCP to the portal
   address and port. The walking skeleton requires an IP-literal portal origin.
-- `hotspot/login.html`, containing only a redirect/link to `/portal` with the
+- `openpiso/login.html`, containing only a redirect/link to `/portal` with the
   Device's escaped MAC and IP.
 
-Baseline verification runs on every boot with the limited credentials. Unchanged
+The NAT exemption is added when the Controller creates a server, or by the
+checklist fix; boot does not repair it.
+
+With nothing Adopted, boot only verifies RouterOS v7 and changes nothing; the
+Dashboard says Router setup is not finished. A ledger from before Router setup
+(a saved Router connection, no Adopted servers recorded) Adopts every server on
+the Router at its next boot. Baseline verification runs on every boot with the limited credentials. Unchanged
 resources are read, not rewritten; drift is repaired. A Router error does not
 prevent admin HTTP from starting: inspect `/admin/state` for the error and the
-still-pinned fingerprint. There is no automatic certificate trust reset.
+still-pinned fingerprint. An Adopted server missing on the Router is such an
+error; forgetting it does not clear the reported status, which the next boot,
+Adopt, Add alongside or Fresh start sets again. There is no automatic certificate trust reset.
 
 ## Vendo pairing and protocol
 
@@ -395,6 +473,9 @@ looks up the request's actual source IP in the Router's HotSpot host table;
 redirect MAC/IP parameters and forwarded headers are never trusted. **Route
 HotSpot traffic to the Controller without source NAT, and provide a return route
 from the Controller to the HotSpot LAN.** Masqueraded requests cannot redeem.
+Router setup checks both per Adopted server: its one-click fix adds a
+Controller-owned source-NAT exemption (comment `openpiso-controller-<server>`)
+above the Operator's rules, and a missing return route is shown as manual steps.
 The Router's redirect parameters are informational only.
 
 Redemption atomically consumes the Voucher, creates or credits a Time Credit,
@@ -531,12 +612,13 @@ Validity removal catches up on boot.
 ## Layout
 
 - `cmd/openpiso`: flags, private ledger, boot verification, HTTP listener.
-- `internal/controller`: HTTP routes, admin authentication, onboarding flow,
+- `internal/controller`: HTTP routes, admin authentication, Router setup flow,
   `html/template` pages, whitelisted readback. Later portal/admin routes belong
   in the same route table so the route-list E2E policy covers them.
 - `internal/ledger`: concrete SQLite ledger and its atomic storage operations.
 - `internal/routeros`: the only production RouterOS REST speaker; TLS trust,
-  limited API user and idempotent baseline. Extend it with domain operations,
+  connect backup and limited API user, the checklist's checks, HotSpot server
+  creation and the Fresh start wipe. Extend it with domain operations,
   not a swappable mock Router interface.
 - `internal/vendoprotocol`: signed binary Report/Open/Ack/Close/Closed codecs.
 - `e2e/simulated_vendo.py`: Vendo-initiated protocol simulator and firmware vectors.
@@ -693,7 +775,14 @@ Use it only with exclusive access. It never operates on `piso-client`,
   exemption to the Controller. These
   addresses/network names must be unused. This preserves real Device source IPs
   without sudo or trusting browser identity. The network/NIC/NAT rule are removed
-  on exit; it does not modify `default`, `hotspot-lan`, or `pisonet`.
+  on exit; it does not modify `default`, `hotspot-lan`, or `pisonet`. The
+  `--only onboarding` scenario deletes that exemption, adds a masquerade for
+  `10.5.50.0/24` as the first NAT rule (comment `openpiso-e2e-masquerade`,
+  removed on exit), shows a Device's Voucher refused through it, lets the
+  Controller's checklist fix add its own exemption, and briefly disables the
+  routing NIC to show a missing return route. RouterOS applies a NAT change to
+  new connections only seconds later, so the step waits until the rule counts a
+  Device fetch of `/portal/ready.js`.
 
 Every CHR run (full or partial, native or ARM) cleans `chr-client` immediately
 after it starts, before the VLAN prerequisite or any application scenario. It
@@ -826,6 +915,10 @@ python3 -I controller/e2e/run.py \
 For a focused run, add `--only <name>`. Without `--report`, each native partial
 run writes `<name>-only.json` under `e2e/reports/`:
 
+- `--only onboarding`: Router setup from someone else's HotSpot: Use existing,
+  a Device online, Next steps, the unticked server, a ledger from before Router
+  setup, Add alongside on a free interface and on a new VLAN, forgetting a
+  missing Adopted server, and Fresh start.
 - `--only pairing`: onboarding, then flash pairing.
 - `--only vlan`: onboarding, then only VLAN auto-select.
 - `--only time-running-out`: onboarding, then only the time-running-out exhaustion

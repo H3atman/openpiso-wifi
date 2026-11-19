@@ -30,6 +30,8 @@ type pendingRouter struct {
 	certificate routeros.Certificate
 }
 
+// Server is the Controller. A handler that holds both vendoMu and voucherMu
+// takes vendoMu first, never the other way round.
 type Server struct {
 	vendoMu         sync.Mutex
 	ledger          *ledger.Ledger
@@ -159,6 +161,12 @@ func Handler(ctx context.Context, store *ledger.Ledger, portalURL, routerStatus,
 		{Method: http.MethodPost, Path: "/admin/update", StateChanging: true, Authentication: adminSession, Handler: server.requestUpdate},
 		{Method: http.MethodGet, Path: "/admin/update/state", Authentication: adminSession, Handler: server.updateState},
 		{Method: http.MethodPost, Path: "/admin/router/confirm", StateChanging: true, Authentication: adminSession, Handler: server.routerConfirm},
+		{Method: http.MethodGet, Path: "/admin/router/use-existing", Authentication: adminSession, Handler: server.useExisting},
+		{Method: http.MethodPost, Path: "/admin/router/adopt", StateChanging: true, Authentication: adminSession, Handler: server.adoptServers},
+		{Method: http.MethodPost, Path: "/admin/router/add-alongside", StateChanging: true, Authentication: adminSession, Handler: server.addAlongside},
+		{Method: http.MethodPost, Path: "/admin/router/fix", StateChanging: true, Authentication: adminSession, Handler: server.fixCheck},
+		{Method: http.MethodPost, Path: "/admin/router/forget", StateChanging: true, Authentication: adminSession, Handler: server.forgetServer},
+		{Method: http.MethodPost, Path: "/admin/router/fresh-start", StateChanging: true, Authentication: adminSession, Handler: server.freshStart},
 	}
 
 	go server.runReconciler(ctx)
@@ -250,10 +258,6 @@ func (s *Server) requirePairAdmin(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-func (s *Server) admin(response http.ResponseWriter, request *http.Request) {
-	s.renderPage(response, request, "admin", Page{Title: "Router onboarding", Section: "Settings", Active: "/admin"})
-}
-
 func (s *Server) routerProbe(response http.ResponseWriter, request *http.Request) {
 	if err := request.ParseForm(); err != nil {
 		http.Error(response, "invalid Router details", http.StatusBadRequest)
@@ -309,7 +313,7 @@ func (s *Server) routerConfirm(response http.ResponseWriter, request *http.Reque
 	if configured && config.Address == pending.address {
 		existingSecret = config.APISecret
 	}
-	provisioned, err := routeros.Onboard(request.Context(), admin, s.portalURL, existingSecret)
+	provisioned, err := routeros.Onboard(request.Context(), admin, existingSecret)
 	if err != nil {
 		http.Error(response, err.Error(), http.StatusBadGateway)
 		return
@@ -324,16 +328,9 @@ func (s *Server) routerConfirm(response http.ResponseWriter, request *http.Reque
 		http.Error(response, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	settings, err := s.ledger.PauseSettings()
-	var use ledger.ProfileUse
-	if err == nil {
-		use, err = s.ledger.HotspotProfileUse()
-	}
-	if err == nil {
-		err = admin.EnsurePauseSettings(request.Context(), settings.IdleEnabled, settings.IdleSeconds, use.TimeCredits, use.Profiles)
-	}
-	if err != nil {
-		http.Error(response, "Router saved; unable to apply Pause settings. Retry onboarding.", http.StatusBadGateway)
+	// Fresh start runs only while this backup is still on the Router.
+	if err := s.ledger.SaveRouterBackup(provisioned.Backup); err != nil {
+		http.Error(response, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	s.mu.Lock()
@@ -342,7 +339,8 @@ func (s *Server) routerConfirm(response http.ResponseWriter, request *http.Reque
 	s.routerError = ""
 	s.mu.Unlock()
 
-	s.renderPage(response, request, "connected", Page{Title: "Router connected", Section: "Settings", Active: "/admin", Data: provisioned})
+	// Connecting changes no HotSpot server; Router setup goes on with Use existing.
+	http.Redirect(response, request, "/admin", http.StatusSeeOther)
 }
 
 func (s *Server) state(response http.ResponseWriter, _ *http.Request) {
@@ -445,12 +443,18 @@ func (s *Server) state(response http.ResponseWriter, _ *http.Request) {
 		status := s.routerStatus
 		routerError := s.routerError
 		s.mu.Unlock()
+		adopted, err := s.ledger.AdoptedHotspotServers()
+		if err != nil {
+			http.Error(response, "read Controller state", http.StatusInternalServerError)
+			return
+		}
 		routerState := map[string]any{
-			"address":     config.Address,
-			"configured":  true,
-			"fingerprint": config.Fingerprint,
-			"status":      status,
-			"username":    config.Username,
+			"address":                 config.Address,
+			"adopted_hotspot_servers": adopted,
+			"configured":              true,
+			"fingerprint":             config.Fingerprint,
+			"status":                  status,
+			"username":                config.Username,
 		}
 		if routerError != "" {
 			routerState["error"] = routerError

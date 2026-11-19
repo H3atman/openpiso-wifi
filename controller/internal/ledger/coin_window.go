@@ -56,8 +56,19 @@ func (l *Ledger) SaveRateTiers(tiers []RateTier) error {
 	if err != nil {
 		return err
 	}
-	_, err = l.db.Exec("UPDATE settings SET value = ? WHERE key = 'coin_rate_tiers'", data)
-	return err
+	tx, err := l.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec("UPDATE settings SET value = ? WHERE key = 'coin_rate_tiers'", data); err != nil {
+		return err
+	}
+	// Marks the Rate tiers saved for Next steps, even at the shipped price.
+	if _, err := tx.Exec("INSERT OR IGNORE INTO settings (key, value) VALUES ('rate_tiers_saved', '1')"); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // CustomizeVendoRates gives a Vendo its own copy of the site Rate tiers, to

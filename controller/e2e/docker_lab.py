@@ -61,12 +61,12 @@ def sh(*command: str, check: bool = True, env=None) -> str:
     return result.stdout
 
 
-def verify_router_image(path: Path, sha256: str, what: str) -> None:
+def verify_router_image(path: Path, sha256: str, source: str, hint: str) -> None:
     with path.open("rb") as file:
         actual = hashlib.file_digest(file, "sha256").hexdigest()
     if actual != sha256:
-        raise SystemExit(f"Checksum mismatch: {what} RouterOS CHR {CHR_VERSION} image {path} has sha256 {actual}, "
-                         f"expected {sha256} (CHR_SHA256 in controller/e2e/docker_lab.py). Not using it.")
+        raise SystemExit(f"Checksum mismatch for the RouterOS CHR {CHR_VERSION} image {source}: sha256 {actual}, "
+                         f"expected {sha256} (CHR_SHA256 in controller/e2e/docker_lab.py). {hint}")
 
 
 def router_image(sha256: str = CHR_SHA256) -> Path:
@@ -85,9 +85,9 @@ def router_image(sha256: str = CHR_SHA256) -> Path:
                     shutil.copyfileobj(response, out)
                 with zipfile.ZipFile(archive) as bundle, bundle.open(image.name) as src, extracted.open("wb") as out:
                     shutil.copyfileobj(src, out)
-                verify_router_image(extracted, sha256, "downloaded")
+                verify_router_image(extracted, sha256, f"downloaded from {CHR_URL}", "Nothing was cached.")
                 os.replace(extracted, image)
-    verify_router_image(image, sha256, "cached")
+    verify_router_image(image, sha256, f"cached at {image}", "Not using it; delete it to download it again.")
     return image
 
 
@@ -508,11 +508,12 @@ def main() -> None:
     report.data["lab"] = {"name": lab.name, "chr_version": CHR_VERSION, "chr_image": str(chr_image), "image": lab.image}
     started = time.monotonic()
 
-    # SIGTERM and SIGHUP unwind like Ctrl-C, so the lab is removed however the run ends.
+    # SIGINT, SIGTERM and SIGHUP all unwind, so the lab is removed however the run ends. SIGINT is set
+    # explicitly: a background job of a non-interactive shell inherits it ignored.
     def interrupted(signum, _frame):
         raise KeyboardInterrupt(signal.Signals(signum).name)
-    signal.signal(signal.SIGTERM, interrupted)
-    signal.signal(signal.SIGHUP, interrupted)
+    for signum in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+        signal.signal(signum, interrupted)
     try:
         try:
             lab.up()

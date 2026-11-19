@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/netip"
+	"slices"
 	"strings"
 
 	"github.com/H3atman/openpiso-wifi/controller/internal/routeros"
@@ -80,5 +81,25 @@ func (s *Server) addAlongside(response http.ResponseWriter, request *http.Reques
 	s.mu.Lock()
 	s.routerStatus, s.routerError = "ready", ""
 	s.mu.Unlock()
+	if err := s.exemptFromNAT(request.Context(), router, name); err != nil {
+		http.Error(response, "HotSpot server "+name+" created and Adopted; unable to add its NAT exemption: "+err.Error(), http.StatusBadGateway)
+		return
+	}
 	http.Redirect(response, request, "/admin", http.StatusSeeOther)
+}
+
+// exemptFromNAT runs the portal-reachable fix for a server the Controller just
+// created: the Controller's NAT exemption for its network, which only adds a
+// Controller-owned rule. Without it a masquerade rewrites its Devices' addresses
+// and the Portal cannot find them.
+func (s *Server) exemptFromNAT(ctx context.Context, router *routeros.Client, server string) error {
+	checks, err := s.checklist(ctx, router, []string{server})
+	if err != nil {
+		return err
+	}
+	index := slices.IndexFunc(checks, func(check routeros.Check) bool { return check.Name == "portal-reachable" })
+	if index < 0 {
+		return errors.New("HotSpot server " + server + " is missing on the Router")
+	}
+	return checks[index].Fix(ctx)
 }

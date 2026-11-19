@@ -2,7 +2,7 @@
 
 setup() turns the lab's HotSpot server hs1 into another system's server (its own login page in the
 default directory, a login method the Controller cannot use, users holding time, no Controller
-walled garden, HotSpot profiles or login page) and adds a second server, OTHER, that the Operator does not Adopt.
+walled garden, NAT exemption, HotSpot profiles or login page) and adds a second server, OTHER, that the Operator does not Adopt.
 It never changes VM definitions. teardown_other() removes the second server and setup_other() adds
 it again; teardown() also removes the users. Neither restores hs1: every run Adopts it again.
 """
@@ -34,6 +34,10 @@ class ExistingHotspotLab:
             self.router("/ip/hotspot/user", "PUT", {"name": name, "password": name, "limit-uptime": limit, "server": "all"})
         # A Router that never had a Controller: no walled garden entry, HotSpot profiles, login page or backups of ours.
         self._remove("/ip/hotspot/walled-garden/ip", "comment=openpiso-controller")
+        for row in self.router("/ip/firewall/nat"):
+            # A NAT exemption of ours; the walled garden's dynamic rules carry its comment openpiso-controller.
+            if row.get("comment", "").startswith("openpiso-controller-") and row.get("dynamic") != "true":
+                self.router(f"/ip/firewall/nat/{row['.id']}", "DELETE")
         for row in self.router("/ip/hotspot/user"):
             if row["name"].startswith("op-"):  # a Time Credit's user, which holds a profile of ours
                 self.router(f"/ip/hotspot/user/{row['.id']}", "DELETE")

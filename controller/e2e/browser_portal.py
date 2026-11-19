@@ -135,7 +135,7 @@ def preview_drafts(run, opener) -> dict:
     return {"draft-" + name: save(files) for name, files in drafts.items()}
 
 
-def scenario(run, opener, address, password, client_address, report, restart_controller) -> None:
+def scenario(run, opener, address, password, lab, report, restart_controller) -> None:
     request = run.request
     # Site policy for this run: rates, the default Pause Limit, no Idle Pause, 30-day Validity.
     # ₱5 earns 5 Points, which the site Points table trades for 30 minutes.
@@ -147,7 +147,7 @@ def scenario(run, opener, address, password, client_address, report, restart_con
     def voucher(seconds):
         return run.voucher_codes(opener, run.generate_vouchers(opener, {"seconds": str(seconds), "count": "1"}))[0]
 
-    paired = run.pair_board(opener, client_address, password, run.coin_board(client_address, password))
+    paired = run.pair_board(opener, lab, lab.coin_board())
     vendo = run.SimulatedVendo(run.BASE_URL, paired["id"], bytes.fromhex(paired["secret"]), timeout=run.HTTP_TIMEOUT)
     assert vendo.heartbeat()[0] == 200
 
@@ -242,12 +242,11 @@ def scenario(run, opener, address, password, client_address, report, restart_con
         report.snapshot("browser-custom-portal-cover-logo", address, password, opener, device=branded)
 
         # Real Voucher redemptions make a later page even in --only browser, on its fresh ledger.
-        device_ip = run.router_rest(client_address, "admin", password,
-                                    "/ip/address?interface=lan1", scheme="http")[0]["address"].split("/")[0]
+        device_ip = lab.device_ip()
         codes = run.voucher_codes(opener, run.generate_vouchers(opener, {"seconds": "60", "count": "26", "pesos": "2"}))
         assert len(codes) == 26
         for code in codes:
-            redeemed = run.portal_state(run.pause_device_fetch(client_address, password, device_ip, "/portal/api/redeem", {"code": code}))
+            redeemed = run.portal_state(run.pause_device_fetch(lab, device_ip, "/portal/api/redeem", {"code": code}))
             run.assert_message(redeemed, "success", "online")
         sales = run_browser("admin", ["--network", "host"], run.BASE_URL, "sales",
                             {"password": run.ADMIN_PASSWORD, "vendo_id": vendo.id, "search": device_ip, "vouchers": codes},

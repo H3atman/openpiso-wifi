@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Issue #6 end-to-end scenario.
 
-The native or ARM-guest Controller is exercised through HTTP. Router assertions
-use the real chr-lab Router; later ticket scenarios extend this same harness.
+The Controller, in the lab or in an ARM guest, is exercised through HTTP on a throwaway
+Docker lab per run (docker_lab.py): a stock RouterOS CHR Router and Linux Devices. Later
+ticket scenarios extend this same harness.
 """
 
 import argparse
@@ -17,7 +18,6 @@ import http.cookiejar
 import importlib.util
 import io
 import json
-import os
 import re
 import ssl
 import subprocess
@@ -30,19 +30,16 @@ import urllib.request
 from pathlib import Path
 
 BASE_URL = "http://127.0.0.1:18080"
-PORTAL_URL = "http://192.168.122.1:18080"
+PORTAL_URL = "http://10.77.7.1:18080"  # the Controller on the lab WAN; DockerLab or the ARM guest sets it
 PORTAL_CSP = "default-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"  # docs/portal-contract.md
 ARM_VM = None
-CONTROLLER_HOST = None  # a lab that runs the Controller itself (DockerLab); None runs the binary here
+CONTROLLER_HOST = None  # the lab that runs the Controller (DockerLab sets it)
 HTTP_TIMEOUT = 3
 ADMIN_PASSWORD = "controller-e2e-password"
 ROUTER_ADMIN = "openpiso-bootstrap"
 ROUTER_ADMIN_PASSWORD = "Tést& = + # issue6"
 ROOT = Path(__file__).resolve().parents[2]
 # python -I intentionally omits the script directory from sys.path.
-_safety_spec = importlib.util.spec_from_file_location("lab_safety", Path(__file__).with_name("lab_safety.py"))
-_safety_module = importlib.util.module_from_spec(_safety_spec)
-_safety_spec.loader.exec_module(_safety_module)
 _vendo_spec = importlib.util.spec_from_file_location("simulated_vendo", Path(__file__).with_name("simulated_vendo.py"))
 _vendo_module = importlib.util.module_from_spec(_vendo_spec)
 _vendo_spec.loader.exec_module(_vendo_module)
@@ -56,42 +53,19 @@ _browser_spec.loader.exec_module(_browser_module)
 _lab_spec = importlib.util.spec_from_file_location("e2e_lab", ROOT / "lab/chr/e2e_lab.py")
 _lab_module = importlib.util.module_from_spec(_lab_spec)
 _lab_spec.loader.exec_module(_lab_module)
-_vlan_spec = importlib.util.spec_from_file_location("vlan_lab", ROOT / "lab/chr/vlan_lab.py")
-_vlan_module = importlib.util.module_from_spec(_vlan_spec)
-_vlan_spec.loader.exec_module(_vlan_module)
-_libvirt_spec = importlib.util.spec_from_file_location("libvirt_lab", Path(__file__).with_name("libvirt_lab.py"))
-_libvirt_module = importlib.util.module_from_spec(_libvirt_spec)
-_libvirt_spec.loader.exec_module(_libvirt_module)
-# --lab choices. Scenarios reach the Router, Devices and Vendos only through
-# the lab object (see LibvirtLab for the interface).
+# Scenarios reach the Router, Devices and Vendos only through the lab object (DockerLab).
 _docker_spec = importlib.util.spec_from_file_location("docker_lab", Path(__file__).with_name("docker_lab.py"))
 _docker_module = importlib.util.module_from_spec(_docker_spec)
 _docker_spec.loader.exec_module(_docker_module)
-LABS = {"libvirt": _libvirt_module.LibvirtLab, "docker": _docker_module.DockerLab}
 
 
 def assert_refused(error, code: str) -> None:
-    """A Portal refusal carries the Portal's message. Only labs whose fetch keeps the reply (DockerLab)
-    can check it; RouterOS /tool/fetch drops the body, so there the status is all there is."""
+    """A Portal refusal carries the Portal's message: a Device's fetch keeps the reply as portal_reply
+    when it is JSON (DockerLab.fetch)."""
     reply = getattr(error, "portal_reply", None)
     if reply is not None:
         message = reply["message"]
         assert message["code"] == code and message["text"], (code, message)
-
-
-def load_lab_env() -> dict[str, str]:
-    path = ROOT / "lab/chr/.env"
-    if not path.is_file():
-        common = subprocess.run(["git", "-C", str(ROOT), "rev-parse", "--path-format=absolute", "--git-common-dir"],
-                                check=True, capture_output=True, text=True).stdout.strip()
-        path = Path(common).parent / "lab/chr/.env"
-    values = {}
-    for line in path.read_text().splitlines():
-        if line and not line.startswith("#"):
-            key, value = line.split("=", 1)
-            values[key] = value.strip("'\"")
-    print(f"Loaded lab credentials from {path}", flush=True)
-    return values
 
 
 def router_rest(address: str, username: str, password: str, path: str, method: str = "GET", body=None, scheme: str = "https"):
@@ -352,36 +326,16 @@ def wait_for(url: str, timeout: float = 10) -> None:
 
 
 class Controller:
+    """The Controller under test, run by the lab (CONTROLLER_HOST) or in the ARM guest.
+    binary and data_dir stay for the call sites: the lab container has its own."""
+
     def __init__(self, binary: str, data_dir: str, initialize: bool):
         if ARM_VM is not None:
             ARM_VM.start_controller()
             wait_for(f"{BASE_URL}/healthz", timeout=120)
             return
-        if CONTROLLER_HOST is not None:
-            self.process = CONTROLLER_HOST.start_controller(initialize)
-            wait_for(f"{BASE_URL}/healthz", timeout=30)
-            return
-        env = os.environ.copy()
-        if initialize:
-            env["OPENPISO_ADMIN_PASSWORD"] = ADMIN_PASSWORD
-        else:
-            env.pop("OPENPISO_ADMIN_PASSWORD", None)
-        self.process = subprocess.Popen(
-            [
-                binary,
-                "-listen",
-                "0.0.0.0:18080",
-                "-data",
-                data_dir,
-                "-portal-url",
-                PORTAL_URL,
-            ],
-            env=env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-        )
-        wait_for(f"{BASE_URL}/healthz")
+        self.process = CONTROLLER_HOST.start_controller(initialize)
+        wait_for(f"{BASE_URL}/healthz", timeout=30)
 
     def kill(self) -> None:
         # Abrupt crash for recovery scenarios.
@@ -1024,8 +978,6 @@ def idle_pause(opener, report, address, password, lab, device_ip):
     assert duration_seconds(profiles["openpiso-idle"]["idle-timeout"]) == 5
     assert profiles["openpiso-no-idle"]["idle-timeout"] == "none"
     assert profiles["openpiso-idle"]["keepalive-timeout"] == "none"
-    # Fixture traffic generator must not keep the customer Device active.
-    lab.stop_background_traffic()
     for iteration in range(2):
         deadline = time.monotonic() + 20
         while router_rest(address, "admin", password, active_path):
@@ -2719,7 +2671,6 @@ class Report:
     def __init__(self, binary: str, path: Path):
         self.path = path
         self.lab_snapshot = None
-        self.router_password = None  # redacted from the report; None reads it from lab/chr/.env
         self.data = {
             "format_version": 1,
             "scenario": "6-skeleton-7-vouchers-8-pause-9-top-up-10-rebind-11-reconciler-13-admin-dashboard-15-vendo-16-coin-window-41-vlan-auto-select-61-default-portal-62-custom-portal",
@@ -2735,7 +2686,7 @@ class Report:
             ).stdout.strip()),
             "binary_size_bytes": Path(binary).stat().st_size,
             "binary_sha256": hashlib.sha256(Path(binary).read_bytes()).hexdigest(),
-            "test_seam": "Controller binary via external HTTP against chr-lab and chr-client",
+            "test_seam": "Controller binary via external HTTP against a Docker lab: stock CHR Router and Linux Devices",
             "steps": [],
             "result": "running",
         }
@@ -2775,17 +2726,14 @@ class Report:
         self.data["finished_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
         if error:
             self.data["error"] = error
-        summary = {key: value for key, value in self.data.items() if key not in ("steps", "vlan_hosts", "lab_snapshot", "chr_client_cleanup")}
+        summary = {key: value for key, value in self.data.items() if key not in ("steps", "vlan_hosts", "lab_snapshot", "device_lease")}
         summary["steps"] = [step["name"] for step in self.data["steps"]]
-        if "chr_client_cleanup" in self.data:
-            summary["chr_client_cleanup_removed"] = len(self.data["chr_client_cleanup"].get("removed", []))
         if "execution" in summary:  # the serial tail is a raw log; keep it in the local report only
             summary["execution"] = {key: value for key, value in summary["execution"].items() if key != "serial_console_tail"}
-        router_password = self.router_password or load_lab_env()["CHR_PASSWORD"]
 
         def encode(data):
             encoded = json.dumps(redact_resume_codes(data), indent=2, ensure_ascii=False)
-            for secret in (router_password, ROUTER_ADMIN_PASSWORD, ADMIN_PASSWORD):
+            for secret in (_docker_module.ROUTER_PASSWORD, ROUTER_ADMIN_PASSWORD, ADMIN_PASSWORD):
                 encoded = encoded.replace(secret, "[redacted]")
             return encoded + "\n"
 
@@ -5078,14 +5026,10 @@ def vendo_auto_select(opener, address, password, lab, report):
         lab.vlan_down()
 
 
-def vlan_host_evidence(lab, report, write_hosts):
+def vlan_host_evidence(lab, report):
     try:
         lab.vlan_up()
         evidence = lab.vlan_hosts()
-        if write_hosts:
-            destination = ROOT / "docs/research/results/2026-10-29-chr-vlan-autoselect/hosts.json"
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            destination.write_text(json.dumps(evidence, indent=2) + "\n")
         report.data["vlan_hosts"] = evidence
         for item in evidence:
             assert len(item["host_rows"]) == 1, item
@@ -5099,11 +5043,8 @@ def scenario(args, report: Report, lab) -> None:
     password = lab.router_password
     address = lab.router_address
     lab.new_router_certificate()
-    report.data["chr_client_cleanup"] = {}
-    lab.start(report.data["chr_client_cleanup"])
-    cleanup_vendo_router(address, password)
-    report.data["chr_client_cleanup"]["device_lease"] = lab.reset_device()
-    vlan_host_evidence(lab, report, args.write_vlan_hosts)
+    report.data["device_lease"] = lab.reset_device()
+    vlan_host_evidence(lab, report)
     resource = router_rest(address, ROUTER_ADMIN, ROUTER_ADMIN_PASSWORD, "/system/resource")
     assert resource["version"].startswith("7.")
     original_hotspot_names = {entry["name"] for entry in router_rest(address, "admin", password, "/ip/hotspot/user")}
@@ -5291,7 +5232,6 @@ def scenario(args, report: Report, lab) -> None:
                 report.snapshot("boot-reverified-with-bootstrap-admin-deleted", address, password, opener)
 
                 if args.only:
-                    lab.route_devices()
                     if args.only == "pairing":
                         _flash_module.scenario(sys.modules[__name__], opener, address, password, lab, report)
                     elif args.only == "vlan":
@@ -5349,7 +5289,6 @@ def scenario(args, report: Report, lab) -> None:
                 dashboard_clean_ledger(opener, report, address, password)
                 validity_settings(opener, report, address, password)
                 codes = voucher_batch(opener, report, address, password)
-                lab.route_devices()
                 redirect_page, portal_page = lab.redirect()
                 assert f"{PORTAL_URL}/portal" in redirect_page
                 assert "02%3A00%3A00%3A00%3A0C%3A01" in redirect_page
@@ -5450,14 +5389,10 @@ def scenario(args, report: Report, lab) -> None:
                 report.capture_lab_failure()
                 controller.stop()
     finally:
-        # Finish all Router REST work before hot-unplugging its fixture NIC:
-        # RouterOS management can be briefly unreachable during hot-unplug.
         report.capture_lab_failure()
         cleanup_steps(report, [
-            ("coin board", lab.remove_coin_board),
             ("Vendo Router rules", lambda: cleanup_vendo_router(address, password)),
             ("HotSpot users", lambda: cleanup_hotspot_users(address, password, original_hotspot_names)),
-            *lab.teardown_steps(),
         ])
 
 
@@ -5492,37 +5427,21 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--only", choices=ONLY_SCENARIOS,
                         help="run onboarding, then one scenario: " + "; ".join(f"{name}: {what}" for name, what in ONLY_SCENARIOS.items()))
-    parser.add_argument("--lab", choices=LABS, default="docker",
-                        help="which lab runs the Router, Devices and Vendos (default docker: a throwaway Docker lab "
-                             "per run, no lab lock). libvirt: the shared chr-lab and chr-client VMs, one run at a time")
-    parser.add_argument("--keep", action="store_true", help="Docker lab only: leave the lab running and print how to reach and remove it")
-    parser.add_argument("--build", action="store_true", help="build the Controller first (on libvirt, while holding the lab lock)")
+    parser.add_argument("--keep", action="store_true", help="leave the Docker lab running and print how to reach and remove it")
+    parser.add_argument("--build", action="store_true", help="build the Controller first")
     parser.add_argument("--binary", help="Controller binary under test; --only update builds its own")
     parser.add_argument("--report", type=Path)
-    parser.add_argument("--write-vlan-hosts", action="store_true", help="refresh the committed VLAN auto-select research hosts.json")
     parser.add_argument("--armv7", action="store_true", help="run every scenario in a fresh 256 MiB ARM guest")
-    parser.add_argument("--arm-boot-timeout", type=float, default=900, help="ARM boot/cloud-init timeout in seconds (default 900)")
-    parser.add_argument("--http-timeout", type=float, help="HTTP timeout in seconds (native 3, Docker 30, ARM 120)")
-    parser.add_argument("--lock-timeout", type=float, default=2700,
-                        help="seconds to queue for the CHR lab lock before giving up (default 2700)")
+    parser.add_argument("--arm-boot-timeout", type=float, default=1800, help="ARM boot/cloud-init timeout in seconds (default 1800)")
+    parser.add_argument("--http-timeout", type=float, help="HTTP timeout in seconds (Docker 30, ARM 120)")
     args = parser.parse_args()
     if not 0 < args.arm_boot_timeout < float("inf"):
         parser.error("--arm-boot-timeout must be a positive finite number")
-    if not 0 < args.lock_timeout < float("inf"):
-        parser.error("--lock-timeout must be a positive finite number")
     if args.only in ("boot", "update") and not args.armv7:
         parser.error(f"--only {args.only} requires --armv7")
     if args.binary is None and args.only != "update":
         parser.error("--binary is required")
-    if args.keep and args.lab != "docker":
-        parser.error("--keep works on the Docker lab only")
-    if args.lab == "docker":
-        if args.write_vlan_hosts:
-            parser.error("--write-vlan-hosts refreshes research recorded on the libvirt lab only: add --lab libvirt")
-        run(args)  # each Docker lab is its own; the shared CHR lab's lock does not apply
-        return
-    with _safety_module.lab_lock(args.lock_timeout):
-        run(args)
+    run(args)
 
 
 def run(args: argparse.Namespace) -> None:
@@ -5530,14 +5449,13 @@ def run(args: argparse.Namespace) -> None:
     boot_only = args.only == "boot"
     update_only = args.only == "update"
     no_lab = boot_only or update_only  # ARM guest only, no CHR
-    docker = args.lab == "docker"
-    HTTP_TIMEOUT = args.http_timeout if args.http_timeout is not None else (120 if args.armv7 else 30 if docker else 3)
+    HTTP_TIMEOUT = args.http_timeout if args.http_timeout is not None else (120 if args.armv7 else 30)
     partial_mode = f"armv7-{args.only}" if no_lab else (f"{args.only}-only" if args.only else None)
     if args.report is None:
         name = f"{partial_mode}.json" if no_lab else ("armv7.json" if args.armv7 else "walking-skeleton.json")
         if not args.armv7 and partial_mode:
             name = f"{partial_mode}.json"
-        args.report = Path(__file__).parent / "reports" / (f"docker-{name}" if docker else name)
+        args.report = Path(__file__).parent / "reports" / f"docker-{name}"
     releases = None
     if update_only:
         spec = importlib.util.spec_from_file_location("update_vm", Path(__file__).with_name("update_vm.py"))
@@ -5547,17 +5465,10 @@ def run(args: argparse.Namespace) -> None:
         args.binary = str(releases.binary("v0.1.0"))
     elif args.build:
         subprocess.run(["make", "-C", str(ROOT / "controller"), "armv7" if args.armv7 else "build"], check=True)
-    if docker:
-        lab = LABS["docker"](sys.modules[__name__], Path(args.binary), args.keep)
-    elif not no_lab:
-        env = load_lab_env()
-        _safety_module.preflight(ROOT)
-        lab = LABS[args.lab](sys.modules[__name__], env["CHR_PASSWORD"])
+    lab = None if no_lab else _docker_module.DockerLab(sys.modules[__name__], Path(args.binary), args.keep)
     report = Report(args.binary, args.report)
-    if not no_lab:
+    if lab is not None:
         report.lab_snapshot = lab.snapshot
-    if docker or not no_lab:  # a Docker boot or update check has a DockerLab it never runs
-        report.router_password = lab.router_password
     if partial_mode:
         report.data["scenario"] = partial_mode
 
@@ -5573,11 +5484,8 @@ def run(args: argparse.Namespace) -> None:
             module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(module)
             serial = args.report.with_suffix(".serial.log")
-            if docker:
-                ARM_VM = module.ArmContainer(Path(args.binary), args.arm_boot_timeout, serial, _docker_module)
-            else:
-                ARM_VM = module.ArmVM(Path(args.binary), args.arm_boot_timeout, serial)
-            if docker and not no_lab:
+            ARM_VM = module.ArmContainer(Path(args.binary), args.arm_boot_timeout, serial, _docker_module)
+            if lab is not None:
                 lab.arm = ARM_VM  # the lab boots it on its WAN, in the Controller's place
             else:
                 ARM_VM.boot()
@@ -5588,19 +5496,14 @@ def run(args: argparse.Namespace) -> None:
                 assert 0 < evidence["memory_total_kib"] <= 256 * 1024, evidence
                 assert evidence["swap_total_kib"] == 0, evidence
                 report.data["execution"] = evidence
-                if docker:
-                    report.data["test_seam"] = "ARMv7 guest under QEMU (TCG) in a Docker container, over SSH"
+                report.data["test_seam"] = "ARMv7 guest under QEMU (TCG) in a Docker container, over SSH"
             elif update_only:
                 releases.run(ARM_VM, report, ADMIN_PASSWORD)
-            elif not docker:
-                ARM_VM.route_customer_network(lab.router_address)
-                ARM_VM.install(ADMIN_PASSWORD)
-                assert_arm_install(ARM_VM, report)
-            if docker and no_lab:
+            if no_lab:
                 report.data["execution"].update(ARM_VM.container_memory())
-        if not no_lab:
+        if lab is not None:
             with lab.running(report):
-                if docker and ARM_VM is not None:
+                if ARM_VM is not None:
                     ARM_VM.install(ADMIN_PASSWORD)
                     assert_arm_install(ARM_VM, report)
                     # The installed daily update check fires at a random time up to an hour after install
@@ -5609,11 +5512,9 @@ def run(args: argparse.Namespace) -> None:
                     ARM_VM.ssh("sudo systemctl stop openpiso-update-check.timer; "
                                "sudo test ! -e /var/lib/openpiso-update/status.json")
                 scenario(args, report, lab)
-                if docker and ARM_VM is not None:  # the guest goes with the lab
+                if ARM_VM is not None:  # the guest goes with the lab
                     arm_headroom()
                     report.data["execution"].update(ARM_VM.container_memory())
-        if ARM_VM is not None and not no_lab and not docker:
-            arm_headroom()
     except Exception as error:
         report.capture_lab_failure()
         if ARM_VM is not None:

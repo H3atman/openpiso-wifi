@@ -1,4 +1,4 @@
-"""HTTP proxy for `dev.py --lab docker phone`: runs in the phone container on the lab LAN, so a browser
+"""HTTP proxy for `dev.py phone`: runs in the phone container on the lab LAN, so a browser
 pointed at it is that Device behind the HotSpot. Plain http requests go out as the Device and their
 replies (the HotSpot's redirect included) come back unchanged; CONNECT tunnels https. Stdlib only.
 

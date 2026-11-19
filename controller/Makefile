@@ -15,12 +15,9 @@ build:
 check:
 	CGO_ENABLED=0 $(GO) vet ./...
 
-# Lab for `e2e`: docker (a throwaway lab per run) or libvirt (exclusive chr-lab and chr-client,
-# goes away with #39); see README.md before running.
-LAB ?= docker
-
+# Every scenario on a throwaway Docker lab of its own; see README.md before running.
 e2e:
-	python3 -I e2e/run.py --build --lab $(LAB) --binary "$(CURDIR)/bin/openpiso"
+	python3 -I e2e/run.py --build --binary "$(CURDIR)/bin/openpiso"
 
 armv7:
 	CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 $(GO) build -ldflags "$(LDFLAGS)" -o $(OUT)/openpiso-linux-armv7 ./cmd/openpiso

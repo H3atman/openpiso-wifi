@@ -17,6 +17,7 @@ import re
 import secrets
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import threading
@@ -787,6 +788,7 @@ Dev lab {DOCKER_LAB} is up; it stays up until `down`.
   Portal:    {docker_lab.PORTAL_URL}/portal  (only reachable by Devices behind the HotSpot)
   Log:       docker logs -f {DOCKER_CONTROLLER}
   Next:      python3 -I lab/dev/dev.py --lab docker vendo   # coin slot for the dev Vendo
+             python3 -I lab/dev/dev.py --lab docker phone   # a Device for your own browser (proxy)
              python3 -I lab/dev/dev.py --lab docker shots   # scripted phones, screenshots
              python3 -I lab/dev/dev.py --lab docker down    # remove the lab and its data
 Template/CSS/JS edits show on refresh. After Go changes run `up` again (it rebuilds; data is kept).
@@ -876,6 +878,24 @@ def docker_shots(args) -> None:
         sys.exit(1)
 
 
+def write_phone_profile() -> Path:
+    """A fresh Firefox profile for `phone`, made again on every start so no cookie outlives the Device:
+    every request through the proxy, DoH off, and captive-portal detection checking the internet
+    stand-in's page (its stock URL does not resolve in the sealed lab)."""
+    profile = DOCKER_RUN / "firefox-profile"
+    shutil.rmtree(profile, ignore_errors=True)
+    profile.mkdir(parents=True)
+    prefs = {"network.proxy.type": 1, "network.proxy.http": "127.0.0.1", "network.proxy.http_port": PHONE_PORT,
+             "network.proxy.ssl": "127.0.0.1", "network.proxy.ssl_port": PHONE_PORT, "network.trr.mode": 5,
+             "captivedetect.canonicalURL": "http://google.com/",
+             "captivedetect.canonicalContent": docker_lab.INTERNET_BODY + "\n",
+             "browser.shell.checkDefaultBrowser": False, "browser.aboutwelcome.enabled": False,
+             "datareporting.policy.dataSubmissionEnabled": False}
+    (profile / "user.js").write_text("".join(f"user_pref({json.dumps(name)}, {json.dumps(value)});\n"
+                                             for name, value in prefs.items()))
+    return profile
+
+
 def docker_phone(_args) -> None:
     """A Device for your own browser: a container on the lab LAN with PHONE_MAC and a lease from the
     Router, running lab/dev/phone_proxy.py, published on 127.0.0.1:PHONE_PORT. The lab LAN is internal
@@ -886,6 +906,11 @@ def docker_phone(_args) -> None:
         die(f"no dev lab {DOCKER_LAB}: run `--lab docker up` first")
     if DOCKER_PHONE in DevLab().containers():
         die(f"{DOCKER_PHONE} already exists: another `phone` runs (or remove it with docker rm -f {DOCKER_PHONE})")
+    try:
+        socket.create_connection(("127.0.0.1", PHONE_PORT), timeout=1).close()
+        die(f"something already listens on 127.0.0.1:{PHONE_PORT}; stop it first")
+    except OSError:
+        pass
     lab = DevLab()
     router = docker_lab.DockerLab(e2e, DOCKER_RUN / "openpiso-dev", keep=True)
     router.attach(lab)
@@ -907,12 +932,14 @@ def docker_phone(_args) -> None:
         lease = router_rest(address, "admin", password, f"/ip/dhcp-server/lease?mac-address={PHONE_MAC.upper()}")
         say(f"phone {DOCKER_PHONE} is a Device on the lab LAN: {PHONE_MAC.upper()} {ip}, "
             f"Router lease {[row['address'] for row in lease]}")
+        profile = write_phone_profile()
         print(f"""
-Proxy: http://127.0.0.1:{PHONE_PORT}  (stays up until Ctrl+C here)
-Point a browser at it with a throwaway profile, then open http://google.com/:
+Proxy: http://127.0.0.1:{PHONE_PORT}  (your browser is the Device {PHONE_MAC.upper()} {ip} while this runs)
+Open a browser on it with a fresh profile, in another terminal:
+  firefox --no-remote --new-instance --profile {profile} http://google.com/
   chromium --user-data-dir="$(mktemp -d)" --proxy-server=http://127.0.0.1:{PHONE_PORT} http://google.com/
-  curl -x http://127.0.0.1:{PHONE_PORT} -i http://google.com/
-Coins: python3 -I lab/dev/dev.py --lab docker vendo  (after "Insert coin" in the Portal)
+Coins: python3 -I lab/dev/dev.py --lab docker vendo   # start it before "Insert coin", then type pulses
+Ctrl+C here removes the phone; the Router forgets the Device, so the next `phone` starts without Time Credit.
 """, flush=True)
         while running(DOCKER_PHONE):
             time.sleep(2)
@@ -943,7 +970,8 @@ def main() -> None:
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("up", help="start the dev Controller and make the lab healthy").set_defaults(run=cmd_up)
     commands.add_parser("vendo", help="interactive coin slot for the dev Vendo").set_defaults(run=cmd_vendo)
-    commands.add_parser("phone", help="Firefox as a customer Device in netns devphone (sudo)").set_defaults(run=cmd_phone)
+    commands.add_parser("phone", help="Firefox as a customer Device in netns devphone (sudo); --lab docker: "
+                                      "a proxy Device on 127.0.0.1:18089 for your own browser").set_defaults(run=cmd_phone)
     shots = commands.add_parser("shots", help="scripted phones through the HotSpot, with screenshots")
     shots.add_argument("profile", nargs="*", default=list(PROFILES), help=f"default: {' '.join(PROFILES)}")
     shots.set_defaults(run=cmd_shots)

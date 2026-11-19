@@ -17,6 +17,7 @@ There are two labs behind the same commands. `--lab docker` (below) is a Docker 
 ```sh
 python3 -I lab/dev/dev.py --lab docker up      # build, create or reuse the lab, (re)start the Controller
 python3 -I lab/dev/dev.py --lab docker vendo   # coin slot for the dev Vendo
+python3 -I lab/dev/dev.py --lab docker phone   # a Device for your own browser (proxy on 127.0.0.1:18089)
 python3 -I lab/dev/dev.py --lab docker shots   # scripted phones, screenshots
 python3 -I lab/dev/dev.py --lab docker down    # remove the lab and its data
 ```
@@ -29,7 +30,23 @@ Open `http://127.0.0.1:18088/admin/login` and sign in with the password in `lab/
 
 **The UI loop.** The repository is mounted read-only into the Controller container at its real path, and the dev build reads `web/templates`, `web/static` and `web/portal` from there: save, refresh. After a Go change run `up` again: it rebuilds and restarts the Controller, and the data (the container's `/data`) is kept. Read the Controller log with `docker logs -f opnwdev-controller-1`.
 
-**The Portal** is at `http://10.77.7.1:18080/portal`, reachable only by Devices behind the HotSpot. View it through `shots`; `phone` is not on the Docker lab yet (#37).
+**The Portal** is at `http://10.77.7.1:18080/portal`, reachable only by Devices behind the HotSpot. View it in your own browser through `phone`, or through `shots`.
+
+**`phone`** makes your desktop browser a Device behind the HotSpot, with no sudo and no extra browser. It starts `opnwdev-phone`, a container on the lab LAN with MAC `02:00:00:0D:00:03` and a lease from the Router, running a small stdlib HTTP proxy ([`phone_proxy.py`](phone_proxy.py)) published on `127.0.0.1:18089`. Every request your browser sends through it leaves from that Device, so the HotSpot redirects it, the Controller sees the Device's MAC and IP, and once it has Time Credit it reaches the internet stand-in. It stays in the foreground; Ctrl+C removes the container and makes the Router forget the Device (lease, host, session), so the next `phone` starts without Time Credit. `down` removes it too. A UI session:
+
+```sh
+python3 -I lab/dev/dev.py --lab docker up      # once
+python3 -I lab/dev/dev.py --lab docker phone   # terminal 1: the proxy Device
+python3 -I lab/dev/dev.py --lab docker vendo   # terminal 2: the coin slot, started before "Insert coin"
+firefox --no-remote --new-instance --profile lab/dev/.run/docker/firefox-profile http://google.com/   # terminal 3
+```
+
+`http://google.com/` redirects to the Router's login, which hands over to the Portal. Click "Insert coin", type `5` + Enter in the `vendo` terminal, click "Done": `http://google.com/` then shows `openpiso-lab-internet`, the stand-in's page. Edit a template or stylesheet and refresh as usual.
+
+- **The browser profile.** `phone` writes a fresh Firefox profile to `lab/dev/.run/docker/firefox-profile` on every start (so no cookie outlives the Device): every request through the proxy, DNS over HTTPS off, and captive-portal detection checking `http://google.com/` for the stand-in's page, since Firefox's own detection URL does not resolve in the sealed lab. Close that Firefox before the next `phone`. Chromium needs no profile setup: `chromium --user-data-dir="$(mktemp -d)" --proxy-server=http://127.0.0.1:18089 http://google.com/`. Any browser works with a manual HTTP proxy of `127.0.0.1:18089`, as long as its profile is used for nothing else.
+- **Start `vendo` before "Insert coin".** On start `vendo` releases any Coin Window that is already open, assuming an earlier run left it. Leave it running until after "Done", so the board reports the window closed.
+- **Plain http only.** The proxy tunnels https (CONNECT), but the HotSpot redirects only plain http, and the stand-in serves no https, so https pages fail before and after login. Type `http://` URLs.
+- **What is not faithful.** The browser's own captive-portal detection runs through the proxy, not through the OS network stack, so there is no OS "sign in to network" prompt; the redirect and the Portal are the real ones. Firefox's captive-portal notification with the profile above is not verified.
 
 **`vendo`** works as below, sending every Report from the dev Vendo's container. **`shots`** works as below, with each phone a Playwright container on the lab LAN (1 GB cap) that takes its own DHCP lease, and with `http://google.com/` (answered by the internet stand-in) as the plain http URL. Screenshots go to `lab/dev/.run/shots/<timestamp>/`.
 

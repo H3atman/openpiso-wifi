@@ -30,6 +30,8 @@ type pendingRouter struct {
 	certificate routeros.Certificate
 }
 
+// Server is the Controller. A handler that holds both vendoMu and voucherMu
+// takes vendoMu first, never the other way round.
 type Server struct {
 	vendoMu         sync.Mutex
 	ledger          *ledger.Ledger

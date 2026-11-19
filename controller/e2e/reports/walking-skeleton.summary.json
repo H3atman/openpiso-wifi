@@ -1,12 +1,12 @@
 {
   "format_version": 1,
   "scenario": "6-skeleton-7-vouchers-8-pause-9-top-up-10-rebind-11-reconciler-13-admin-dashboard-15-vendo-16-coin-window-41-vlan-auto-select-61-default-portal-62-custom-portal",
-  "started_at": "2026-11-17T02:36:46.701747+00:00",
-  "git_commit": "b99792efdbd67500a4b6f25e5dd8ed99665ecdda",
-  "git_tree": "fc8cba0cb3d13b176277943cc578b68c290a1bbb",
+  "started_at": "2026-11-19T07:11:56.813225+00:00",
+  "git_commit": "e2e3f99333d92556ac8e5b5fa3039ef5b8663913",
+  "git_tree": "2671c7998ff8880213988822609707920caecc16",
   "git_dirty": true,
-  "binary_size_bytes": 23103312,
-  "binary_sha256": "436ee4147f5e2584ca6c67956fa37bfe24b101da9f6717ad665c1a7694451ab6",
+  "binary_size_bytes": 23415443,
+  "binary_sha256": "96aeaca6a02a79ec7f3407eabdc2c84328c41e342990e1b1065c6184bea4eff1",
   "test_seam": "Controller binary via external HTTP against chr-lab and chr-client",
   "result": "pass",
   "browser_portal": {
@@ -68,35 +68,35 @@
     "sales_report": {
       "shortcuts": {
         "Today": {
-          "from": "2026-11-17",
-          "to": "2026-11-17",
+          "from": "2026-11-19",
+          "to": "2026-11-19",
           "count": 84,
           "total_pesos": 4294967743
         },
         "This week": {
           "from": "2026-11-16",
-          "to": "2026-11-17",
+          "to": "2026-11-19",
           "count": 84,
           "total_pesos": 4294967743
         },
         "This month": {
           "from": "2026-11-01",
-          "to": "2026-11-17",
+          "to": "2026-11-19",
           "count": 84,
           "total_pesos": 4294967743
         },
         "This year": {
           "from": "2026-01-01",
-          "to": "2026-11-17",
+          "to": "2026-11-19",
           "count": 84,
           "total_pesos": 4294967743
         }
       },
       "single_vendo_named": true,
-      "search_count": 77,
+      "search_count": 78,
       "later_page": 2,
       "reload_back_forward_restored": true,
-      "csv_rows": 77,
+      "csv_rows": 78,
       "csv_matches_filtered_json": true,
       "total_pesos": 4294967743,
       "csp_violations": []
@@ -175,13 +175,17 @@
     "result": "pass",
     "failures": []
   },
-  "finished_at": "2026-11-17T02:58:50.659195+00:00",
+  "finished_at": "2026-11-19T07:36:29.010085+00:00",
   "steps": [
     "boot-admin-password-persisted-and-rate-limited",
     "authenticated-post-route-policy",
     "non-v7-onboarding-refused-before-any-write",
+    "router-holds-someone-elses-hotspot",
     "operator-compares-certificate",
+    "connecting-changes-no-hotspot-and-saves-a-backup",
     "onboarded-with-special-character-admin-password",
+    "use-existing-lists-servers-ticked-and-names-both-changes",
+    "use-existing-adopts-only-the-ticked-server",
     "second-onboarding-is-idempotent",
     "boot-reverified-with-bootstrap-admin-deleted",
     "boot-repairs-router-drift",
@@ -254,6 +258,7 @@
     "browser-sales-report",
     "browser-signin-logout-restart",
     "flash-pairing-adopted-from-real-vlan-source",
+    "vendo-without-lease-paired-on-its-networks-dhcp-server",
     "single-vendo-auto-select-from-either-vlan",
     "one-vendo-per-vlan-learned-and-auto-selected",
     "picker-is-limited-to-network-and-forged-id-reserves-nothing",

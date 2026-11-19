@@ -22,8 +22,9 @@ const freshStartConfirmation = "DELETE"
 // not offered; Backup is the backup file that covers the wipe, "" when the
 // Router no longer holds the one saved at connect. Parents are those a new
 // VLAN can go on, with Parent, VLAN and VLANRange the suggested parent, ID and
-// address range.
+// address range. Error says why the card could not be read.
 type freshStartView struct {
+	Error        string
 	Blocked      string
 	Backup       string
 	Plan         routeros.FreshStartPlan
@@ -78,6 +79,9 @@ func (s *Server) freshStartBackup(ctx context.Context, router *routeros.Client) 
 // the Adopted servers, deletes the HotSpot tree, creates the new server, Adopts
 // it and brings it to the baseline with its NAT exemption.
 func (s *Server) freshStart(response http.ResponseWriter, request *http.Request) {
+	// vendoMu keeps a Vendo from pairing between the guard and the wipe.
+	s.vendoMu.Lock()
+	defer s.vendoMu.Unlock()
 	s.voucherMu.Lock()
 	defer s.voucherMu.Unlock()
 	if err := request.ParseForm(); err != nil {
@@ -145,23 +149,5 @@ func (s *Server) freshStart(response http.ResponseWriter, request *http.Request)
 		http.Error(response, "HotSpot configuration deleted; unable to create the HotSpot server, run Fresh start again: "+err.Error(), http.StatusBadGateway)
 		return
 	}
-	if err := s.ledger.AdoptHotspotServers([]string{name}); err != nil {
-		http.Error(response, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	if err := s.applyBaseline(ctx, router); err != nil {
-		s.mu.Lock()
-		s.routerStatus, s.routerError = "error", err.Error()
-		s.mu.Unlock()
-		http.Error(response, "HotSpot server "+name+" created and Adopted; unable to finish the Router baseline: "+err.Error(), http.StatusBadGateway)
-		return
-	}
-	s.mu.Lock()
-	s.routerStatus, s.routerError = "ready", ""
-	s.mu.Unlock()
-	if err := s.exemptFromNAT(ctx, router, name); err != nil {
-		http.Error(response, "HotSpot server "+name+" created and Adopted; unable to add its NAT exemption: "+err.Error(), http.StatusBadGateway)
-		return
-	}
-	http.Redirect(response, request, "/admin", http.StatusSeeOther)
+	s.finishAdopting(response, request, router, []string{name}, "HotSpot server "+name+" created and Adopted", true)
 }

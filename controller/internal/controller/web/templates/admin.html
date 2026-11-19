@@ -7,6 +7,8 @@
     {{if .Error}}<p class="field-error" role="alert">Router unavailable: {{.Error}}</p>{{end}}
     {{if .Adopted}}<p>Adopted HotSpot servers:</p><ul>{{range .Adopted}}<li>{{.}}</li>{{end}}</ul>
     {{else}}<p class="muted-fg">No HotSpot server is Adopted yet. The Controller changes only the servers you Adopt.</p>{{end}}
+    {{range .CarryVLANs}}<p class="carry-vlan" data-server="{{.Server}}" data-vlan="{{.VLAN}}">HotSpot server {{.Server}} is on VLAN {{.VLAN}}. Carry VLAN {{.VLAN}} to an SSID on your access point, and tag it on the switch ports between the access point and the Router, so customers can join it. The checklist shows it done once a Device has been sent to the Portal from {{.Server}}.</p>
+    {{end}}
   </div>
 </section>
 {{if not .Error}}
@@ -27,16 +29,28 @@
   </div>
 </section>
 <section class="card narrow">
-  <div class="card-head"><div><h3>Add alongside</h3><p class="muted-fg">Create a new HotSpot server on an interface that has none, and Adopt it. The HotSpot servers already on the Router are not changed.</p></div></div>
+  <div class="card-head"><div><h3>Add alongside</h3><p class="muted-fg">Create a new HotSpot server, on a new VLAN or on an interface that has none, and Adopt it. The HotSpot servers already on the Router are not changed.</p></div></div>
   <div class="card-body">
-    {{with .AddAlongside}}{{if .Interfaces}}
-    <form class="form" method="post" action="/admin/router/add-alongside">
+    {{with .AddAlongside}}{{if .Parents}}{{$parent := .Parent}}
+    <form class="form add-alongside-vlan" method="post" action="/admin/router/add-alongside">
+      <input type="hidden" name="placement" value="vlan">
+      <p><strong>On a new VLAN</strong> <span class="xs muted-fg">recommended</span></p>
+      <label class="field">Parent interface <select name="parent" required>{{range .Parents}}<option value="{{.}}"{{if eq . $parent}} selected{{end}}>{{.}}</option>{{end}}</select></label>
+      <label class="field">VLAN ID <input name="vlan" type="number" min="1" max="4094" value="{{.VLAN}}" required></label>
+      <label class="field">Address range <input name="range" value="{{.Range}}" required></label>
+      <p class="xs muted-fg">Suggested: the interface under your HotSpot server and the lowest VLAN ID not in use on it. The Controller adds the VLAN interface, its address, an address pool, a DHCP server, a server profile, the HotSpot server and a NAT exemption so its Devices reach the Portal. On a bridge with VLAN filtering on it adds nothing and shows the steps to add the VLAN yourself.</p>
+      <div><button class="btn" type="submit">Create VLAN and Adopt</button></div>
+    </form>
+    {{end}}
+    {{if .Interfaces}}
+    <form class="form add-alongside-interface" method="post" action="/admin/router/add-alongside">
+      <p><strong>On an interface with no HotSpot server</strong></p>
       <label class="field">Interface <select name="interface" required>{{range .Interfaces}}<option value="{{.}}">{{.}}</option>{{end}}</select></label>
       <label class="field">Address range <input name="range" value="{{.Range}}" required></label>
       <p class="xs muted-fg">Suggested: the next private range of the same size that overlaps nothing on the Router. The Controller adds the address, an address pool, a DHCP server, a server profile, the HotSpot server and a NAT exemption so its Devices reach the Portal.</p>
       <div><button class="btn" type="submit">Create and Adopt</button></div>
     </form>
-    {{else}}<p class="muted-fg add-alongside-none">No interface is free: every interface has a HotSpot server, is a bridge port or carries the Controller's connection to the Router. Add a VLAN or free a port first.</p>{{end}}{{end}}
+    {{else}}<p class="muted-fg add-alongside-none">No interface is free: every interface has a HotSpot server, is a bridge port or carries the Controller's connection to the Router. Use a new VLAN, or free a port first.</p>{{end}}{{end}}
   </div>
 </section>
 {{end}}

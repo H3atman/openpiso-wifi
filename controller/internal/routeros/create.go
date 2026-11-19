@@ -8,11 +8,12 @@ import (
 	"net/netip"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 )
 
-// Creating a HotSpot server (ADR 0011): Add alongside, and later a new VLAN and
-// Fresh start, place a server, then CreateHotspotServer builds its network and
+// Creating a HotSpot server (ADR 0011): Add alongside, on a free interface or a
+// new VLAN, and later Fresh start, place a server, then CreateHotspotServer builds its network and
 // the server itself. Every step adds only what is missing, so a step that fails
 // midway is finished by running it again.
 
@@ -23,9 +24,12 @@ type Refusal string
 func (r Refusal) Error() string { return string(r) }
 
 // Placement is where a new HotSpot server goes: Interface, an interface with
-// no HotSpot server on it.
+// no HotSpot server on it, or, when VLAN is set, a new VLAN with that ID on
+// Parent (vlan.go).
 type Placement struct {
 	Interface string
+	Parent    string
+	VLAN      int
 }
 
 // privateRanges are the IPv4 private address blocks (RFC 1918).
@@ -145,24 +149,38 @@ func (c *Client) CheckRange(ctx context.Context, iface string, network netip.Pre
 }
 
 // CreateHotspotServer creates a HotSpot server at placement on network and
-// returns its name, openpiso-<interface>: the interface's address, pool, DHCP
-// server and DHCP network where missing, a server profile that logs in by
-// http-pap from the Controller's login page directory, and the server. It
-// refuses an interface that is not free or a range CheckRange refuses before
-// any write. Adopting the server writes its login page.
+// returns its name, openpiso-<interface>: the VLAN interface for a new VLAN,
+// the interface's address, pool, DHCP server and DHCP network where missing, a
+// server profile that logs in by http-pap from the Controller's login page
+// directory, and the server. It refuses an interface that is not free, a VLAN
+// checkVLAN refuses or a range CheckRange refuses before any write. Adopting
+// the server writes its login page.
 func (c *Client) CreateHotspotServer(ctx context.Context, placement Placement, network netip.Prefix) (string, error) {
 	free, err := c.FreeInterfaces(ctx)
 	if err != nil {
 		return "", err
 	}
-	if !slices.Contains(free, placement.Interface) {
-		return "", Refusal(fmt.Sprintf("interface %s is missing, already has a HotSpot server or carries the Controller's connection to the Router", placement.Interface))
+	iface, exists := placement.Interface, true
+	if placement.VLAN != 0 {
+		if iface, exists, err = c.checkVLAN(ctx, placement.Parent, placement.VLAN); err != nil {
+			return "", err
+		}
 	}
-	if err := c.CheckRange(ctx, placement.Interface, network); err != nil {
+	if exists && !slices.Contains(free, iface) {
+		return "", Refusal(fmt.Sprintf("interface %s is missing, already has a HotSpot server or carries the Controller's connection to the Router", iface))
+	}
+	if err := c.CheckRange(ctx, iface, network); err != nil {
 		return "", err
 	}
-	name := "openpiso-" + placement.Interface
-	gateway, pool, err := c.ensureNetwork(ctx, placement.Interface, name, network)
+	name := "openpiso-" + iface
+	if placement.VLAN != 0 {
+		if err := c.ensureNamed(ctx, "/interface/vlan", iface, map[string]string{
+			"interface": placement.Parent, "vlan-id": strconv.Itoa(placement.VLAN), "comment": name,
+		}); err != nil {
+			return "", fmt.Errorf("create VLAN %d on %s: %w", placement.VLAN, placement.Parent, err)
+		}
+	}
+	gateway, pool, err := c.ensureNetwork(ctx, iface, name, network)
 	if err != nil {
 		return "", err
 	}
@@ -172,7 +190,7 @@ func (c *Client) CreateHotspotServer(ctx context.Context, placement Placement, n
 		return "", fmt.Errorf("create HotSpot server profile %s: %w", name, err)
 	}
 	if err := c.ensureNamed(ctx, "/ip/hotspot", name, map[string]string{
-		"interface": placement.Interface, "profile": name, "address-pool": pool, "disabled": "no",
+		"interface": iface, "profile": name, "address-pool": pool, "disabled": "no",
 	}); err != nil {
 		return "", fmt.Errorf("create HotSpot server %s: %w", name, err)
 	}

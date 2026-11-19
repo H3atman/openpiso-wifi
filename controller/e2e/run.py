@@ -5794,8 +5794,15 @@ def vlan_device(client, name, nic, vlan, gateway, static=None):
     client("/routing/table", "PUT", {"name": name, "fib": "yes"})
     client("/ip/route", "PUT", {"dst-address": "0.0.0.0/0", "gateway": f"{gateway}%{name}", "routing-table": name, "comment": name})
     client("/routing/rule", "PUT", {"src-address": ip + "/32", "action": "lookup-only-in-table", "table": name, "comment": name})
-    client("/ping", "POST", {"address": gateway, "src-address": ip, "interface": name, "count": "1"})
     return ip
+
+
+# What a new Device fetches first to be sent to its login page. RouterOS applies the rule above seconds after REST
+# reports it, even after the route reads active; until then a fetch from the Device leaves by chr-client's main table.
+# The main table sends 1.1.1.1 out lan1 onto hs1, which records a second HotSpot host for the Device's address that
+# the Portal rightly answers as ambiguous (503). It sends 1.0.0.1 out mgmt, off the HotSpot LAN, so an early fetch
+# misses the login page and fetch_until tries again until the rule applies.
+FIRST_FETCH = "http://1.0.0.1/"
 
 
 def fetch_until(client, ip, url, marker):
@@ -5901,14 +5908,14 @@ def add_alongside(opener, report, address, password, client_address, existing):
         # A Device on the server that is not Adopted still gets the old login page.
         old_ip = vlan_device(client, OLD_DEVICE, "lan1", _hotspot_module.OTHER_VLAN, f"{_hotspot_module.OTHER_SUBNET}.1",
                              static=f"{_hotspot_module.OTHER_SUBNET}.50/24")
-        old_page = fetch_until(client, old_ip, "http://1.1.1.1/", "opnw-existing-login-page")
+        old_page = fetch_until(client, old_ip, FIRST_FETCH, "opnw-existing-login-page")
         assert PORTAL_URL not in old_page, old_page
 
         # A Device joining the new server gets an address, is sent to the Portal and gets online with a Voucher.
         client(f"/interface/ethernet/{lan2['.id']}", "PATCH", {"disabled": "no"})
         new_ip = vlan_device(client, NEW_DEVICE, "lan2", SPARE_VLAN, "10.5.20.1")
         assert ipaddress.ip_address(new_ip) in ipaddress.ip_network(ALONGSIDE_RANGE), new_ip
-        redirect_page = fetch_until(client, new_ip, "http://1.1.1.1/", f"{PORTAL_URL}/portal")
+        redirect_page = fetch_until(client, new_ip, FIRST_FETCH, f"{PORTAL_URL}/portal")
         # RouterOS applies a new NAT rule to new connections seconds later: wait until the exemption counts the
         # Device's fetch of a static Portal file, or the Portal would see the masqueraded address.
         rule = f"/ip/firewall/nat/{exemption['.id']}"

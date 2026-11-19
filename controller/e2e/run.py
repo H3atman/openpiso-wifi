@@ -61,11 +61,11 @@ _docker_spec.loader.exec_module(_docker_module)
 
 def assert_refused(error, code: str) -> None:
     """A Portal refusal carries the Portal's message: a Device's fetch keeps the reply as portal_reply
-    when it is JSON (DockerLab.fetch)."""
+    when it is JSON (DockerLab.fetch). A refusal without one fails."""
     reply = getattr(error, "portal_reply", None)
-    if reply is not None:
-        message = reply["message"]
-        assert message["code"] == code and message["text"], (code, message)
+    assert reply is not None, f"refused without a Portal JSON reply to check for {code!r}: {error}"
+    message = reply["message"]
+    assert message["code"] == code and message["text"], (code, message)
 
 
 def router_rest(address: str, username: str, password: str, path: str, method: str = "GET", body=None, scheme: str = "https"):
@@ -856,8 +856,8 @@ def pause_device_fetch(lab, device_ip, path, form=None, cookie=""):
 
 
 def device_redeem_refused(lab, device_ip, code, status, refusal):
-    """Redeem a code from the Device and assert the Portal refused it with status and,
-    where the lab's fetch keeps the reply, the refusal message code (see assert_refused)."""
+    """Redeem a code from the Device and assert the Portal refused it with status and
+    the refusal message code (see assert_refused)."""
     try:
         pause_device_fetch(lab, device_ip, "/portal/api/redeem", {"code": code})
     except urllib.error.HTTPError as error:

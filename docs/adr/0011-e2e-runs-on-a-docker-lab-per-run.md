@@ -64,7 +64,7 @@ about 170 MB, and parallel labs add up.
 A CHR Device made its requests with RouterOS `/tool/fetch`. That client drops
 the body of a non-2xx reply, so Device-side assertions on the libvirt lab were by
 status only. A Linux Device's fetch keeps the reply, and the harness checks the
-Portal's message where it has one. The flip side: nothing in E2E now runs a
+Portal's message on every refusal it asserts. The flip side: nothing in E2E now runs a
 RouterOS HTTP client as a customer. Real phones remain the check for what real
 clients do ([`lab/phones`](../../lab/phones)).
 

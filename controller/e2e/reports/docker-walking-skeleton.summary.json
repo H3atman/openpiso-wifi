@@ -1,0 +1,152 @@
+{
+  "format_version": 1,
+  "scenario": "6-skeleton-7-vouchers-8-pause-9-top-up-10-rebind-11-reconciler-13-admin-dashboard-15-vendo-16-coin-window-41-vlan-auto-select-61-default-portal-62-custom-portal",
+  "started_at": "2026-11-19T06:56:39.597948+00:00",
+  "git_commit": "3f082d7dd22934573410f120a7844031cacc0122",
+  "git_tree": "e5dc6bf4bf3783ffb6bc4d5e76ac0f2d63790166",
+  "git_dirty": true,
+  "binary_size_bytes": 23103576,
+  "binary_sha256": "78a75171ec285087943697e13df6158f2dcc36a8589a306b4a8f47bd3e931f6b",
+  "test_seam": "Controller binary via external HTTP against a Docker lab: stock CHR Router and Linux Devices",
+  "result": "pass",
+  "lab": {
+    "name": "opnwlab-10bf1a",
+    "chr_version": "7.23.8",
+    "chr_image": "/home/rgsv/.cache/openpiso/chr/chr-7.23.8.img",
+    "image": "opnwlab-image:00cb97e32920",
+    "router_rest_seconds": 19.3,
+    "stock_router": {
+      "version": "7.23.8 (long-term)",
+      "admin_password": "empty",
+      "hotspot_servers": 0
+    },
+    "run_seconds": 919.8,
+    "removed": true
+  },
+  "not_ported": {
+    "#32": [
+      "vlan-hosts-evidence",
+      "single-vendo-auto-select-from-either-vlan",
+      "one-vendo-per-vlan-learned-and-auto-selected",
+      "picker-is-limited-to-network-and-forged-id-reserves-nothing",
+      "coin-window-keeps-reserved-vendo-after-vlan-move",
+      "admin-overrides-network-and-no-match-reserves-nothing"
+    ],
+    "#30": [
+      "vendo-paired-mac-spoof-restricted-to-controller",
+      "vendo-authenticated-cumulative-reports-and-wire-vectors",
+      "vendo-restart-lost-ack-does-not-credit-twice",
+      "vendo-unpaired-router-rules-removed",
+      "dashboard-says-router-unreachable-and-keeps-sales",
+      "admin-dashboard-sales-periods-time-credit-detail-and-batch-usage",
+      "audit-review-persists-until-explicit-dismissal-or-linked-grant",
+      "empty-coin-window-creates-identity-without-free-router-time",
+      "coin-window-rate-table-and-unique-vendo-reservation",
+      "coin-done-in-flight-tiered-top-up-and-replayed-closed",
+      "coin-grace-holds-busy-and-late-coins-reprice-whole-window",
+      "coin-window-open-at-restart-closes-on-boot",
+      "coin-window-sixty-seconds-without-coins-sends-close",
+      "coin-window-real-device-departure-sends-close",
+      "admin-grant-to-expired-time-credit-refused-without-mutation",
+      "coin-credit-to-expired-target-creates-new-time-credit",
+      "flash-pairing-adopted-from-real-vlan-source"
+    ],
+    "#31": [
+      "router-exhaustion-redirects-with-no-invented-time"
+    ],
+    "#33": [
+      "sales-report-search-ip-mac-user-literal-totals-navigation",
+      "sales-report-rows-late-stray-open-vouchers-pagination-auth",
+      "sales-report-vendo-filter-unpaired-history",
+      "sales-report-csv-export"
+    ],
+    "#34": [
+      "custom-portal-save-check-publish-revert-reset",
+      "browser-portal-new-voucher-pause-coin-window",
+      "browser-portal-rebind-to-new-device",
+      "browser-portal-out-of-time",
+      "browser-custom-portal-throwing-custom-js",
+      "browser-custom-portal-preview",
+      "browser-custom-portal-cover-logo",
+      "browser-sales-report",
+      "browser-signin-logout-restart"
+    ]
+  },
+  "ipv6": {
+    "how": "Docker sets disable_ipv6=1 on every endpoint of a network without IPv6; a global --sysctl does not undo it, the per-endpoint driver option com.docker.network.endpoint.sysctls=net.ipv6.conf.IFNAME.disable_ipv6=0 does. Link-local only: no prefix or RA.",
+    "default_container_disable_ipv6": "1",
+    "device_link_local": [
+      "fe80::ff:fe00:c22"
+    ],
+    "router_link_local": [
+      "fe80::ff:feaa:1"
+    ],
+    "device_pings_router": true,
+    "router_neighbor_rows": 1,
+    "drop_rule_blocks_device": true,
+    "drop_rule_packets": 5,
+    "global_address_on_device": false,
+    "result": "isolation assertions can run"
+  },
+  "cleanup": {
+    "result": "pass",
+    "failures": []
+  },
+  "finished_at": "2026-11-19T07:12:01.387157+00:00",
+  "steps": [
+    "boot-admin-password-persisted-and-rate-limited",
+    "authenticated-post-route-policy",
+    "non-v7-onboarding-refused-before-any-write",
+    "operator-compares-certificate",
+    "onboarded-with-special-character-admin-password",
+    "second-onboarding-is-idempotent",
+    "boot-reverified-with-bootstrap-admin-deleted",
+    "boot-repairs-router-drift",
+    "dashboard-is-empty-without-sales-or-audit-items",
+    "validity-whole-number-units-and-readable-preview",
+    "voucher-batch-printable-and-validated",
+    "customer-device-redirect-and-walled-garden",
+    "voucher-redeemed-internet-and-cookie-free-remaining",
+    "remaining-includes-committed-and-live-router-uptime",
+    "used-invalid-unknown-vouchers-do-not-credit",
+    "time-credit-cookie-signing-key-persists-on-restart",
+    "controller-outage-retains-router-session",
+    "boot-and-ten-second-poll-preserve-meter-and-ledger",
+    "tapped-pause-preserves-time-1",
+    "tapped-pause-preserves-time-0",
+    "pause-limit-refuses-without-disconnecting",
+    "idle-pause-read-only-state-then-cookie-free-connect-0",
+    "idle-pause-read-only-state-then-cookie-free-connect-1",
+    "idle-pause-disabled-and-profiles-updated",
+    "online-top-up-reuses-time-credit-and-refreshes-countdown",
+    "top-up-restores-pause-budget-and-replay-does-not-reset-it",
+    "router-error-keeps-committed-credit-pending",
+    "kill-after-credit-commit-replays-one-absolute-limit",
+    "two-devices-concurrently-redeem-exactly-one-winner",
+    "voucher-redemption-rate-limited-per-device",
+    "resume-code-rebind-after-real-mac-change",
+    "failed-vouchers-with-new-device-cookie-do-not-rebind",
+    "cookie-rebind-newest-device-wins-old-device-denied",
+    "admin-grant-is-a-durable-top-up-on-portal-and-router",
+    "dashboard-router-card-reports-chr-resources",
+    "resume-code-guesses-rate-limited-per-router-device",
+    "mac-change-without-rebind-openpiso-idle",
+    "mac-change-without-rebind-openpiso-no-idle",
+    "same-ip-two-mac-host-observation",
+    "ambiguous-device-host-fails-closed-without-rebind",
+    "top-up-validity-wins-over-old-deadline",
+    "online-validity-forfeits-unused-time-and-removes-router-user",
+    "purchase-after-expiry-creates-new-time-credit-then-pauses",
+    "offline-validity-removes-router-user-without-reviving-time",
+    "admin-grant-after-deadline-before-sweep-refused",
+    "voucher-while-tapped-paused-credits-without-resuming",
+    "device-without-time-credit-cannot-reach-internet",
+    "controller-saw-device-real-address",
+    "device-with-time-credit-pings-and-resolves",
+    "lab-sealed-from-real-internet",
+    "containers-have-memory-caps",
+    "vlan-hotspot-server-logs-device-in",
+    "changed-certificate-refused"
+  ],
+  "chr_client_cleanup_removed": 0
+}

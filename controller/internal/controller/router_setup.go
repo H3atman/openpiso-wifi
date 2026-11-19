@@ -29,6 +29,7 @@ type routerSetupView struct {
 	Error     string
 
 	AddAlongside addAlongsideView
+	CarryVLANs   []carryVLAN
 	FreshStart   freshStartView
 }
 
@@ -98,6 +99,9 @@ func (s *Server) readRouterSetup(ctx context.Context, view *routerSetupView) err
 		return slices.Contains(view.Adopted, server.Name)
 	})
 	if view.AddAlongside, err = readAddAlongside(ctx, router); err != nil {
+		return err
+	}
+	if view.CarryVLANs, err = s.readCarryVLANs(ctx, router, servers, view.Adopted); err != nil {
 		return err
 	}
 	if view.FreshStart, err = s.readFreshStart(ctx, router); err != nil {

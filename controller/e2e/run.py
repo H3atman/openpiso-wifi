@@ -5823,8 +5823,173 @@ def fetch_until(client, ip, url, marker):
 def add_alongside_card(page):
     """The Add alongside card on Router setup: (interfaces offered, suggested range)."""
     card = re.search(r"<h3>Add alongside</h3>(.*?)</section>", page, re.S).group(1)
-    assert 'action="/admin/router/add-alongside"' in card, card
-    return re.findall(r'<option value="([^"]+)">', card), re.search(r'<input name="range" value="([^"]*)"', card).group(1)
+    form = re.search(r'<form class="form add-alongside-interface"(.*?)</form>', card, re.S).group(1)
+    assert 'action="/admin/router/add-alongside"' in form, form
+    interfaces = re.search(r'<select name="interface"[^>]*>(.*?)</select>', form, re.S).group(1)
+    return re.findall(r'<option value="([^"]+)"', interfaces), re.search(r'<input name="range" value="([^"]*)"', form).group(1)
+
+
+def add_alongside_vlan_card(page):
+    """The new-VLAN form of the Add alongside card: (parents offered, parent selected, suggested VLAN ID, suggested range)."""
+    card = re.search(r"<h3>Add alongside</h3>(.*?)</section>", page, re.S).group(1)
+    form = re.search(r'<form class="form add-alongside-vlan"(.*?)</form>', card, re.S).group(1)
+    assert 'action="/admin/router/add-alongside"' in form and '<input type="hidden" name="placement" value="vlan">' in form, form
+    # The new VLAN is the default placement: its form comes first in the card.
+    assert "add-alongside-interface" not in card or card.index("add-alongside-vlan") < card.index("add-alongside-interface"), card
+    parents = re.search(r'<select name="parent"[^>]*>(.*?)</select>', form, re.S).group(1)
+    return (re.findall(r'<option value="([^"]+)"', parents), re.search(r'<option value="([^"]+)" selected>', parents).group(1),
+            int(re.search(r'<input name="vlan"[^>]*value="(\d+)"', form).group(1)),
+            re.search(r'<input name="range" value="([^"]*)"', form).group(1))
+
+
+# Add alongside on a new VLAN: the Controller creates VLAN <id> on the parent as interface <parent>-vlan<id>
+# (comment openpiso-<parent>-vlan<id>) and its server openpiso-<parent>-vlan<id> on it.
+# Edited from the suggestion: the lab host routes 10.5.10.0/24 back via the Router (configure_device_routing).
+VLAN_RANGE = "10.5.10.0/24"
+VLAN_DEVICE = "opnw-vlan-new"  # the Device on the new VLAN, on lan2
+FILTERING_BRIDGE = "opnw-filtering"  # a bridge with VLAN filtering on and no ports, so it carries nothing
+
+
+def remove_vlan_alongside(address, password, client_address):
+    """Remove every server the Controller made on a new VLAN, its network and VLAN, the filtering bridge, and the Device."""
+    def remove(rest, path, query):
+        for row in rest(f"{path}?{query}"):
+            rest(f"{path}/{row['.id']}", "DELETE")
+    router = lambda path, method="GET", body=None: router_rest(address, "admin", password, path, method, body)
+    client = lambda path, method="GET", body=None: router_rest(client_address, "admin", password, path, method, body, scheme="http")
+    for vlan in router("/interface/vlan"):
+        name = vlan.get("comment", "")
+        if not re.fullmatch(r"openpiso-.+-vlan\d+", name):
+            continue
+        for path, query in (("/ip/hotspot", f"name={name}"), ("/ip/hotspot/profile", f"name={name}"),
+                            ("/ip/dhcp-server/lease", f"server={name}"), ("/ip/dhcp-server", f"name={name}"),
+                            ("/ip/dhcp-server/network", f"comment={name}"), ("/ip/pool", f"name={name}"),
+                            ("/ip/address", f"interface={vlan['name']}"), ("/ip/firewall/nat", f"comment=openpiso-controller-{name}"),
+                            ("/interface/vlan", f"name={vlan['name']}")):
+            remove(router, path, query)
+    remove(router, "/interface/bridge", f"name={FILTERING_BRIDGE}")
+    for path, query in (("/routing/rule", f"comment={VLAN_DEVICE}"), ("/ip/route", f"comment={VLAN_DEVICE}"),
+                        ("/routing/table", f"name={VLAN_DEVICE}"), ("/ip/dhcp-client", f"interface={VLAN_DEVICE}"),
+                        ("/ip/address", f"interface={VLAN_DEVICE}"), ("/interface/vlan", f"name={VLAN_DEVICE}")):
+        remove(client, path, query)
+
+
+def carry_vlan_notes(page):
+    """The Router setup notes naming the VLAN ID to carry to an SSID: {server: VLAN ID}."""
+    return {server: int(vlan) for server, vlan in
+            re.findall(r'<p class="carry-vlan" data-server="([^"]+)" data-vlan="(\d+)">', page)}
+
+
+def add_alongside_vlan(opener, report, address, password, client_address, existing):
+    """Router setup's Add alongside on a new VLAN on the interface under hs1, next to hs1 and Add alongside's server
+    (both Adopted) and the second server (not Adopted, VLAN 30 on the same parent). add_alongside runs it."""
+    server = _hotspot_module.SERVER
+    router = lambda path, method="GET", body=None: router_rest(address, "admin", password, path, method, body)
+    client = lambda path, method="GET", body=None: router_rest(client_address, "admin", password, path, method, body, scheme="http")
+    load_seconds = []  # Router setup page loads; the Controller gives its Router reads 10 s
+    def setup_page():  # the checklist pings the Controller from each Adopted server, about a second each
+        started = time.monotonic()
+        page = request(opener, "/admin", timeout=15).read().decode()
+        load_seconds.append(round(time.monotonic() - started, 2))
+        assert "Router unavailable" not in page, page
+        return page
+    remove_vlan_alongside(address, password, client_address)
+    lan2 = client("/interface/ethernet?name=lan2")[0]
+    try:
+        router("/interface/bridge", "PUT", {"name": FILTERING_BRIDGE, "vlan-filtering": "yes"})
+        other_before, users_before = existing.other(), existing.users()
+        tree_before, network_before = hotspot_tree(address, password), network_tree(address, password)
+        bridge_vlans_before = router("/interface/bridge/vlan")
+
+        # The parent defaults to the interface under hs1, and the VLAN ID to the lowest one not in use on it
+        # (from 2: VLAN 1 is the untagged default on most switches and access points).
+        parents, parent, vlan, suggested = add_alongside_vlan_card(setup_page())
+        under = router(f"/ip/hotspot?name={server}")[0]["interface"]
+        under = next((row["interface"] for row in router("/interface/vlan") if row["name"] == under), under)
+        assert parent == under, (parent, under)
+        assert FILTERING_BRIDGE in parents and parent in parents, parents
+        in_use = {int(row["vlan-id"]) for row in router("/interface/vlan") if row["interface"] == parent}
+        assert int(_hotspot_module.OTHER_VLAN) in in_use, in_use
+        assert vlan == min(set(range(2, 4095)) - in_use), (vlan, in_use)
+        iface = f"{parent}-vlan{vlan}"
+        name = "openpiso-" + iface
+
+        # Refused with the reason before any Router write: a VLAN ID in use on that parent, one out of range,
+        # and a parent bridge with VLAN filtering on, which gets the manual steps instead.
+        refusals = {}
+        for form, reason in (({"parent": parent, "vlan": _hotspot_module.OTHER_VLAN}, f"VLAN {_hotspot_module.OTHER_VLAN} is already in use"),
+                             ({"parent": parent, "vlan": "4095"}, "from 1 to 4094"),
+                             ({"parent": FILTERING_BRIDGE, "vlan": str(vlan)}, "VLAN filtering")):
+            response = request(opener, "/admin/router/add-alongside", "POST", {"placement": "vlan", "range": VLAN_RANGE, **form})
+            body = html.unescape(response.read().decode())
+            assert response.status == 400 and reason in body, (form, response.status, body)
+            refusals[f"VLAN {form['vlan']} on {form['parent']}"] = body.strip()
+        manual = refusals[f"VLAN {vlan} on {FILTERING_BRIDGE}"]
+        assert "/interface bridge vlan" in manual and "/interface vlan add" in manual, manual
+        assert hotspot_tree(address, password) == tree_before, "a refused new VLAN changed the HotSpot"
+        assert network_tree(address, password) == network_before, "a refused new VLAN changed the network"
+        assert router("/interface/bridge/vlan") == bridge_vlans_before, "a refused new VLAN changed a bridge's VLANs"
+        report.snapshot("add-alongside-vlan-suggests-parent-and-id-and-refuses-a-used-id-and-a-filtering-bridge",
+                        address, password, opener, parents=parents, parent=parent, vlan=vlan, suggested_range=suggested,
+                        refusals=refusals)
+
+        # The Operator edits the suggested range and creates the server on the suggested VLAN.
+        response = request(opener, "/admin/router/add-alongside", "POST",
+                           {"placement": "vlan", "parent": parent, "vlan": str(vlan), "range": VLAN_RANGE}, timeout=30)
+        page = response.read().decode()
+        assert response.status == 200 and urllib.parse.urlsplit(response.url).path == "/admin", page
+        state = json.load(request(opener, "/admin/state"))
+        assert state["router"]["adopted_hotspot_servers"] == sorted([server, ALONGSIDE, name]), state["router"]
+        assert state["router"]["status"] == "ready", state["router"]
+        vlans = router(f"/interface/vlan?name={iface}")
+        assert len(vlans) == 1 and (vlans[0]["interface"], vlans[0]["vlan-id"]) == (parent, str(vlan)), vlans
+        created = router(f"/ip/hotspot?name={name}")
+        assert len(created) == 1 and created[0]["interface"] == iface and created[0]["disabled"] == "false", created
+        assert [row["address"] for row in router(f"/ip/address?interface={iface}")] == ["10.5.10.1/24"]
+        tree = hotspot_tree(address, password)
+        assert [row for row in tree["servers"] if row["name"] != name] == tree_before["servers"]
+        assert existing.other() == other_before and existing.users() == users_before
+        # The flow names the VLAN ID to carry to an SSID, until a Device arrives from it (checklist item 9).
+        assert carry_vlan_notes(page) == {name: vlan}, page
+        note = re.search(rf'<p class="carry-vlan" data-server="{re.escape(name)}"[^>]*>(.*?)</p>', page, re.S).group(1)
+        assert f"VLAN {vlan}" in note and "SSID" in note, note
+        items = checklist(page)
+        assert unmet(items) == [(name, "device-seen")], items
+        report.snapshot("add-alongside-vlan-creates-the-vlan-and-server-and-names-the-vlan-for-an-ssid", address, password, opener,
+                        vlan_interface=vlans[0], server=created[0], carry_vlan_note=html.unescape(note))
+
+        # A Device on that VLAN gets an address, is sent to the Portal and gets online with a Voucher.
+        client(f"/interface/ethernet/{lan2['.id']}", "PATCH", {"disabled": "no"})
+        device_ip = vlan_device(client, VLAN_DEVICE, "lan2", str(vlan), "10.5.10.1")
+        assert ipaddress.ip_address(device_ip) in ipaddress.ip_network(VLAN_RANGE), device_ip
+        redirect_page = fetch_until(client, device_ip, FIRST_FETCH, f"{PORTAL_URL}/portal")
+        rule = f"/ip/firewall/nat/{router('/ip/firewall/nat?comment=openpiso-controller-' + name)[0]['.id']}"
+        deadline = time.monotonic() + 30
+        while True:  # wait until the Controller's NAT exemption counts the Device's fetch of a static Portal file
+            packets = router(rule)["packets"]
+            pause_device_fetch(client_address, password, device_ip, "/portal/ready.js")
+            if router(rule)["packets"] != packets:
+                break
+            assert time.monotonic() < deadline, "the Controller's NAT exemption never took effect"
+            time.sleep(2)
+        portal_state(pause_device_fetch(client_address, password, device_ip, "/portal/api/state"))
+        response = generate_vouchers(opener, {"seconds": "600", "count": "1"})
+        assert response.status == 200
+        code = voucher_codes(opener, response)[0]
+        state = portal_state(pause_device_fetch(client_address, password, device_ip, "/portal/api/redeem", {"code": code}))
+        assert_message(state, "success", "online")
+        target, internet = device_internet(client_address, password, device_ip)
+        assert PORTAL_URL.removeprefix("http://") + "/portal" not in internet
+        page = setup_page()
+        assert unmet(checklist(page)) == [] and carry_vlan_notes(page) == {}, page
+        report.snapshot("add-alongside-vlan-sends-a-device-on-the-vlan-online", address, password, opener,
+                        device=device_ip, redirect_html=redirect_page, internet_target=target,
+                        adopted=json.load(request(opener, "/admin/state"))["router"]["adopted_hotspot_servers"],
+                        setup_page_seconds=load_seconds)
+    finally:
+        report.capture_lab_failure()
+        remove_vlan_alongside(address, password, client_address)
+        client(f"/interface/ethernet/{lan2['.id']}", "PATCH", {"disabled": lan2["disabled"]})
 
 
 def add_alongside(opener, report, address, password, client_address, existing):
@@ -5967,6 +6132,10 @@ def add_alongside(opener, report, address, password, client_address, existing):
         assert [row["address"] for row in router(f"/ip/address?interface={SPARE}")] == ["10.5.20.1/24"]
         report.snapshot("add-alongside-server-network-reported-and-created-by-its-fix", address, password, opener,
                         missing_dhcp=no_dhcp, missing_address=no_address)
+        # While this server is still on the Router: removing it below leaves it Adopted, and the baseline that
+        # every create runs refuses an Adopted server that is missing. This also loads Router setup with three
+        # Adopted servers.
+        add_alongside_vlan(opener, report, address, password, client_address, existing)
     finally:
         report.capture_lab_failure()
         remove_alongside(address, password, client_address)
@@ -6092,15 +6261,16 @@ def outside_hotspot(address, password):
 
 
 def fresh_start_card(page):
-    """The Fresh start card on Router setup: (text, counts, backup, form fields) where form fields is
-    (interfaces, selected interface, range) or None when no form is offered."""
+    """The Fresh start card on Router setup: (text, counts, backup, form fields) where form fields is the
+    interface form's (interfaces, selected interface, range) or None when no form is offered."""
     card = re.search(r"<h3>Fresh start</h3>(.*?)</section>", page, re.S).group(1)
     counts = {name: int(count) for name, count in re.findall(r'<li data-count="([a-z-]+)">(\d+) ', card)}
     backup = re.search(r"<code data-backup>([^<]+)</code>", card)
-    form = None
-    if 'action="/admin/router/fresh-start"' in card:
-        form = (re.findall(r'<option value="([^"]+)"', card), re.search(r'<option value="([^"]+)" selected>', card).group(1),
-                re.search(r'<input name="range" value="([^"]*)"', card).group(1))
+    form = re.search(r'<form class="form fresh-start-interface".*?</form>', card, re.S)
+    if form:
+        form = form.group(0)
+        form = (re.findall(r'<option value="([^"]+)"', form), re.search(r'<option value="([^"]+)" selected>', form).group(1),
+                re.search(r'<input name="range" value="([^"]*)"', form).group(1))
     return html.unescape(card), counts, backup and backup.group(1), form
 
 
@@ -6115,10 +6285,12 @@ def restore_rows(address, password, before):
                             {key: value for key, value in row.items() if key not in read_only})
 
 
-def fresh_start(controller, args, data_dir, opener, report, address, password, client_address, existing):
+def fresh_start(controller, args, data_dir, opener, report, address, password, client_address, existing, started):
     """Fresh start: refused while the ledger holds a Time Credit, then, for a new Shop on someone else's HotSpot,
-    refused without the backup from connecting, and run: the HotSpot tree goes, nothing outside it changes, and
-    the new server on hs1's interface and network sends a Device online with a Voucher."""
+    refused while a Vendo is pending and without the backup from connecting, and run: the HotSpot tree goes,
+    nothing outside it changes, and the new server on hs1's interface and network sends a Device online with a
+    Voucher. Last, the lab's HotSpot is put back and the Controller from before, whose ledger Adopted hs1, runs
+    again; started(controller) hands each Controller this starts to the caller."""
     server = _hotspot_module.SERVER
     rest = lambda path, method="GET", body=None: router_rest(address, "admin", password, path, method, body)
     client = lambda path, method="GET", body=None: router_rest(client_address, "admin", password, path, method, body, scheme="http")
@@ -6149,140 +6321,152 @@ def fresh_start(controller, args, data_dir, opener, report, address, password, c
     fresh_dir = Path(data_dir) / "fresh-start"
     fresh_dir.mkdir()
     controller = Controller(args.binary, str(fresh_dir), initialize=True)
+    started(controller)
+    opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+    assert request(opener, "/admin/login", "POST", {"password": ADMIN_PASSWORD}).status == 200
+    def connect():
+        assert request(opener, "/admin/router/probe", "POST", {
+            "address": f"https://{address}", "username": ROUTER_ADMIN, "password": ROUTER_ADMIN_PASSWORD}).status == 200
+        response = request(opener, "/admin/router/confirm", "POST", timeout=30)
+        assert response.status == 200, response.read().decode()
     try:
+        for path, entry in (("/ip/hotspot/walled-garden", {"dst-host": "opnw-existing.invalid"}),
+                            ("/ip/hotspot/walled-garden/ip", {"dst-address": "192.0.2.10", "action": "accept"}),
+                            ("/ip/hotspot/ip-binding", {"mac-address": "02:00:00:00:99:99", "type": "bypassed"})):
+            rest(path, "PUT", {**entry, "comment": FRESH_EXTRAS})
+        device_ip = client("/ip/address?interface=lan1")[0]["address"].split("/")[0]
+        mac = client("/interface/ethernet?name=lan1")[0]["mac-address"]
+        for active in rest("/ip/hotspot/active"):  # the old Shop's session, whose user setup() deleted
+            rest(f"/ip/hotspot/active/{active['.id']}", "DELETE")
+        old_page = fetch_until(client, device_ip, "http://1.1.1.1/", "opnw-existing-login-page")
+        user = next(iter(_hotspot_module.USERS))
+        rest("/ip/hotspot/active/login", "POST", {"user": user, "password": user, "mac-address": mac, "ip": device_ip})
+        connect()
+        backups = router_backups(address, password)
+        assert len(backups) == 1, backups
+
+        # The card counts what is on the Router, names the backup from connecting, and defaults to hs1's place.
+        page = setup_page(opener)
+        text, counts, backup, offered = fresh_start_card(page)
+        rows = wipe_rows(address, password)
+        expected = {"servers": len(rows["/ip/hotspot"]), "users": len(rows["/ip/hotspot/user"]),
+                    "active": len(rows["/ip/hotspot/active"]),
+                    "walled-garden": len(rows["/ip/hotspot/walled-garden"]) + len(rows["/ip/hotspot/walled-garden/ip"])}
+        assert counts == expected, (counts, expected)
+        assert counts["servers"] == 2 and counts["active"] == 1 and counts["walled-garden"] >= 2, counts
+        assert {row["name"] for row in rows["/ip/hotspot/user"]} >= set(_hotspot_module.USERS), rows["/ip/hotspot/user"]
+        assert backup == backups[0], (backup, backups)
+        assert offered is not None and offered[1] == iface and offered[2] == network, offered
+        assert iface in offered[0] and _hotspot_module.OTHER in offered[0], offered
+        report.snapshot("fresh-start-counts-what-it-deletes-and-names-the-backup", address, password, opener,
+                        counts=counts, backup=backup, interfaces=offered[0], old_login_page=old_page)
+
+        # Refused before any Router write: no typed confirmation, a range that is not private, a Vendo being
+        # paired, no backup.
+        tree, outside = wipe_rows(address, password), outside_hotspot(address, password)
+        refusals = {
+            "no confirmation": refused(opener, {**form, "confirm": ""}, FRESH_CONFIRMATION),
+            "wrong confirmation": refused(opener, {**form, "confirm": "delete"}, FRESH_CONFIRMATION),
+            "public range": refused(opener, {**form, "interface": _hotspot_module.OTHER, "range": "8.8.8.0/24"}, "not a private range"),
+        }
+        response = request(opener, "/admin/vendos/pair", "POST", {"mac": _lab_module.UNKNOWN_VENDO_MAC})
+        assert response.status == 201, response.read().decode()
+        pending = json.load(response)
+        text, _, _, offered = fresh_start_card(setup_page(opener))
+        assert offered is None and "Fresh start is not offered" in text and "Vendo" in text, text
+        refusals["vendo pending"] = refused(opener, form, "Vendo")
+        assert request(opener, "/admin/vendos/unpair", "POST", {"id": pending["id"]}).status == 204
+        backup_file = rest("/file?name=" + urllib.parse.quote(backup, safe=""))[0]
+        rest(f"/file/{backup_file['.id']}", "DELETE")
+        text, _, missing, offered = fresh_start_card(setup_page(opener))
+        assert missing is None and offered is None and "no longer holds the backup" in text, text
+        refusals["no backup"] = refused(opener, form, "backup")
+        assert wipe_rows(address, password) == tree and outside_hotspot(address, password) == outside, "a refused Fresh start wrote"
+        connect()
+        backups = router_backups(address, password)
+        assert len(backups) == 1 and fresh_start_card(setup_page(opener))[2] == backups[0], backups
+        report.snapshot("fresh-start-refused-before-any-router-write", address, password, opener, refusals=refusals)
+
+        # Fresh start on the defaults.
+        tree, outside = wipe_rows(address, password), outside_hotspot(address, password)
+        pool = rest(f"/ip/dhcp-server?interface={iface}")[0]["address-pool"]
+        response = request(opener, "/admin/router/fresh-start", "POST", form, timeout=60)
+        page = response.read().decode()
+        assert response.status == 200 and urllib.parse.urlsplit(response.url).path == "/admin", page
+        state = json.load(request(opener, "/admin/state"))
+        assert state["router"]["status"] == "ready", state["router"]
+        # The ledger's Adopted servers are the Router's servers: the one Fresh start created.
+        assert state["router"]["adopted_hotspot_servers"] == [created] == [row["name"] for row in rest("/ip/hotspot")], state["router"]
+        after = wipe_rows(address, password)
+        new = after["/ip/hotspot"][0]
+        assert (new["interface"], new["address-pool"], new["profile"], new["disabled"]) == (iface, pool, created, "false"), new
+        profile = after["/ip/hotspot/profile"]
+        assert [(row["name"], row["login-by"], row["html-directory"], row["hotspot-address"]) for row in profile] == [
+            (created, "http-pap", _hotspot_module.CONTROLLER_LOGIN_DIRECTORY, "10.5.50.1")], profile
+        # The old users, sessions, IP bindings and walled garden are gone; only the Controller's own objects are back.
+        assert after["/ip/hotspot/user"] == [] and after["/ip/hotspot/active"] == [] and after["/ip/hotspot/ip-binding"] == [], after
+        assert after["/ip/hotspot/walled-garden"] == [], after
+        assert [row.get("comment") for row in after["/ip/hotspot/walled-garden/ip"]] == ["openpiso-controller"], after
+        assert sorted(row["name"] for row in after["/ip/hotspot/user/profile"]) == ["openpiso-idle", "openpiso-no-idle"], after
+        # Everything outside the HotSpot tree reads back unchanged, but the Controller's NAT exemption for the new server.
+        exemption = "openpiso-controller-" + created
+        now = outside_hotspot(address, password)
+        assert any(row.get("comment") == exemption for row in now["/ip/firewall/nat"]), now["/ip/firewall/nat"]
+        now["/ip/firewall/nat"] = [row for row in now["/ip/firewall/nat"] if row.get("comment") != exemption]
+        assert now == outside, ("Fresh start changed something outside the HotSpot tree", outside, now)
+        assert router_backups(address, password) == backups, "Fresh start saved another backup"
+        items = checklist(page)
+        assert unmet(items) == [(created, "device-seen")], items
+        report.snapshot("fresh-start-deletes-only-the-hotspot-tree-and-creates-the-server-where-the-old-one-was",
+                        address, password, opener, deleted={path: len(rows) for path, rows in tree.items()},
+                        server=new, server_profile=profile[0])
+
+        # The Device on hs1's network is sent to the Portal, not the old login page, and gets online with a Voucher.
+        redirect_page = fetch_until(client, device_ip, "http://1.1.1.1/", f"{PORTAL_URL}/portal")
+        assert "opnw-existing-login-page" not in redirect_page, redirect_page
+        rule = f"/ip/firewall/nat/{rest('/ip/firewall/nat?comment=' + exemption)[0]['.id']}"
+        deadline = time.monotonic() + 30
+        while True:  # RouterOS applies a new NAT rule to new connections seconds later
+            packets = rest(rule)["packets"]
+            pause_device_fetch(client_address, password, device_ip, "/portal/ready.js")
+            if rest(rule)["packets"] != packets:
+                break
+            assert time.monotonic() < deadline, "the Controller's NAT exemption never took effect"
+            time.sleep(2)
+        portal_state(pause_device_fetch(client_address, password, device_ip, "/portal/api/state"))
+        response = generate_vouchers(opener, {"seconds": "600", "count": "1"})
+        assert response.status == 200
+        state = portal_state(pause_device_fetch(client_address, password, device_ip, "/portal/api/redeem",
+                                                {"code": voucher_codes(opener, response)[0]}))
+        assert_message(state, "success", "online")
+        target, internet = device_internet(client_address, password, device_ip)
+        assert PORTAL_URL.removeprefix("http://") + "/portal" not in internet
+        assert unmet(checklist(setup_page(opener))) == []
+        report.snapshot("fresh-start-server-sends-a-device-online-with-a-voucher", address, password, opener,
+                        redirect_html=redirect_page, internet_target=target)
+    finally:
+        report.capture_lab_failure()
+        # Back to the lab's HotSpot: hs1 on its server profile, and the lab's users and profiles.
+        for path, query in (("/ip/hotspot/active", f"server={created}"), ("/ip/hotspot", f"name={created}"),
+                            ("/ip/hotspot/profile", f"name={created}")):
+            for row in rest(f"{path}?{query}"):
+                rest(f"{path}/{row['.id']}", "DELETE")
+        for path in ("/ip/hotspot/walled-garden", "/ip/hotspot/walled-garden/ip", "/ip/hotspot/ip-binding"):
+            for row in rest(f"{path}?comment={FRESH_EXTRAS}"):
+                rest(f"{path}/{row['.id']}", "DELETE")
+        restore_rows(address, password, lab_rows)
+        # The fresh ledger Adopted a server the Router no longer has: run the Controller from before instead.
+        controller.stop()
+        controller = Controller(args.binary, data_dir, initialize=False)
+        started(controller)
         opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
         assert request(opener, "/admin/login", "POST", {"password": ADMIN_PASSWORD}).status == 200
-        def connect():
-            assert request(opener, "/admin/router/probe", "POST", {
-                "address": f"https://{address}", "username": ROUTER_ADMIN, "password": ROUTER_ADMIN_PASSWORD}).status == 200
-            response = request(opener, "/admin/router/confirm", "POST", timeout=30)
-            assert response.status == 200, response.read().decode()
-        try:
-            for path, entry in (("/ip/hotspot/walled-garden", {"dst-host": "opnw-existing.invalid"}),
-                                ("/ip/hotspot/walled-garden/ip", {"dst-address": "192.0.2.10", "action": "accept"}),
-                                ("/ip/hotspot/ip-binding", {"mac-address": "02:00:00:00:99:99", "type": "bypassed"})):
-                rest(path, "PUT", {**entry, "comment": FRESH_EXTRAS})
-            device_ip = client("/ip/address?interface=lan1")[0]["address"].split("/")[0]
-            mac = client("/interface/ethernet?name=lan1")[0]["mac-address"]
-            for active in rest("/ip/hotspot/active"):  # the old Shop's session, whose user setup() deleted
-                rest(f"/ip/hotspot/active/{active['.id']}", "DELETE")
-            old_page = fetch_until(client, device_ip, "http://1.1.1.1/", "opnw-existing-login-page")
-            user = next(iter(_hotspot_module.USERS))
-            rest("/ip/hotspot/active/login", "POST", {"user": user, "password": user, "mac-address": mac, "ip": device_ip})
-            connect()
-            backups = router_backups(address, password)
-            assert len(backups) == 1, backups
-
-            # The card counts what is on the Router, names the backup from connecting, and defaults to hs1's place.
-            page = setup_page(opener)
-            text, counts, backup, offered = fresh_start_card(page)
-            rows = wipe_rows(address, password)
-            expected = {"servers": len(rows["/ip/hotspot"]), "users": len(rows["/ip/hotspot/user"]),
-                        "active": len(rows["/ip/hotspot/active"]),
-                        "walled-garden": len(rows["/ip/hotspot/walled-garden"]) + len(rows["/ip/hotspot/walled-garden/ip"])}
-            assert counts == expected, (counts, expected)
-            assert counts["servers"] == 2 and counts["active"] == 1 and counts["walled-garden"] >= 2, counts
-            assert {row["name"] for row in rows["/ip/hotspot/user"]} >= set(_hotspot_module.USERS), rows["/ip/hotspot/user"]
-            assert backup == backups[0], (backup, backups)
-            assert offered is not None and offered[1] == iface and offered[2] == network, offered
-            assert iface in offered[0] and _hotspot_module.OTHER in offered[0], offered
-            report.snapshot("fresh-start-counts-what-it-deletes-and-names-the-backup", address, password, opener,
-                            counts=counts, backup=backup, interfaces=offered[0], old_login_page=old_page)
-
-            # Refused before any Router write: no typed confirmation, a range that is not private, no backup.
-            tree, outside = wipe_rows(address, password), outside_hotspot(address, password)
-            refusals = {
-                "no confirmation": refused(opener, {**form, "confirm": ""}, FRESH_CONFIRMATION),
-                "wrong confirmation": refused(opener, {**form, "confirm": "delete"}, FRESH_CONFIRMATION),
-                "public range": refused(opener, {**form, "interface": _hotspot_module.OTHER, "range": "8.8.8.0/24"}, "not a private range"),
-            }
-            backup_file = rest("/file?name=" + urllib.parse.quote(backup, safe=""))[0]
-            rest(f"/file/{backup_file['.id']}", "DELETE")
-            text, _, missing, offered = fresh_start_card(setup_page(opener))
-            assert missing is None and offered is None and "no longer holds the backup" in text, text
-            refusals["no backup"] = refused(opener, form, "backup")
-            assert wipe_rows(address, password) == tree and outside_hotspot(address, password) == outside, "a refused Fresh start wrote"
-            connect()
-            backups = router_backups(address, password)
-            assert len(backups) == 1 and fresh_start_card(setup_page(opener))[2] == backups[0], backups
-            report.snapshot("fresh-start-refused-before-any-router-write", address, password, opener, refusals=refusals)
-
-            # Fresh start on the defaults.
-            tree, outside = wipe_rows(address, password), outside_hotspot(address, password)
-            pool = rest(f"/ip/dhcp-server?interface={iface}")[0]["address-pool"]
-            response = request(opener, "/admin/router/fresh-start", "POST", form, timeout=60)
-            page = response.read().decode()
-            assert response.status == 200 and urllib.parse.urlsplit(response.url).path == "/admin", page
-            state = json.load(request(opener, "/admin/state"))
-            assert state["router"]["status"] == "ready", state["router"]
-            # The ledger's Adopted servers are the Router's servers: the one Fresh start created.
-            assert state["router"]["adopted_hotspot_servers"] == [created] == [row["name"] for row in rest("/ip/hotspot")], state["router"]
-            after = wipe_rows(address, password)
-            new = after["/ip/hotspot"][0]
-            assert (new["interface"], new["address-pool"], new["profile"], new["disabled"]) == (iface, pool, created, "false"), new
-            profile = after["/ip/hotspot/profile"]
-            assert [(row["name"], row["login-by"], row["html-directory"], row["hotspot-address"]) for row in profile] == [
-                (created, "http-pap", _hotspot_module.CONTROLLER_LOGIN_DIRECTORY, "10.5.50.1")], profile
-            # The old users, sessions, IP bindings and walled garden are gone; only the Controller's own objects are back.
-            assert after["/ip/hotspot/user"] == [] and after["/ip/hotspot/active"] == [] and after["/ip/hotspot/ip-binding"] == [], after
-            assert after["/ip/hotspot/walled-garden"] == [], after
-            assert [row.get("comment") for row in after["/ip/hotspot/walled-garden/ip"]] == ["openpiso-controller"], after
-            assert sorted(row["name"] for row in after["/ip/hotspot/user/profile"]) == ["openpiso-idle", "openpiso-no-idle"], after
-            # Everything outside the HotSpot tree reads back unchanged, but the Controller's NAT exemption for the new server.
-            exemption = "openpiso-controller-" + created
-            now = outside_hotspot(address, password)
-            assert any(row.get("comment") == exemption for row in now["/ip/firewall/nat"]), now["/ip/firewall/nat"]
-            now["/ip/firewall/nat"] = [row for row in now["/ip/firewall/nat"] if row.get("comment") != exemption]
-            assert now == outside, ("Fresh start changed something outside the HotSpot tree", outside, now)
-            assert router_backups(address, password) == backups, "Fresh start saved another backup"
-            items = checklist(page)
-            assert unmet(items) == [(created, "device-seen")], items
-            report.snapshot("fresh-start-deletes-only-the-hotspot-tree-and-creates-the-server-where-the-old-one-was",
-                            address, password, opener, deleted={path: len(rows) for path, rows in tree.items()},
-                            server=new, server_profile=profile[0])
-
-            # The Device on hs1's network is sent to the Portal, not the old login page, and gets online with a Voucher.
-            redirect_page = fetch_until(client, device_ip, "http://1.1.1.1/", f"{PORTAL_URL}/portal")
-            assert "opnw-existing-login-page" not in redirect_page, redirect_page
-            rule = f"/ip/firewall/nat/{rest('/ip/firewall/nat?comment=' + exemption)[0]['.id']}"
-            deadline = time.monotonic() + 30
-            while True:  # RouterOS applies a new NAT rule to new connections seconds later
-                packets = rest(rule)["packets"]
-                pause_device_fetch(client_address, password, device_ip, "/portal/ready.js")
-                if rest(rule)["packets"] != packets:
-                    break
-                assert time.monotonic() < deadline, "the Controller's NAT exemption never took effect"
-                time.sleep(2)
-            portal_state(pause_device_fetch(client_address, password, device_ip, "/portal/api/state"))
-            response = generate_vouchers(opener, {"seconds": "600", "count": "1"})
-            assert response.status == 200
-            state = portal_state(pause_device_fetch(client_address, password, device_ip, "/portal/api/redeem",
-                                                    {"code": voucher_codes(opener, response)[0]}))
-            assert_message(state, "success", "online")
-            target, internet = device_internet(client_address, password, device_ip)
-            assert PORTAL_URL.removeprefix("http://") + "/portal" not in internet
-            assert unmet(checklist(setup_page(opener))) == []
-            report.snapshot("fresh-start-server-sends-a-device-online-with-a-voucher", address, password, opener,
-                            redirect_html=redirect_page, internet_target=target)
-        finally:
-            report.capture_lab_failure()
-            # Back to the lab's HotSpot: hs1 on its server profile, and the lab's users and profiles.
-            for path, query in (("/ip/hotspot/active", f"server={created}"), ("/ip/hotspot", f"name={created}"),
-                                ("/ip/hotspot/profile", f"name={created}")):
-                for row in rest(f"{path}?{query}"):
-                    rest(f"{path}/{row['.id']}", "DELETE")
-            for path in ("/ip/hotspot/walled-garden", "/ip/hotspot/walled-garden/ip", "/ip/hotspot/ip-binding"):
-                for row in rest(f"{path}?comment={FRESH_EXTRAS}"):
-                    rest(f"{path}/{row['.id']}", "DELETE")
-            restore_rows(address, password, lab_rows)
-    except BaseException:
-        controller.stop()
-        raise
     return controller, opener
 
 
-def onboarding(controller, args, data_dir, opener, report, address, password, client_address, existing, other_before):
-    """Use existing on someone else's HotSpot, after the shared onboarding Adopted hs1 (see use_existing)."""
+def onboarding(controller, args, data_dir, opener, report, address, password, client_address, existing, other_before, started):
+    """Use existing on someone else's HotSpot, after the shared onboarding Adopted hs1 (see use_existing).
+    started(controller) hands each Controller this starts to the caller, which stops it even when a step fails."""
     assert existing.other() == other_before, "Controller boot changed the server that was not ticked"
     report.snapshot("boot-leaves-the-unticked-server-unchanged", address, password, opener, unticked=existing.other())
     existing.teardown_other()
@@ -6321,6 +6505,7 @@ def onboarding(controller, args, data_dir, opener, report, address, password, cl
         if active.get("user", "").startswith("op-"):
             router_rest(address, "admin", password, f"/ip/hotspot/active/{active['.id']}", "DELETE")
     controller = Controller(args.binary, data_dir, initialize=False)
+    started(controller)
     opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
     assert request(opener, "/admin/login", "POST", {"password": ADMIN_PASSWORD}).status == 200
     state = json.load(request(opener, "/admin/state"))
@@ -6350,7 +6535,7 @@ def onboarding(controller, args, data_dir, opener, report, address, password, cl
     without_hotspot_servers(address, password, no_use_existing)
     report.snapshot("use-existing-hidden-without-a-hotspot-server", address, password, opener)
     # After the Use existing Shop has sold time; it goes on as a new Shop with a fresh ledger.
-    return fresh_start(controller, args, data_dir, opener, report, address, password, client_address, existing)
+    return fresh_start(controller, args, data_dir, opener, report, address, password, client_address, existing, started)
 
 
 def scenario(args, report: Report, lab: dict[str, str]) -> None:
@@ -6378,6 +6563,10 @@ def scenario(args, report: Report, lab: dict[str, str]) -> None:
                 controller.stop()
                 controller = Controller(args.binary, data_dir, initialize=False)
                 return {}
+
+            def started_controller(started):  # a Controller a scenario restarted, for the finally below to stop
+                nonlocal controller
+                controller = started
 
             controller = Controller(args.binary, data_dir, initialize=True)
             try:
@@ -6585,7 +6774,7 @@ def scenario(args, report: Report, lab: dict[str, str]) -> None:
                         vouchers(opener, report, address, lab["CHR_PASSWORD"], client_address)
                     elif args.only == "onboarding":
                         controller, opener = onboarding(controller, args, data_dir, opener, report, address, lab["CHR_PASSWORD"],
-                                                        client_address, existing, other_before)
+                                                        client_address, existing, other_before, started_controller)
                     elif args.only == "browser":
                         device_redirect(client_address, lab["CHR_PASSWORD"])
                         device_ip = router_rest(client_address, "admin", lab["CHR_PASSWORD"],
@@ -6750,7 +6939,7 @@ def assert_arm_install(vm, report: Report) -> None:
 # Partial scenarios for --only: each runs onboarding, then just that scenario, and
 # writes `<name>-only.json` with scenario `<name>-only`. `boot` is the ARMv7 guest boot check.
 ONLY_SCENARIOS = {
-    "onboarding": "Router setup from someone else's HotSpot: Use existing, a Device online, the unticked server, a ledger from before Router setup, Add alongside and Fresh start",
+    "onboarding": "Router setup from someone else's HotSpot: Use existing, a Device online, the unticked server, a ledger from before Router setup, Add alongside on a free interface and on a new VLAN, and Fresh start",
     "vouchers": "Voucher batch generation, pricing snapshots, CSV and redemption",
     "pairing": "flash pairing",
     "vlan": "VLAN auto-select",

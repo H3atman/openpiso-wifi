@@ -20,12 +20,18 @@ const freshStartConfirmation = "DELETE"
 
 // freshStartView is the Fresh start card on Router setup. Blocked says why it is
 // not offered; Backup is the backup file that covers the wipe, "" when the
-// Router no longer holds the one saved at connect.
+// Router no longer holds the one saved at connect. Parents are those a new
+// VLAN can go on, with Parent, VLAN and VLANRange the suggested parent, ID and
+// address range.
 type freshStartView struct {
 	Blocked      string
 	Backup       string
 	Plan         routeros.FreshStartPlan
 	Confirmation string
+	Parents      []string
+	Parent       string
+	VLAN         int
+	VLANRange    netip.Prefix
 }
 
 // readFreshStart reads the Fresh start card. It writes nothing.
@@ -38,7 +44,16 @@ func (s *Server) readFreshStart(ctx context.Context, router *routeros.Client) (f
 	if view.Backup, err = s.freshStartBackup(ctx, router); err != nil {
 		return view, err
 	}
-	view.Plan, err = router.PlanFreshStart(ctx)
+	if view.Plan, err = router.PlanFreshStart(ctx); err != nil {
+		return view, err
+	}
+	if view.Parents, view.Parent, err = router.VLANParents(ctx); err != nil || view.Parent == "" {
+		return view, err
+	}
+	if view.VLAN, err = router.SuggestVLAN(ctx, view.Parent); err != nil {
+		return view, err
+	}
+	view.VLANRange, err = router.SuggestRange(ctx)
 	return view, err
 }
 
@@ -56,8 +71,8 @@ func (s *Server) freshStartBackup(ctx context.Context, router *routeros.Client) 
 	return name, nil
 }
 
-// freshStart serves POST /admin/router/fresh-start with confirm, interface and
-// range. Before any Router write it refuses with 400 a missing confirmation, a
+// freshStart serves POST /admin/router/fresh-start with confirm, a placement
+// (see formPlacement) and range. Before any Router write it refuses with 400 a missing confirmation, a
 // ledger with Time Credits or paired Vendos, a Router without the backup saved
 // at connect, and a placement CreateHotspotServer would refuse. Then it forgets
 // the Adopted servers, deletes the HotSpot tree, creates the new server, Adopts
@@ -103,7 +118,11 @@ func (s *Server) freshStart(response http.ResponseWriter, request *http.Request)
 		http.Error(response, "the Router no longer holds the backup saved when it was connected; connect the Router again to save one", http.StatusBadRequest)
 		return
 	}
-	placement := routeros.Placement{Interface: request.PostForm.Get("interface")}
+	placement, err := formPlacement(request.PostForm)
+	if err != nil {
+		http.Error(response, err.Error(), http.StatusBadRequest)
+		return
+	}
 	var refusal routeros.Refusal
 	if err := router.CheckFreshStart(ctx, placement, network); errors.As(err, &refusal) {
 		http.Error(response, refusal.Error(), http.StatusBadRequest)

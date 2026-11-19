@@ -1,19 +1,19 @@
 {
   "format_version": 1,
   "scenario": "onboarding-only",
-  "started_at": "2026-11-19T05:07:24.228715+00:00",
-  "git_commit": "813c82c5ecb36ce1a632592a991486444e672724",
-  "git_tree": "9cb1b99bfcdc5c0a652dd5ee63b0565ef9cd550a",
+  "started_at": "2026-11-19T05:40:00.544379+00:00",
+  "git_commit": "13c74a1460635c6c4668cf6358b211f8b56fcbcf",
+  "git_tree": "5c9a1272823c82e6ee87bb57568952fa6bfcfb5f",
   "git_dirty": true,
-  "binary_size_bytes": 23326474,
-  "binary_sha256": "7bcad7a3ebf59b74a35a54f2efd9ff818313f76202fd87627a05e96823a840f7",
+  "binary_size_bytes": 23343979,
+  "binary_sha256": "4b91b267058c4a0387ab0a6d9fa3c1b53d6357bc7ff9b84e06dc7e734bcfd4e1",
   "test_seam": "Controller binary via external HTTP against chr-lab and chr-client",
   "result": "pass",
   "cleanup": {
     "result": "pass",
     "failures": []
   },
-  "finished_at": "2026-11-19T05:10:03.900343+00:00",
+  "finished_at": "2026-11-19T05:43:09.667803+00:00",
   "steps": [
     "boot-admin-password-persisted-and-rate-limited",
     "authenticated-post-route-policy",
@@ -38,7 +38,10 @@
     "add-alongside-creates-and-adopts-a-server-and-leaves-the-others",
     "add-alongside-old-server-keeps-its-login-page-and-new-server-sends-a-device-online",
     "add-alongside-server-network-reported-and-created-by-its-fix",
+    "add-alongside-vlan-suggests-parent-and-id-and-refuses-a-used-id-and-a-filtering-bridge",
+    "add-alongside-vlan-creates-the-vlan-and-server-and-names-the-vlan-for-an-ssid",
+    "add-alongside-vlan-sends-a-device-on-the-vlan-online",
     "use-existing-hidden-without-a-hotspot-server"
   ],
-  "chr_client_cleanup_removed": 3
+  "chr_client_cleanup_removed": 4
 }

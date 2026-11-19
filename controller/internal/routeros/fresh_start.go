@@ -95,16 +95,27 @@ func (c *Client) PlanFreshStart(ctx context.Context) (FreshStartPlan, error) {
 
 // CheckFreshStart refuses, before any write, a Fresh start that could not
 // create its server: placement must be an interface free once the old servers
-// are gone, and network a range CheckRange accepts there.
+// are gone or a new VLAN checkVLAN accepts, and network a range CheckRange
+// accepts there.
 func (c *Client) CheckFreshStart(ctx context.Context, placement Placement, network netip.Prefix) error {
+	iface := placement.Interface
+	if placement.VLAN != 0 {
+		name, exists, err := c.checkVLAN(ctx, placement.Parent, placement.VLAN)
+		if err != nil {
+			return err
+		}
+		if iface = name; !exists {
+			return c.CheckRange(ctx, iface, network)
+		}
+	}
 	plan, err := c.PlanFreshStart(ctx)
 	if err != nil {
 		return err
 	}
-	if !slices.Contains(plan.Interfaces, placement.Interface) {
-		return Refusal(fmt.Sprintf("interface %s is missing, is a bridge port or carries the Controller's connection to the Router", placement.Interface))
+	if !slices.Contains(plan.Interfaces, iface) {
+		return Refusal(fmt.Sprintf("interface %s is missing, is a bridge port or carries the Controller's connection to the Router", iface))
 	}
-	return c.CheckRange(ctx, placement.Interface, network)
+	return c.CheckRange(ctx, iface, network)
 }
 
 // WipeHotspot deletes the HotSpot tree (hotspotTree) and nothing else. A wipe

@@ -1,7 +1,6 @@
 """Tiny HTTPS RouterOS 6 fixture for the onboarding refusal only.
 
-The harness runs it in-process (LibvirtLab), or a lab runs this file in one of its containers
-(DockerLab): `python3 -I non_v7_router.py HOST DIR` prints the address, answers each line on stdin
+DockerLab runs this file in one of the lab's containers: `python3 -I non_v7_router.py HOST DIR` prints the address, answers each line on stdin
 with the requests seen so far as JSON, and serves until stdin closes.
 """
 

@@ -1,16 +1,16 @@
 {
   "format_version": 1,
   "scenario": "6-skeleton-7-vouchers-8-pause-9-top-up-10-rebind-11-reconciler-13-admin-dashboard-15-vendo-16-coin-window-41-vlan-auto-select-61-default-portal-62-custom-portal",
-  "started_at": "2026-11-19T13:58:31.242161+00:00",
-  "git_commit": "5dc0c874969b8f1af50e69200258eab7a2fd6e38",
-  "git_tree": "086c99feb9aa5e1c5f585415934362dfb08f7c41",
+  "started_at": "2026-11-19T17:09:20.034186+00:00",
+  "git_commit": "ba05f2ccf5b35883ff0e4b4038a93b864d67d544",
+  "git_tree": "a05311a24a241af67c9cde26b05b7065869f32ca",
   "git_dirty": true,
   "binary_size_bytes": 22001881,
-  "binary_sha256": "e8c675988d0f8e8284a76567b519e67a761fae1e5897d2cab08e3855b6a006f7",
+  "binary_sha256": "90c5bd10fa72b18ce6006894a8cec058fda80a89a79a2612a4c39bf06aa4a560",
   "test_seam": "Controller binary via external HTTP against a Docker lab: stock CHR Router and Linux Devices",
   "result": "pass",
   "lab": {
-    "name": "opnwlab-1092f9",
+    "name": "opnwlab-d7cc59",
     "chr_version": "7.23.8",
     "chr_image": "/home/rgsv/.cache/openpiso/chr/chr-7.23.8.img",
     "image": "opnwlab-image:5e04c5edc5a0",
@@ -22,7 +22,7 @@
     },
     "vlan_leases": [
       {
-        "container": "opnwlab-1092f9-vlan10-device",
+        "container": "opnwlab-d7cc59-vlan10-device",
         "vlan": 10,
         "mac-address": "02:00:00:00:0C:10",
         "address": "10.5.10.200",
@@ -30,7 +30,7 @@
         "status": "bound"
       },
       {
-        "container": "opnwlab-1092f9-vlan20-device",
+        "container": "opnwlab-d7cc59-vlan20-device",
         "vlan": 20,
         "mac-address": "02:00:00:00:0C:20",
         "address": "10.5.20.200",
@@ -38,7 +38,7 @@
         "status": "bound"
       },
       {
-        "container": "opnwlab-1092f9-vlan10-device",
+        "container": "opnwlab-d7cc59-vlan10-device",
         "vlan": 10,
         "mac-address": "02:00:00:00:0C:10",
         "address": "10.5.10.200",
@@ -46,7 +46,7 @@
         "status": "bound"
       },
       {
-        "container": "opnwlab-1092f9-vlan20-device",
+        "container": "opnwlab-d7cc59-vlan20-device",
         "vlan": 20,
         "mac-address": "02:00:00:00:0C:20",
         "address": "10.5.20.200",
@@ -54,7 +54,7 @@
         "status": "bound"
       },
       {
-        "container": "opnwlab-1092f9-board1",
+        "container": "opnwlab-d7cc59-board1",
         "vlan": 10,
         "mac-address": "02:00:00:41:00:01",
         "address": "10.5.10.199",
@@ -62,7 +62,7 @@
         "status": "bound"
       },
       {
-        "container": "opnwlab-1092f9-board2",
+        "container": "opnwlab-d7cc59-board2",
         "vlan": 10,
         "mac-address": "02:00:00:41:00:02",
         "address": "10.5.10.198",
@@ -70,7 +70,7 @@
         "status": "bound"
       },
       {
-        "container": "opnwlab-1092f9-vlan10-device",
+        "container": "opnwlab-d7cc59-vlan10-device",
         "vlan": 10,
         "mac-address": "02:00:00:00:0C:10",
         "address": "10.5.10.200",
@@ -78,7 +78,7 @@
         "status": "bound"
       },
       {
-        "container": "opnwlab-1092f9-vlan20-device",
+        "container": "opnwlab-d7cc59-vlan20-device",
         "vlan": 20,
         "mac-address": "02:00:00:00:0C:20",
         "address": "10.5.20.200",
@@ -86,7 +86,7 @@
         "status": "bound"
       },
       {
-        "container": "opnwlab-1092f9-board1",
+        "container": "opnwlab-d7cc59-board1",
         "vlan": 10,
         "mac-address": "02:00:00:41:00:01",
         "address": "10.5.10.199",
@@ -94,7 +94,7 @@
         "status": "bound"
       },
       {
-        "container": "opnwlab-1092f9-board2",
+        "container": "opnwlab-d7cc59-board2",
         "vlan": 20,
         "mac-address": "02:00:00:41:00:02",
         "address": "10.5.20.199",
@@ -102,7 +102,7 @@
         "status": "bound"
       },
       {
-        "container": "opnwlab-1092f9-board3",
+        "container": "opnwlab-d7cc59-board3",
         "vlan": 10,
         "mac-address": "02:00:00:41:00:03",
         "address": "10.5.10.198",
@@ -110,7 +110,7 @@
         "status": "bound"
       },
       {
-        "container": "opnwlab-1092f9-vlan10-device",
+        "container": "opnwlab-d7cc59-vlan10-device",
         "vlan": 10,
         "mac-address": "02:00:00:00:0C:10",
         "address": "10.5.10.200",
@@ -121,7 +121,7 @@
     "vendo_reports": [
       {
         "vendo_id": 1,
-        "container": "opnwlab-1092f9-device1",
+        "container": "opnwlab-d7cc59-device1",
         "ip": "10.5.50.200",
         "source_address": [
           "10.5.50.200"
@@ -131,7 +131,7 @@
       },
       {
         "vendo_id": 3,
-        "container": "opnwlab-1092f9-coin-board",
+        "container": "opnwlab-d7cc59-coin-board",
         "ip": "10.5.50.198",
         "source_address": [
           "10.5.50.198"
@@ -141,7 +141,7 @@
       },
       {
         "vendo_id": 4,
-        "container": "opnwlab-1092f9-coin-board",
+        "container": "opnwlab-d7cc59-coin-board",
         "ip": "10.5.50.198",
         "source_address": [
           "10.5.50.198"
@@ -151,7 +151,7 @@
       },
       {
         "vendo_id": 5,
-        "container": "opnwlab-1092f9-coin-board",
+        "container": "opnwlab-d7cc59-coin-board",
         "ip": "10.5.50.198",
         "source_address": [
           "10.5.50.198"
@@ -161,27 +161,27 @@
       },
       {
         "vendo_id": 6,
-        "container": "opnwlab-1092f9-coin-board",
-        "ip": "10.5.50.196",
+        "container": "opnwlab-d7cc59-coin-board",
+        "ip": "10.5.50.198",
         "source_address": [
-          "10.5.50.196"
+          "10.5.50.198"
         ],
         "source_mac": "02:00:00:00:0C:04",
         "status": 200
       },
       {
         "vendo_id": 7,
-        "container": "opnwlab-1092f9-coin-board",
-        "ip": "10.5.50.196",
+        "container": "opnwlab-d7cc59-coin-board",
+        "ip": "10.5.50.198",
         "source_address": [
-          "10.5.50.196"
+          "10.5.50.198"
         ],
         "source_mac": "02:00:00:00:0C:04",
         "status": 200
       },
       {
         "vendo_id": 8,
-        "container": "opnwlab-1092f9-board2",
+        "container": "opnwlab-d7cc59-board2",
         "ip": "10.5.10.198",
         "source_address": [
           "10.5.10.198"
@@ -191,7 +191,7 @@
       },
       {
         "vendo_id": 8,
-        "container": "opnwlab-1092f9-board1",
+        "container": "opnwlab-d7cc59-board1",
         "ip": "10.5.10.199",
         "source_address": [
           "10.5.10.199"
@@ -201,7 +201,7 @@
       },
       {
         "vendo_id": 4294967295,
-        "container": "opnwlab-1092f9-board1",
+        "container": "opnwlab-d7cc59-board1",
         "ip": "10.5.10.199",
         "source_address": [
           "10.5.10.199"
@@ -211,7 +211,7 @@
       },
       {
         "vendo_id": 8,
-        "container": "opnwlab-1092f9-board1",
+        "container": "opnwlab-d7cc59-board1",
         "ip": "10.5.10.199",
         "source_address": [
           "10.5.10.199"
@@ -221,7 +221,7 @@
       },
       {
         "vendo_id": 10,
-        "container": "opnwlab-1092f9-board1",
+        "container": "opnwlab-d7cc59-board1",
         "ip": "10.5.10.199",
         "source_address": [
           "10.5.10.199"
@@ -231,7 +231,7 @@
       },
       {
         "vendo_id": 11,
-        "container": "opnwlab-1092f9-board2",
+        "container": "opnwlab-d7cc59-board2",
         "ip": "10.5.20.199",
         "source_address": [
           "10.5.20.199"
@@ -241,7 +241,7 @@
       },
       {
         "vendo_id": 12,
-        "container": "opnwlab-1092f9-board3",
+        "container": "opnwlab-d7cc59-board3",
         "ip": "10.5.10.198",
         "source_address": [
           "10.5.10.198"
@@ -252,7 +252,7 @@
     ],
     "browsers": [
       {
-        "container": "opnwlab-1092f9-browser-a",
+        "container": "opnwlab-d7cc59-browser-a",
         "phase": "first",
         "memory_cap": "1024 MB",
         "ip": "10.5.50.171",
@@ -266,7 +266,7 @@
         }
       },
       {
-        "container": "opnwlab-1092f9-browser-b",
+        "container": "opnwlab-d7cc59-browser-b",
         "phase": "rebind",
         "memory_cap": "1024 MB",
         "ip": "10.5.50.172",
@@ -280,7 +280,7 @@
         }
       },
       {
-        "container": "opnwlab-1092f9-browser-a",
+        "container": "opnwlab-d7cc59-browser-a",
         "phase": "out",
         "memory_cap": "1024 MB",
         "ip": "10.5.50.171",
@@ -294,7 +294,7 @@
         }
       },
       {
-        "container": "opnwlab-1092f9-browser-c",
+        "container": "opnwlab-d7cc59-browser-c",
         "phase": "custom",
         "memory_cap": "1024 MB",
         "ip": "10.5.50.173",
@@ -308,17 +308,17 @@
         }
       },
       {
-        "container": "opnwlab-1092f9-browser-admin",
+        "container": "opnwlab-d7cc59-browser-admin",
         "phase": "preview",
         "memory_cap": "1024 MB"
       },
       {
-        "container": "opnwlab-1092f9-browser-admin",
+        "container": "opnwlab-d7cc59-browser-admin",
         "phase": "upload",
         "memory_cap": "1024 MB"
       },
       {
-        "container": "opnwlab-1092f9-browser-d",
+        "container": "opnwlab-d7cc59-browser-d",
         "phase": "branded",
         "memory_cap": "1024 MB",
         "ip": "10.5.50.174",
@@ -332,23 +332,23 @@
         }
       },
       {
-        "container": "opnwlab-1092f9-browser-admin",
+        "container": "opnwlab-d7cc59-browser-admin",
         "phase": "sales",
         "memory_cap": "1024 MB"
       },
       {
-        "container": "opnwlab-1092f9-browser-admin",
+        "container": "opnwlab-d7cc59-browser-admin",
         "phase": "signin",
         "memory_cap": "1024 MB"
       }
     ],
-    "run_seconds": 2498.4,
+    "run_seconds": 2523.9,
     "removed": true
   },
   "execution": {
     "architecture": "linux/arm/v7",
     "vm_memory_mib": 256,
-    "boot_timeout_seconds": 900,
+    "boot_timeout_seconds": 1800,
     "image_url": "https://cloud-images.ubuntu.com/releases/bionic/release-20230607/ubuntu-18.04-server-cloudimg-armhf.img",
     "image_sha256": "d3da9dfdd69857fd35cbfa562be84d013dfd024a72de55a8c6911268f76375c3",
     "boot_artifacts": {
@@ -357,7 +357,7 @@
       "https://cloud-images.ubuntu.com/releases/bionic/release-20230607/unpacked/ubuntu-18.04-server-cloudimg-armhf-initrd-generic-lpae": "4076869995177d12acb9dbae444c8e891857cf24e842a283d499fd2f0499957c"
     },
     "container_memory_cap_mib": 512,
-    "boot_seconds": 459.562,
+    "boot_seconds": 469.416,
     "guest_address": "10.77.7.1",
     "machine": "armv7l",
     "memory_total_kib": 238140,
@@ -365,9 +365,9 @@
     "service_user": "openpiso",
     "logs_persistent_capped": true,
     "binary_size_bytes": 22001881,
-    "peak_controller_rss_kib": 25872,
+    "peak_controller_rss_kib": 26500,
     "rss_target_kib": 65536,
-    "qemu_peak_rss_mib": 434.9,
+    "qemu_peak_rss_mib": 433.9,
     "container_oom_kills": 0
   },
   "browser_portal": {
@@ -454,10 +454,10 @@
         }
       },
       "single_vendo_named": true,
-      "search_count": 77,
+      "search_count": 78,
       "later_page": 2,
       "reload_back_forward_restored": true,
-      "csv_rows": 77,
+      "csv_rows": 78,
       "csv_matches_filtered_json": true,
       "total_pesos": 4294967743,
       "csp_violations": []
@@ -544,7 +544,7 @@
     "device_pings_router": true,
     "router_neighbor_rows": 1,
     "drop_rule_blocks_device": true,
-    "drop_rule_packets": 6,
+    "drop_rule_packets": 5,
     "global_address_on_device": false,
     "result": "isolation assertions can run"
   },
@@ -552,7 +552,7 @@
     "result": "pass",
     "failures": []
   },
-  "finished_at": "2026-11-19T14:40:12.487468+00:00",
+  "finished_at": "2026-11-19T17:51:26.406942+00:00",
   "steps": [
     "boot-admin-password-persisted-and-rate-limited",
     "authenticated-post-route-policy",
@@ -643,6 +643,5 @@
     "containers-have-memory-caps",
     "vlan-hotspot-server-logs-device-in",
     "changed-certificate-refused"
-  ],
-  "chr_client_cleanup_removed": 0
+  ]
 }

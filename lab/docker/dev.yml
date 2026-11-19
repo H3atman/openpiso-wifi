@@ -1,4 +1,4 @@
-# The dev lab (`lab/dev/dev.py --lab docker`): compose.yml plus this file, as one long-lived project.
+# The dev lab (`lab/dev/dev.py`): compose.yml plus this file, as one long-lived project.
 # The repository is mounted read-only at its real path, so the dev-build Controller (which runs from
 # there) reads templates and static files from source; the admin panel is on a fixed local port.
 services:

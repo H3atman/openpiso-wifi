@@ -1,4 +1,4 @@
-"""The Docker lab behind run.py's lab interface (issues #26, #28, #29): `run.py --lab docker`.
+"""The Docker lab run.py runs every scenario against (issues #26, #28, #29, #39).
 
 Each run gets its own throwaway, sealed lab: a stock RouterOS CHR under QEMU, the Controller binary,
 an internet stand-in on the lab WAN, and Linux Device containers on the lab LAN. `running` brings it
@@ -284,7 +284,7 @@ def vendo_post(container: str, frame: bytes, timeout: float) -> tuple[int, bytes
 
 def container_vendo(base, senders: dict[int, str]):
     """run.SimulatedVendo, sending from the Vendo's container once that Vendo has made first contact
-    from it (senders maps a Vendo ID to its container); other Vendos send from the harness, as on libvirt."""
+    from it (senders maps a Vendo ID to its container); other Vendos send from the harness."""
     class ContainerVendo(base):
         def send(self, frame: bytes):
             container = senders.get(self.id)
@@ -353,8 +353,9 @@ class ContainerFixture:
 
 
 class DockerLab:
-    """The lab interface (see LibvirtLab) on a Docker lab. run is the loaded run.py module; `running`
-    sets its BASE_URL, PORTAL_URL and CONTROLLER_HOST for the lab's published ports and Controller."""
+    """The lab the scenarios drive. run is the loaded run.py module; `running` sets its BASE_URL,
+    PORTAL_URL and CONTROLLER_HOST for the lab's published ports and Controller. Scenarios name a
+    Device by its HotSpot IP, and a Device's fetch answers like RouterOS /tool/fetch (see fetch)."""
 
     router_url = f"https://{ROUTER_WAN}"
     router_password = ROUTER_PASSWORD
@@ -471,8 +472,8 @@ class DockerLab:
         rest = self._rest
         # The stock DHCP client on ether1 takes the stand-in's gateway and DNS; Devices resolve through the Router.
         rest("/ip/dns/set", "POST", {"allow-remote-requests": "yes"})
-        # The HotSpot baseline the libvirt wizard created by hand, plus HotSpot servers on VLANs 10 and 20
-        # (libvirt's vlan_up adds those). udhcpc does not renew (-q), so a lease outlives the run.
+        # The HotSpot baseline the research wizard (lab/chr/wizard.sh) created by hand, plus HotSpot
+        # servers on VLANs 10 and 20. udhcpc does not renew (-q), so a lease outlives the run.
         for name, interface, subnet, pool in (("hs1", "ether2", "10.5.50", "10-10.5.50.200"),
                                               ("opnw-vlan10", "opnw-vlan10", "10.5.10", "100-10.5.10.200"),
                                               ("opnw-vlan20", "opnw-vlan20", "10.5.20", "100-10.5.20.200")):
@@ -568,19 +569,10 @@ class DockerLab:
     def start_router_rest(self) -> None:
         self._rest("/ip/service/set", "POST", {"numbers": "www-ssl", "disabled": "no"})
 
-    def start(self, evidence: dict) -> None:
-        """Nothing to start or clean: the lab is new."""
-
     def reset_device(self):
         """Connect Device 1 with a fresh lease; returns the Router's lease rows for it."""
         self._lease(self._device(1))
         return self._rest(f"/ip/dhcp-server/lease?mac-address={DEVICE_MACS[1]}")
-
-    def route_devices(self) -> None:
-        """Devices reach the Controller with their own source IPs already: the Router routes the LAN."""
-
-    def teardown_steps(self):
-        return []  # the whole lab is removed
 
     def snapshot(self) -> dict:
         """Failure evidence from the Router and the Devices."""
@@ -784,9 +776,6 @@ class DockerLab:
         """Real traffic from this Device to the HotSpot."""
         device_exec(self._sender(device_ip), "ping -c 1 -W 2 10.5.50.1", check=False)
 
-    def stop_background_traffic(self) -> None:
-        """No traffic generator runs here."""
-
     def redirect(self) -> tuple[str, str]:
         """Connect Device 1 alone; returns its (redirect page, Portal page) and asserts it cannot reach the admin."""
         device = self._device(1)
@@ -906,9 +895,6 @@ class DockerLab:
             self._lan[board] = device_lease(board, hostname=vendo_hostname(mac))
         return {"mac": mac, "ip": self._lan[board]}
 
-    def remove_coin_board(self) -> None:
-        """The coin board goes with the lab (run-end cleanup calls this)."""
-
     def vendo_report(self, ip: str, frame: bytes) -> None:
         """The Vendo board at ip sends this signed Report to the Controller's PORTAL_URL from its own
         container, address and MAC. That Vendo's later Reports (run.SimulatedVendo) go from there too."""
@@ -971,7 +957,7 @@ class DockerLab:
 
     def vlan_devices(self) -> dict[int, str]:
         """Each VLAN Device's IP: {vlan: Device IP}. Each container already routes out its own VLAN
-        interface, so unlike libvirt there is no routing to set up."""
+        interface, so there is no routing to set up."""
         return {vlan: self._lan[f"{self.lab.name}-vlan{vlan}-device"] for vlan in VLAN_DEVICE_MACS}
 
     def vlan_board(self, vlan: int, number: int, hostname=None) -> dict:
@@ -990,7 +976,7 @@ class DockerLab:
         self._vlan_lease(device, VLAN_DEVICE_MACS[vlan], vlan)
 
     def vlan_down(self) -> None:
-        """Remove the VLAN Devices and boards and their VLAN leases, as libvirt's teardown does; the VLAN
+        """Remove the VLAN Devices and boards and their VLAN leases; the VLAN
         HotSpots stay, they are part of the lab. A board MAC left leased on one VLAN would stop it
         pairing on the other (the Controller refuses a MAC with two leases)."""
         names = [f"{self.lab.name}-{suffix}" for suffix in

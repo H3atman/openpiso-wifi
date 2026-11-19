@@ -263,7 +263,7 @@ Coin Window (#16) land last. The armv7/256 MB run + install script (#14) gates o
 the skeleton. E2E drives external portal/admin/Vendo interfaces against a real
 CHR Router, with Linux containers as customer Devices and Vendos, on a throwaway
 Docker lab per run — never a fake Router
-([ADR 0011](docs/adr/0011-e2e-runs-on-a-docker-lab-per-run.md)).
+([ADR 0012](docs/adr/0012-e2e-runs-on-a-docker-lab-per-run.md)).
 
 ## Open questions
 

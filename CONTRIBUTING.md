@@ -24,7 +24,7 @@ Run from the repo root; prerequisites and procedures live in the linked docs.
 
 `setup`, `check`, `sim` and `venv` do not access a lab or a physical board.
 `e2e` creates and removes its own lab, so several can run at once, and beside the
-dev lab ([ADR 0011](docs/adr/0011-e2e-runs-on-a-docker-lab-per-run.md)).
+dev lab ([ADR 0012](docs/adr/0012-e2e-runs-on-a-docker-lab-per-run.md)).
 Physical-board procedures are not part of these targets; see the firmware bench README.
 
 `make setup` sets the clone's shared `core.hooksPath` to `.githooks`, covering

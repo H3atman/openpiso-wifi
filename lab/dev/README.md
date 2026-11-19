@@ -18,7 +18,7 @@ Open `http://127.0.0.1:18088/admin/login` and sign in with the password in `lab/
 
 ## What it is
 
-The E2E Docker lab's compose project ([`lab/docker`](../docker), [ADR 0011](../../docs/adr/0011-e2e-runs-on-a-docker-lab-per-run.md)) under the fixed name `opnwdev`, plus [`lab/docker/dev.yml`](../docker/dev.yml): a stock RouterOS CHR set up by the same code as E2E (`DockerLab.set_up_router`), the Controller and the internet stand-in on the lab WAN, and the dev Vendo board (`opnwdev-vendo`, MAC `02:00:00:0D:00:F0`, hostname `opnw-00f0`) on the lab LAN. E2E labs are `opnwlab-<random>` with Docker-chosen ports, so an E2E run beside it touches nothing of the dev lab.
+The E2E Docker lab's compose project ([`lab/docker`](../docker), [ADR 0012](../../docs/adr/0012-e2e-runs-on-a-docker-lab-per-run.md)) under the fixed name `opnwdev`, plus [`lab/docker/dev.yml`](../docker/dev.yml): a stock RouterOS CHR set up by the same code as E2E (`DockerLab.set_up_router`), the Controller and the internet stand-in on the lab WAN, and the dev Vendo board (`opnwdev-vendo`, MAC `02:00:00:0D:00:F0`, hostname `opnw-00f0`) on the lab LAN. E2E labs are `opnwlab-<random>` with Docker-chosen ports, so an E2E run beside it touches nothing of the dev lab.
 
 It needs Docker usable by your user with `/dev/kvm`, Go (on `PATH` or at `~/.local/go/bin/go`) and Python 3, stdlib only. No sudo. The first `up` downloads and verifies the pinned CHR image, as E2E does.
 

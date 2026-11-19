@@ -25,7 +25,7 @@ Answers L5-L8 in `docs/research/mikrotik-controller.md` §8. The controller is s
 
 A research record. E2E ran this fixture on `chr-lab` and `chr-client` until #39;
 the Docker lab now sets up the same VLAN HotSpots, Devices and boards itself
-(`DockerLab.vlan_up`, `vlan_board`; [ADR 0011](../../docs/adr/0011-e2e-runs-on-a-docker-lab-per-run.md)).
+(`DockerLab.vlan_up`, `vlan_board`; [ADR 0012](../../docs/adr/0012-e2e-runs-on-a-docker-lab-per-run.md)).
 `vlan_lab.py` and its result file are kept as recorded; nothing runs them.
 
 - Router `ether2` is the existing NIC on `hotspot-lan` (`virbr-hs`). It carries

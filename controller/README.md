@@ -756,7 +756,7 @@ Lab workflow (a full run is ~22 min, ARMv7 ~42 min, one `--only` run 1.5–3.5 m
 ### The Docker lab
 
 Each run creates its own throwaway lab of Docker containers on private networks
-([ADR 0011](../docs/adr/0011-e2e-runs-on-a-docker-lab-per-run.md)):
+([ADR 0012](../docs/adr/0012-e2e-runs-on-a-docker-lab-per-run.md)):
 a stock RouterOS CHR under QEMU, the Controller binary, an internet stand-in, and
 Linux Devices, Vendos and Playwright browsers on the lab LAN
 ([`e2e/docker_lab.py`](e2e/docker_lab.py), [`lab/docker/`](../lab/docker/)). It
@@ -780,7 +780,7 @@ python3 -I controller/e2e/run.py --binary "$PWD/controller/bin/openpiso" --only 
 
 Runs write `docker-<name>.json` under `e2e/reports/` (the full run's is
 `docker-walking-skeleton.json`). The reports without the `docker-` prefix are
-the libvirt lab's, kept as the record from before ADR 0011. The lab
+the libvirt lab's, kept as the record from before ADR 0012. The lab
 is removed when the run ends, including on failure or Ctrl-C. `--keep` leaves it
 running and prints the Router and Controller addresses, a shell per container and
 the command that removes it. Labs share nothing, so runs in different worktrees

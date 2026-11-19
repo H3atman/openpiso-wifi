@@ -163,6 +163,7 @@ func Handler(ctx context.Context, store *ledger.Ledger, portalURL, routerStatus,
 		{Method: http.MethodPost, Path: "/admin/router/adopt", StateChanging: true, Authentication: adminSession, Handler: server.adoptServers},
 		{Method: http.MethodPost, Path: "/admin/router/add-alongside", StateChanging: true, Authentication: adminSession, Handler: server.addAlongside},
 		{Method: http.MethodPost, Path: "/admin/router/fix", StateChanging: true, Authentication: adminSession, Handler: server.fixCheck},
+		{Method: http.MethodPost, Path: "/admin/router/fresh-start", StateChanging: true, Authentication: adminSession, Handler: server.freshStart},
 	}
 
 	go server.runReconciler(ctx)
@@ -321,6 +322,11 @@ func (s *Server) routerConfirm(response http.ResponseWriter, request *http.Reque
 		Certificate: provisioned.Certificate.DER,
 		Fingerprint: provisioned.Certificate.Fingerprint,
 	}); err != nil {
+		http.Error(response, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	// Fresh start runs only while this backup is still on the Router.
+	if err := s.ledger.SaveRouterBackup(provisioned.Backup); err != nil {
 		http.Error(response, err.Error(), http.StatusInternalServerError)
 		return
 	}

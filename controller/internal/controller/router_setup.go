@@ -30,6 +30,7 @@ type routerSetupView struct {
 
 	AddAlongside addAlongsideView
 	CarryVLANs   []carryVLAN
+	FreshStart   freshStartView
 }
 
 // useExistingView is the review before Adopting Servers, with the ticked
@@ -101,6 +102,9 @@ func (s *Server) readRouterSetup(ctx context.Context, view *routerSetupView) err
 		return err
 	}
 	if view.CarryVLANs, err = s.readCarryVLANs(ctx, router, servers, view.Adopted); err != nil {
+		return err
+	}
+	if view.FreshStart, err = s.readFreshStart(ctx, router); err != nil {
 		return err
 	}
 	view.Checklist, err = s.readChecklist(ctx, router, view.Adopted, true)

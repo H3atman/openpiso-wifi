@@ -73,6 +73,7 @@ class ArmVM:
         self.directory = None
         self.address = ""
         self.ssh_port = 22
+        self.connect_timeout = 5  # seconds, up to and including sshd's banner
         self.created = False
         self.installed = False
         self.tunnels = []
@@ -96,7 +97,7 @@ class ArmVM:
     def ssh(self, script: str, input=None):
         return command(
             "ssh", "-p", str(self.ssh_port), "-i", str(self.work / "id_ed25519"),
-            "-o", "BatchMode=yes", "-o", "ConnectTimeout=5",
+            "-o", "BatchMode=yes", "-o", f"ConnectTimeout={self.connect_timeout}",
             "-o", "StrictHostKeyChecking=accept-new",
             "-o", f"UserKnownHostsFile={self.work / 'known_hosts'}",
             f"openpiso-e2e@{self.address}", script, input=input,
@@ -446,6 +447,9 @@ class ArmContainer(ArmVM):
         super().__init__(binary, boot_timeout, serial_report)
         self.lab = lab
         self.address = "127.0.0.1"
+        # On a busy host the TCG guest's sshd can take over 5 s to send its banner (seen at load 18). A
+        # guest still booting fails at once instead: socat closes the published port's connection.
+        self.connect_timeout = 30
         self.controller_port = ""
         self.network = None  # the WAN network this guest made for itself
         self.logs = None

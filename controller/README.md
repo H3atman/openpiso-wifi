@@ -668,7 +668,8 @@ Lab workflow (a full native run is ~22 min, ARMv7 ~26 min, one `--only` run 1.5â
   entry in `e2e/run.py`) and iterates on that.
 - Run the full `make -C controller e2e` once before the PR is merged.
 - Run `make -C controller e2e-armv7` at milestones, or when a change touches
-  performance or memory. It still runs on the libvirt lab (below).
+  performance or memory. It runs on the Docker lab ([ARMv7 guest in a
+  container](#armv7-guest-in-a-container)).
 
 ### The Docker lab (default)
 
@@ -698,11 +699,39 @@ The full Docker run has the libvirt run's steps in the same order, plus the
 Docker lab's own checks: the sealed internet stand-in, the memory caps, a HotSpot
 login on a VLAN and IPv6 on the LAN.
 
+### ARMv7 guest in a container
+
+`--armv7` runs the ARM guest described in [ARM VM E2E run](#arm-vm-e2e-run-256-mib)
+under QEMU with TCG (no KVM) in a lab-image container
+([`lab/docker/armv7.sh`](../lab/docker/armv7.sh), `ArmContainer` in
+[`e2e/arm_vm.py`](e2e/arm_vm.py)). For the full run it joins the Docker lab's WAN
+in the Controller's place, at `10.77.7.1`, so the Router and Devices see the same
+lab; the boot and update checks (`--only boot`, `--only update`) put it on a
+Docker network of its own, with no Router. Its NIC is bridged through a tap like
+the Router's; cloud-init gives it the static address. The harness reaches its SSH
+and Controller through the container's published ports, so the Controller's
+admin network is the container's helper address `10.77.7.252/32`. The pinned
+image, kernel and initrd are cached in `~/.cache/openpiso/armv7/`, verified on
+every use. The container's cap is 512 MB: the guest's 256 MiB, TCG's 64 MiB
+translation cache and QEMU (about 435 MiB resident together, measured), plus
+room for the guest disk's page cache. Reports record the cap, QEMU's peak RSS
+and the cgroup's OOM kills (`execution.container_memory_cap_mib`,
+`qemu_peak_rss_mib`, `container_oom_kills`) beside the Controller's peak RSS.
+Host needs: Docker and OpenSSH (`ssh`, `scp`, `ssh-keygen`), no libvirt, `qemu`
+or ISO tool. TCG is slow: the boot alone takes 7 to 9 minutes.
+
+```sh
+python3 -I controller/e2e/run.py --armv7 --only boot --binary "$PWD/controller/bin/openpiso-linux-armv7"   # docker-armv7-boot.json
+make -C controller e2e-armv7-update   # docker-armv7-update.json
+make -C controller e2e-armv7          # full run, docker-armv7.json
+```
+
 ### The libvirt lab (until #39)
 
 Add `--lab libvirt` to `run.py`, or `LAB=libvirt` to `make -C controller e2e`, to
 run on the shared `chr-lab` and `chr-client` VMs as before. The rest of this
-section describes that lab. `--armv7` and `--write-vlan-hosts` need it. Parallel
+section describes that lab. `--write-vlan-hosts` needs it, and `--armv7 --lab
+libvirt` runs the ARM guest on libvirt as below. Parallel
 libvirt runs queue on the lab lock (below) instead of failing.
 
 For fast UI iteration against the same Router, see the dev lab in

@@ -33,11 +33,12 @@ amd64:
 
 cross: armv7 arm64 amd64
 
-# Same scenario body as native; libvirt lab only (exclusive CHR lab access) until #38.
+# Same scenario body as native, with the ARMv7 guest (QEMU/TCG in a container) in the Controller's
+# place on a throwaway Docker lab; writes e2e/reports/docker-armv7.json.
 e2e-armv7:
-	python3 -I e2e/run.py --build --lab libvirt --armv7 --binary "$(CURDIR)/bin/openpiso-linux-armv7" --report "$(CURDIR)/e2e/reports/armv7.json"
+	python3 -I e2e/run.py --build --armv7 --binary "$(CURDIR)/bin/openpiso-linux-armv7"
 
 # ARMv7 guest only, no CHR: install v0.1.0, update, roll back and refuse; see e2e/update_vm.py.
 # Builds its own throwaway-key releases with $(GO).
 e2e-armv7-update:
-	GO="$(GO)" python3 -I e2e/run.py --lab libvirt --armv7 --only update
+	GO="$(GO)" python3 -I e2e/run.py --armv7 --only update

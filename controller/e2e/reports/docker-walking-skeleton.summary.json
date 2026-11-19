@@ -1,26 +1,98 @@
 {
   "format_version": 1,
   "scenario": "6-skeleton-7-vouchers-8-pause-9-top-up-10-rebind-11-reconciler-13-admin-dashboard-15-vendo-16-coin-window-41-vlan-auto-select-61-default-portal-62-custom-portal",
-  "started_at": "2026-11-19T06:56:39.597948+00:00",
-  "git_commit": "3f082d7dd22934573410f120a7844031cacc0122",
-  "git_tree": "e5dc6bf4bf3783ffb6bc4d5e76ac0f2d63790166",
+  "started_at": "2026-11-19T08:13:13.359163+00:00",
+  "git_commit": "7ddfecfe6dd3c7da874c8dd8222615df12b1310d",
+  "git_tree": "1ae8d000640fa508028fe474bde9aa4bcc553354",
   "git_dirty": true,
-  "binary_size_bytes": 23103576,
-  "binary_sha256": "78a75171ec285087943697e13df6158f2dcc36a8589a306b4a8f47bd3e931f6b",
+  "binary_size_bytes": 23103568,
+  "binary_sha256": "b5658c8ba90d1cf5023199d113be9839d4f1bdef3a28833bac36d29038e3e652",
   "test_seam": "Controller binary via external HTTP against a Docker lab: stock CHR Router and Linux Devices",
   "result": "pass",
   "lab": {
-    "name": "opnwlab-10bf1a",
+    "name": "opnwlab-e427aa",
     "chr_version": "7.23.8",
     "chr_image": "/home/rgsv/.cache/openpiso/chr/chr-7.23.8.img",
     "image": "opnwlab-image:00cb97e32920",
-    "router_rest_seconds": 19.3,
+    "router_rest_seconds": 19.5,
     "stock_router": {
       "version": "7.23.8 (long-term)",
       "admin_password": "empty",
       "hotspot_servers": 0
     },
-    "run_seconds": 919.8,
+    "vendo_reports": [
+      {
+        "vendo_id": 1,
+        "container": "opnwlab-e427aa-device1",
+        "ip": "10.5.50.200",
+        "source_address": [
+          "10.5.50.200"
+        ],
+        "source_mac": "02:00:00:00:0C:01",
+        "status": 200
+      },
+      {
+        "vendo_id": 3,
+        "container": "opnwlab-e427aa-coin-board",
+        "ip": "10.5.50.198",
+        "source_address": [
+          "10.5.50.198"
+        ],
+        "source_mac": "02:00:00:00:0C:04",
+        "status": 200
+      },
+      {
+        "vendo_id": 4,
+        "container": "opnwlab-e427aa-coin-board",
+        "ip": "10.5.50.198",
+        "source_address": [
+          "10.5.50.198"
+        ],
+        "source_mac": "02:00:00:00:0C:04",
+        "status": 200
+      },
+      {
+        "vendo_id": 5,
+        "container": "opnwlab-e427aa-board2",
+        "ip": "10.5.10.102",
+        "source_address": [
+          "10.5.10.102"
+        ],
+        "source_mac": "02:00:00:41:00:02",
+        "status": 401
+      },
+      {
+        "vendo_id": 5,
+        "container": "opnwlab-e427aa-board1",
+        "ip": "10.5.10.101",
+        "source_address": [
+          "10.5.10.101"
+        ],
+        "source_mac": "02:00:00:41:00:01",
+        "status": 401
+      },
+      {
+        "vendo_id": 4294967295,
+        "container": "opnwlab-e427aa-board1",
+        "ip": "10.5.10.101",
+        "source_address": [
+          "10.5.10.101"
+        ],
+        "source_mac": "02:00:00:41:00:01",
+        "status": 404
+      },
+      {
+        "vendo_id": 5,
+        "container": "opnwlab-e427aa-board1",
+        "ip": "10.5.10.101",
+        "source_address": [
+          "10.5.10.101"
+        ],
+        "source_mac": "02:00:00:41:00:01",
+        "status": 200
+      }
+    ],
+    "run_seconds": 988.4,
     "removed": true
   },
   "not_ported": {
@@ -31,25 +103,6 @@
       "picker-is-limited-to-network-and-forged-id-reserves-nothing",
       "coin-window-keeps-reserved-vendo-after-vlan-move",
       "admin-overrides-network-and-no-match-reserves-nothing"
-    ],
-    "#30": [
-      "vendo-paired-mac-spoof-restricted-to-controller",
-      "vendo-authenticated-cumulative-reports-and-wire-vectors",
-      "vendo-restart-lost-ack-does-not-credit-twice",
-      "vendo-unpaired-router-rules-removed",
-      "dashboard-says-router-unreachable-and-keeps-sales",
-      "admin-dashboard-sales-periods-time-credit-detail-and-batch-usage",
-      "audit-review-persists-until-explicit-dismissal-or-linked-grant",
-      "empty-coin-window-creates-identity-without-free-router-time",
-      "coin-window-rate-table-and-unique-vendo-reservation",
-      "coin-done-in-flight-tiered-top-up-and-replayed-closed",
-      "coin-grace-holds-busy-and-late-coins-reprice-whole-window",
-      "coin-window-open-at-restart-closes-on-boot",
-      "coin-window-sixty-seconds-without-coins-sends-close",
-      "coin-window-real-device-departure-sends-close",
-      "admin-grant-to-expired-time-credit-refused-without-mutation",
-      "coin-credit-to-expired-target-creates-new-time-credit",
-      "flash-pairing-adopted-from-real-vlan-source"
     ],
     "#31": [
       "router-exhaustion-redirects-with-no-invented-time"
@@ -84,7 +137,7 @@
     "device_pings_router": true,
     "router_neighbor_rows": 1,
     "drop_rule_blocks_device": true,
-    "drop_rule_packets": 5,
+    "drop_rule_packets": 6,
     "global_address_on_device": false,
     "result": "isolation assertions can run"
   },
@@ -92,7 +145,7 @@
     "result": "pass",
     "failures": []
   },
-  "finished_at": "2026-11-19T07:12:01.387157+00:00",
+  "finished_at": "2026-11-19T08:29:43.497329+00:00",
   "steps": [
     "boot-admin-password-persisted-and-rate-limited",
     "authenticated-post-route-policy",
@@ -106,12 +159,17 @@
     "validity-whole-number-units-and-readable-preview",
     "voucher-batch-printable-and-validated",
     "customer-device-redirect-and-walled-garden",
+    "vendo-paired-mac-spoof-restricted-to-controller",
+    "vendo-authenticated-cumulative-reports-and-wire-vectors",
+    "vendo-restart-lost-ack-does-not-credit-twice",
+    "vendo-unpaired-router-rules-removed",
     "voucher-redeemed-internet-and-cookie-free-remaining",
     "remaining-includes-committed-and-live-router-uptime",
     "used-invalid-unknown-vouchers-do-not-credit",
     "time-credit-cookie-signing-key-persists-on-restart",
     "controller-outage-retains-router-session",
     "boot-and-ten-second-poll-preserve-meter-and-ledger",
+    "dashboard-says-router-unreachable-and-keeps-sales",
     "tapped-pause-preserves-time-1",
     "tapped-pause-preserves-time-0",
     "pause-limit-refuses-without-disconnecting",
@@ -129,6 +187,15 @@
     "cookie-rebind-newest-device-wins-old-device-denied",
     "admin-grant-is-a-durable-top-up-on-portal-and-router",
     "dashboard-router-card-reports-chr-resources",
+    "admin-dashboard-sales-periods-time-credit-detail-and-batch-usage",
+    "audit-review-persists-until-explicit-dismissal-or-linked-grant",
+    "empty-coin-window-creates-identity-without-free-router-time",
+    "coin-window-rate-table-and-unique-vendo-reservation",
+    "coin-done-in-flight-tiered-top-up-and-replayed-closed",
+    "coin-grace-holds-busy-and-late-coins-reprice-whole-window",
+    "coin-window-open-at-restart-closes-on-boot",
+    "coin-window-sixty-seconds-without-coins-sends-close",
+    "coin-window-real-device-departure-sends-close",
     "resume-code-guesses-rate-limited-per-router-device",
     "mac-change-without-rebind-openpiso-idle",
     "mac-change-without-rebind-openpiso-no-idle",
@@ -136,10 +203,13 @@
     "ambiguous-device-host-fails-closed-without-rebind",
     "top-up-validity-wins-over-old-deadline",
     "online-validity-forfeits-unused-time-and-removes-router-user",
+    "admin-grant-to-expired-time-credit-refused-without-mutation",
     "purchase-after-expiry-creates-new-time-credit-then-pauses",
     "offline-validity-removes-router-user-without-reviving-time",
     "admin-grant-after-deadline-before-sweep-refused",
+    "coin-credit-to-expired-target-creates-new-time-credit",
     "voucher-while-tapped-paused-credits-without-resuming",
+    "flash-pairing-adopted-from-real-vlan-source",
     "device-without-time-credit-cannot-reach-internet",
     "controller-saw-device-real-address",
     "device-with-time-credit-pings-and-resolves",

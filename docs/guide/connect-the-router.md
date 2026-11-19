@@ -47,7 +47,7 @@ For a Router that already has a HotSpot server you want to use.
 2. The next page names the two changes on each server: its login page moves to the Controller's `openpiso` folder, which sends customers to the Portal, and its login method becomes HTTP PAP only. It also shows what each server has today.
 3. Select **Adopt**.
 
-If two servers share one server profile, tick both, or give one of them its own server profile on the Router first.
+If two servers share one server profile, tick both, or give one of them its own server profile on the Router first. If you later point a server you did not Adopt at an Adopted server's profile, the Controller stops changing that profile and the checklist shows the steps instead.
 
 ### Add alongside
 
@@ -56,7 +56,7 @@ For a Router where something else keeps running, such as another vending system 
 - **On a new VLAN** (recommended): pick the parent interface, the VLAN ID and the address range. The Controller suggests the interface under your HotSpot server, the lowest VLAN ID from 2 that is free on it, and a private range that overlaps nothing on the Router. Select **Create VLAN and Adopt**. Then carry that VLAN to an SSID on your access point, and tag it on the switch ports between the access point and the Router; Router setup reminds you until a customer reaches the Portal from it.
 - **On an interface with no HotSpot server**: pick the interface and address range, and select **Create and Adopt**.
 
-The Controller adds the VLAN interface (for a new VLAN), its address, an address pool, a DHCP server, a server profile, the HotSpot server, and a NAT rule so its customers reach the Portal.
+The Controller adds the VLAN interface (for a new VLAN), its address, an address pool, a DHCP server, a server profile, the HotSpot server, and a NAT rule so its customers reach the Portal. If one of your own objects already has the name the Controller would use, such as a pool or server profile called `openpiso-ether3`, it adds nothing and names that object; rename it on the Router or place the server elsewhere. If creating fails partway, or the page never answers, send the same form again: the Controller finishes and Adopts the server it made.
 
 If the parent is a bridge with VLAN filtering on, the Controller adds nothing: a wrong bridge VLAN entry can cut you off from the Router. The page shows the commands to add the VLAN yourself. Run them, then use **On an interface with no HotSpot server** and pick the new VLAN interface.
 
@@ -105,7 +105,7 @@ If you delete an Adopted HotSpot server on the Router, the checklist says it is 
 Once a server is Adopted, Router setup lists the rest of setting up the Shop, each marked **Done** or **Not done** and linked to its page:
 
 - **Save the Shop settings**: save the Pause page once.
-- **Set your Rate tiers**: done once your Rate tiers are not the starting ₱1 = 60 seconds.
+- **Set your Rate tiers**: done once you save the Rate tiers page, even if you keep the starting ₱1 = 60 seconds.
 - **Pair a Vendo**.
 - **Generate a first Voucher Batch**.
 

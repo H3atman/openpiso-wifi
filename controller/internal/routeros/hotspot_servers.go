@@ -55,11 +55,22 @@ func (c *Client) CheckAdoptable(ctx context.Context, names, adopted []string) er
 		if index < 0 {
 			return fmt.Errorf("the Router has no HotSpot server %s", name)
 		}
-		for _, other := range servers {
-			if other.Profile == servers[index].Profile && !slices.Contains(managed, other.Name) {
-				return fmt.Errorf("HotSpot server %s shares server profile %s with %s; tick both, or give %s its own server profile", name, other.Profile, other.Name, other.Name)
-			}
+		if other := unmanagedSharer(servers, servers[index].Profile, managed); other != "" {
+			return fmt.Errorf("HotSpot server %s shares server profile %s with %s; tick both, or give %s its own server profile", name, servers[index].Profile, other, other)
 		}
 	}
 	return nil
+}
+
+// unmanagedSharer is the first of servers outside managed whose server profile
+// is profile, "" when none. A change to profile would also change that server,
+// which the Controller must leave alone.
+func unmanagedSharer(servers []HotspotServer, profile string, managed []string) string {
+	index := slices.IndexFunc(servers, func(server HotspotServer) bool {
+		return server.Profile == profile && !slices.Contains(managed, server.Name)
+	})
+	if index < 0 {
+		return ""
+	}
+	return servers[index].Name
 }

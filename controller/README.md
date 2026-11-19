@@ -81,18 +81,27 @@ each placement. Supply an HTTPS origin, the Router admin username, and password.
    page names the two changes, then **Adopt** records the servers in the ledger
    and applies the baseline below. Servers left unticked, their server profiles
    and `hotspot/login.html` are never changed. A server profile shared with an
-   unticked server is refused.
+   unticked server is refused. If a server profile later comes to serve a server
+   that is not Adopted, its login method and login page items show manual steps,
+   and neither their fixes nor boot repair write it.
 6. **Add alongside** creates a HotSpot server `openpiso-<interface>` and Adopts
    it, leaving existing servers alone. The default placement is a new VLAN
    `<parent>-vlan<id>` on an Ethernet, bridge or bond interface, suggesting the
    parent under the first HotSpot server and the lowest free VLAN ID from 2; the
    other placement is an interface with no HotSpot server (not a bridge port,
    dynamic, the loopback or the Controller's own path to the Router). The range
-   must be a private IPv4 range overlapping no address or route on the Router.
+   must be a private IPv4 range overlapping no address or route on the Router;
+   the suggestion searches 10.0.0.0/8, then 172.16.0.0/12 and 192.168.0.0/16.
    It adds only what is missing: VLAN interface, address, pool, DHCP server and
    network, a server profile (`http-pap`, `openpiso` directory), the server, and
    the NAT exemption. A bridge with VLAN filtering on is refused before any
-   write, with the manual RouterOS commands in the message.
+   write, with the manual RouterOS commands in the message. So is any object
+   that holds a name the Controller would use and is not its own: the VLAN,
+   pool and DHCP server are its own when their comment is the server's name,
+   the server profile when no other server uses it, the server when it is on
+   that interface with that profile. A create that failed midway, or whose
+   response was lost, is finished by sending it again, which Adopts the server.
+   When the Router cannot suggest a placement, only this card says why.
 7. **Fresh start** deletes the HotSpot tree (servers, server profiles, users,
    user profiles, active sessions, IP bindings, walled garden; RouterOS defaults
    and dynamic rows stay) and creates one server like Add alongside, by default
@@ -100,7 +109,9 @@ each placement. Supply an HTTPS origin, the Router admin username, and password.
    files, addresses, pools, DHCP, bridges, VLANs, routes and firewall rules are
    kept. It is offered only with no Time Credits, no Vendo other than unpaired,
    and the connect backup still listed on the Router; the Operator types
-   `DELETE`. The ledger forgets every Adopted server before the wipe.
+   `DELETE`. Before any write it applies Add alongside's refusals, waiving only
+   the HotSpot servers the wipe removes. Vendo pairing waits while it runs. The
+   ledger forgets every Adopted server before the wipe.
 
 Every start ends at the checklist on Router setup, read live on each page load.
 Router items: RouterOS v7 with the limited user working, the two base HotSpot
@@ -121,8 +132,8 @@ refused for a server that is not Adopted or is still on the Router.
 
 Once a server is Adopted, **Next steps** lists four ledger-read items, each
 linked to its existing page and none blocking anything: Shop settings saved
-(the Pause settings have been saved once), Rate tiers changed from the shipped
-₱1 = 60 s tier, a Vendo paired, and a Voucher Batch generated.
+(the Pause settings have been saved once), Rate tiers saved once (even at the
+shipped ₱1 = 60 s tier), a Vendo paired, and a Voucher Batch generated.
 
 RouterOS permissions are coarse: this group can read/write configuration, but
 cannot manage Router accounts/groups, reboot, or use SSH/FTP/console/Winbox.

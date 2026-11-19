@@ -1424,7 +1424,8 @@ def reconciler_restart_outage(controller, args, data_dir, opener, report, addres
     controller.stop()
     # The Router-hosted page must survive the Controller. The default visible
     # state is unavailable; only a successful ready script permits redirect.
-    page = router_rest(address, "admin", password, "/file?name=hotspot%2Flogin.html")[0]["contents"]
+    # The login page in the Controller's own directory, which every Adopted server's profile points at.
+    page = router_rest(address, "admin", password, "/file?name=openpiso%2Flogin.html")[0]["contents"]
     assert "temporarily unavailable" in page
     assert "/portal/ready.js" in page and "onload" in page
     assert 'http-equiv="refresh"' not in page
@@ -5763,6 +5764,52 @@ def drift(opener, report, address, password):
                         broken=broken, reason=items[(server, name)]["reason"], fix=items[(server, name)]["fix"])
 
 
+def shared_profile(controller, args, data_dir, report, address, password, existing, started):
+    """The Operator points the server that is not Adopted at hs1's server profile after hs1 was Adopted, and the
+    profile drifts. The checklist then reports the item with manual steps and no fix, and neither the fix route nor
+    boot repair writes the shared profile. Returns the Controller and a session once the sharing is undone."""
+    server, profile_name, other = _hotspot_module.SERVER, _hotspot_module.SERVER_PROFILE, _hotspot_module.OTHER
+    rest = lambda path, method="GET", body=None: router_rest(address, "admin", password, path, method, body)
+    def login():
+        opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+        assert request(opener, "/admin/login", "POST", {"password": ADMIN_PASSWORD}).status == 200
+        return opener
+    def restart():
+        nonlocal controller
+        controller.stop()
+        controller = Controller(args.binary, data_dir, initialize=False)
+        started(controller)
+        return login()
+    opener = login()
+    existing.setup_other()
+    try:
+        other_row = rest(f"/ip/hotspot?name={other}")[0]
+        rest(f"/ip/hotspot/{other_row['.id']}", "PATCH", {"profile": profile_name})
+        profile = rest(f"/ip/hotspot/profile?name={profile_name}")[0]
+        rest(f"/ip/hotspot/profile/{profile['.id']}", "PATCH", {"login-by": "cookie,http-pap"})
+        shared = rest(f"/ip/hotspot/profile?name={profile_name}")
+        items = checklist(request(opener, "/admin", timeout=15).read().decode())
+        assert unmet(items) == [(server, "login-method")], items
+        item = items[(server, "login-method")]
+        assert item["fix"] is None and item["manual"] and other in item["manual"] and profile_name in item["manual"], item
+        assert request(opener, "/admin/router/fix", "POST", {"check": "login-method", "server": server}).status == 400
+        assert rest(f"/ip/hotspot/profile?name={profile_name}") == shared, "the fix wrote a profile another server uses"
+        opener = restart()
+        state = json.load(request(opener, "/admin/state"))["router"]
+        assert state["status"] == "error" and other in state["error"], state
+        assert rest(f"/ip/hotspot/profile?name={profile_name}") == shared, "boot repair wrote a profile another server uses"
+        report.snapshot("shared-server-profile-reported-with-manual-steps-and-not-written-by-fix-or-boot",
+                        address, password, opener, reason=item["reason"], manual=item["manual"], boot_error=state["error"])
+    finally:
+        existing.teardown_other()
+    # The sharing undone, boot repairs the drift again.
+    opener = restart()
+    state = json.load(request(opener, "/admin/state"))["router"]
+    assert state["status"] == "ready", state
+    assert rest(f"/ip/hotspot/profile?name={profile_name}")[0]["login-by"] == "http-pap"
+    return controller, opener
+
+
 # Add alongside: the Operator's spare port is a VLAN on the HotSpot LAN with no HotSpot server.
 # The Controller names its server on it openpiso-<interface>.
 SPARE = "opnw-spare"
@@ -5771,6 +5818,7 @@ ALONGSIDE = "openpiso-" + SPARE
 # Edited from the suggestion: the lab host routes 10.5.20.0/24 back via the Router (configure_device_routing).
 ALONGSIDE_RANGE = "10.5.20.0/24"
 EXEMPTION = "openpiso-controller-" + ALONGSIDE  # the Controller's NAT exemption for the new server (item 8)
+TAKEN = "openpiso-e2e-taken"  # comment on disabled routes that take a whole private block, which carry no traffic
 OLD_DEVICE = "opnw-old"  # the Device on the server that is not Adopted: VLAN 30 on lan1
 NEW_DEVICE = "opnw-new"  # the Device on the new server: VLAN 40 on lan2
 
@@ -5792,7 +5840,7 @@ def remove_alongside(address, password, client_address):
                         ("/ip/dhcp-server/lease", f"server={ALONGSIDE}"), ("/ip/dhcp-server", f"name={ALONGSIDE}"),
                         ("/ip/dhcp-server/network", f"comment={ALONGSIDE}"), ("/ip/pool", f"name={ALONGSIDE}"),
                         ("/ip/address", f"interface={SPARE}"), ("/interface/vlan", f"name={SPARE}"),
-                        ("/ip/firewall/nat", f"comment={EXEMPTION}")):
+                        ("/ip/firewall/nat", f"comment={EXEMPTION}"), ("/ip/route", f"comment={TAKEN}")):
         remove(router, path, query)
     for name in (OLD_DEVICE, NEW_DEVICE):
         for path, query in (("/routing/rule", f"comment={name}"), ("/ip/route", f"comment={name}"),
@@ -5956,6 +6004,22 @@ def add_alongside_vlan(opener, report, address, password, client_address, existi
                         address, password, opener, parents=parents, parent=parent, vlan=vlan, suggested_range=suggested,
                         refusals=refusals)
 
+        # The Operator's own VLAN with the ID and the name the Controller would give it is in use, not a VLAN the
+        # Controller left: the create refuses it before any write and never builds on it.
+        router("/interface/vlan", "PUT", {"name": iface, "interface": parent, "vlan-id": str(vlan)})
+        try:
+            tree, network = hotspot_tree(address, password), network_tree(address, password)
+            response = request(opener, "/admin/router/add-alongside", "POST",
+                               {"placement": "vlan", "parent": parent, "vlan": str(vlan), "range": VLAN_RANGE})
+            body = html.unescape(response.read().decode())
+            assert response.status == 400 and f"VLAN {vlan} is already in use on {parent}" in body, (response.status, body)
+            assert hotspot_tree(address, password) == tree and network_tree(address, password) == network, "a refused VLAN wrote"
+            report.snapshot("add-alongside-vlan-refuses-the-operators-vlan-with-the-controllers-name", address, password, opener,
+                            refusal=body.strip())
+        finally:
+            for row in router(f"/interface/vlan?name={iface}"):
+                router(f"/interface/vlan/{row['.id']}", "DELETE")
+
         # The Operator edits the suggested range and creates the server on the suggested VLAN.
         response = request(opener, "/admin/router/add-alongside", "POST",
                            {"placement": "vlan", "parent": parent, "vlan": str(vlan), "range": VLAN_RANGE}, timeout=30)
@@ -6016,7 +6080,97 @@ def add_alongside_vlan(opener, report, address, password, client_address, existi
         client(f"/interface/ethernet/{lan2['.id']}", "PATCH", {"disabled": lan2["disabled"]})
 
 
-def add_alongside(opener, report, address, password, client_address, existing):
+def taken_blocks(opener, report, address, password):
+    """Suggesting a range searches every private block, and a Router with none left still shows the rest of Router
+    setup: only the Add alongside card says why it has no form. Disabled routes take the blocks; they carry nothing."""
+    router = lambda path, method="GET", body=None: router_rest(address, "admin", password, path, method, body)
+    def take(block):
+        router("/ip/route", "PUT", {"dst-address": block, "gateway": "ether2", "disabled": "yes", "comment": TAKEN})
+    def card(page):
+        return re.search(r"<h3>Add alongside</h3>(.*?)</section>", page, re.S).group(1)
+    try:
+        take("10.0.0.0/8")  # the block holding hs1's range
+        interfaces, suggested = add_alongside_card(request(opener, "/admin", timeout=15).read().decode())
+        suggestion = ipaddress.ip_network(suggested)
+        assert suggestion.prefixlen == 24 and suggestion.is_private, suggested
+        assert not suggestion.subnet_of(ipaddress.ip_network("10.0.0.0/8")), suggested
+        assert any(suggestion.subnet_of(ipaddress.ip_network(block)) for block in ("172.16.0.0/12", "192.168.0.0/16")), suggested
+        take("172.16.0.0/12")
+        take("192.168.0.0/16")
+        page = request(opener, "/admin", timeout=15).read().decode()
+        assert "Router unavailable" not in page, page
+        # The checklist and Use existing (the second server is not Adopted) are still there.
+        assert ("", "routeros-v7") in checklist(page) and (_hotspot_module.SERVER, "login-method") in checklist(page), page
+        assert 'action="/admin/router/use-existing"' in page, page
+        reason = html.unescape(card(page))
+        assert "no free /24 range" in reason and "<form" not in reason, reason
+        report.snapshot("add-alongside-suggests-a-range-from-any-private-block-and-alone-shows-when-none-is-left",
+                        address, password, opener, suggested_with_10_taken=suggested,
+                        card_with_all_taken=re.sub(r"<[^>]+>", " ", reason).split())
+    finally:
+        for row in router(f"/ip/route?comment={TAKEN}"):
+            router(f"/ip/route/{row['.id']}", "DELETE")
+
+
+def foreign_names(opener, report, address, password, existing):
+    """An object holding a name the create step would use that is not the Controller's own is refused before any
+    write (ADR 0011): an Operator's server profile named like the new server's, serving the server that is not
+    Adopted, and an Operator's address pool of that name."""
+    router = lambda path, method="GET", body=None: router_rest(address, "admin", password, path, method, body)
+    other = router(f"/ip/hotspot?name={_hotspot_module.OTHER}")[0]
+    def refused(reason):
+        tree, network = hotspot_tree(address, password), network_tree(address, password)
+        response = request(opener, "/admin/router/add-alongside", "POST", {"interface": SPARE, "range": ALONGSIDE_RANGE})
+        body = html.unescape(response.read().decode())
+        assert response.status == 400 and reason in body, (response.status, body)
+        assert hotspot_tree(address, password) == tree, "a refused create changed the HotSpot"
+        assert network_tree(address, password) == network, "a refused create changed the network"
+        return body.strip()
+    refusals = {}
+    router("/ip/hotspot/profile", "PUT", {"name": ALONGSIDE, "login-by": _hotspot_module.LOGIN_BY, "html-directory": "hotspot"})
+    try:
+        router(f"/ip/hotspot/{other['.id']}", "PATCH", {"profile": ALONGSIDE})
+        refusals["server profile"] = refused(f"server profile {ALONGSIDE}")
+        assert _hotspot_module.OTHER in refusals["server profile"], refusals
+    finally:
+        router(f"/ip/hotspot/{other['.id']}", "PATCH", {"profile": other["profile"]})
+        for row in router(f"/ip/hotspot/profile?name={ALONGSIDE}"):
+            router(f"/ip/hotspot/profile/{row['.id']}", "DELETE")
+    router("/ip/pool", "PUT", {"name": ALONGSIDE, "ranges": "10.5.21.10-10.5.21.20"})
+    try:
+        refusals["address pool"] = refused(f"address pool {ALONGSIDE}")
+    finally:
+        for row in router(f"/ip/pool?name={ALONGSIDE}"):
+            router(f"/ip/pool/{row['.id']}", "DELETE")
+    report.snapshot("add-alongside-refuses-names-held-by-the-operators-objects", address, password, opener, refusals=refusals)
+
+
+def resumed_create(opener, report, address, password, ledger_path):
+    """A create whose response was lost once RouterOS had committed the server: the server is on the Router, not
+    Adopted, and has no NAT exemption. The same request again finishes it and adds nothing twice."""
+    router = lambda path, method="GET", body=None: router_rest(address, "admin", password, path, method, body)
+    with sqlite3.connect(ledger_path) as db:
+        db.execute("DELETE FROM adopted_hotspot_servers WHERE name = ?", (ALONGSIDE,))
+    db.close()
+    for row in router(f"/ip/firewall/nat?comment={EXEMPTION}"):
+        router(f"/ip/firewall/nat/{row['.id']}", "DELETE")
+    assert json.load(request(opener, "/admin/state"))["router"]["adopted_hotspot_servers"] == [_hotspot_module.SERVER]
+    def created():
+        return ({key: [stable(row) for row in rows] for key, rows in network_tree(address, password).items()},
+                [stable(row) for row in router("/ip/hotspot")], [stable(row) for row in router("/ip/hotspot/profile")])
+    before = created()
+    response = request(opener, "/admin/router/add-alongside", "POST", {"interface": SPARE, "range": ALONGSIDE_RANGE}, timeout=30)
+    page = response.read().decode()
+    assert response.status == 200 and urllib.parse.urlsplit(response.url).path == "/admin", page
+    state = json.load(request(opener, "/admin/state"))["router"]
+    assert state["adopted_hotspot_servers"] == sorted([_hotspot_module.SERVER, ALONGSIDE]) and state["status"] == "ready", state
+    assert created() == before, "running the create again changed what the first one made"
+    assert len(router(f"/ip/firewall/nat?comment={EXEMPTION}")) == 1
+    report.snapshot("add-alongside-retried-after-a-lost-response-adopts-the-server-it-made", address, password, opener,
+                    adopted=state["adopted_hotspot_servers"])
+
+
+def add_alongside(opener, report, address, password, client_address, existing, ledger_path):
     """Router setup's Add alongside on a spare interface, next to hs1 (Adopted) and the second server (not Adopted)."""
     server = _hotspot_module.SERVER
     router = lambda path, method="GET", body=None: router_rest(address, "admin", password, path, method, body)
@@ -6028,6 +6182,7 @@ def add_alongside(opener, report, address, password, client_address, existing):
     try:
         existing.setup_other()
         router("/interface/vlan", "PUT", {"name": SPARE, "interface": "ether2", "vlan-id": SPARE_VLAN})
+        taken_blocks(opener, report, address, password)
         other_before, users_before = existing.other(), existing.users()
         tree_before, network_before = hotspot_tree(address, password), network_tree(address, password)
         backups_before = router_backups(address, password)
@@ -6057,6 +6212,7 @@ def add_alongside(opener, report, address, password, client_address, existing):
         assert network_tree(address, password) == network_before, "a refused Add alongside changed the network"
         report.snapshot("add-alongside-offers-free-interfaces-and-refuses-a-bad-range", address, password, opener,
                         interfaces=interfaces, suggested=suggested, refusals=refusals)
+        foreign_names(opener, report, address, password, existing)
 
         # The Operator edits the suggested range and creates the server.
         response = request(opener, "/admin/router/add-alongside", "POST", {"interface": SPARE, "range": ALONGSIDE_RANGE}, timeout=30)
@@ -6080,6 +6236,10 @@ def add_alongside(opener, report, address, password, client_address, existing):
         assert (tree["walled_garden"], tree["login_pages"]) == (tree_before["walled_garden"], tree_before["login_pages"])
         assert existing.other() == other_before and existing.users() == users_before
         assert router_backups(address, password) == backups_before, "Add alongside saved another backup"
+        # The Controller's own objects carry its marker: the server's name as their comment.
+        assert [row.get("comment") for row in dhcp] == [ALONGSIDE], dhcp
+        assert [row.get("comment") for row in router(f"/ip/pool?name={dhcp[0]['address-pool']}")] == [ALONGSIDE]
+        resumed_create(opener, report, address, password, ledger_path)
         # Creating the server also added the Controller's NAT exemption for it, first among the static srcnat rules.
         nat = [row for row in router("/ip/firewall/nat") if row["chain"] == "srcnat" and row.get("dynamic") != "true"]
         exemption = next(row for row in nat if row.get("comment") == EXEMPTION)
@@ -6319,6 +6479,7 @@ VOLATILE = {"bytes", "packets", "bytes-in", "bytes-out", "packets-in", "packets-
             "session-time-left", "proxy-status", "invalid", "expires-after", "status", "hits"}
 FRESH_CONFIRMATION = "DELETE"
 FRESH_EXTRAS = "opnw-existing"  # comment on the walled garden entries and IP binding the fixture adds
+FRESH_BRIDGE = "opnw-fresh-bridge"  # a bridge that briefly takes the second server's interface as a port
 
 
 def stable(row):
@@ -6456,6 +6617,20 @@ def fresh_start(controller, args, data_dir, opener, report, address, password, c
             "VLAN on a missing parent": refused(opener, {**vlan_form, "parent": "opnw-missing"}, "opnw-missing is missing"),
             "VLAN ID out of range": refused(opener, {**vlan_form, "vlan": "4095"}, "not from 1 to 4094"),
         }
+        # A server on an interface the create step cannot use, here a bridge port: only "it has a HotSpot server"
+        # is waived before the wipe, so this is refused before it rather than after.
+        rest("/interface/bridge", "PUT", {"name": FRESH_BRIDGE})
+        try:
+            rest("/interface/bridge/port", "PUT", {"bridge": FRESH_BRIDGE, "interface": _hotspot_module.OTHER})
+            bridged = wipe_rows(address, password)
+            refusals["server on a bridge port"] = refused(
+                opener, {**form, "interface": _hotspot_module.OTHER, "range": f"{_hotspot_module.OTHER_SUBNET}.0/24"}, "is a bridge port")
+            assert wipe_rows(address, password) == bridged, "a refused Fresh start wrote"
+        finally:
+            for row in rest(f"/interface/bridge/port?bridge={FRESH_BRIDGE}"):
+                rest(f"/interface/bridge/port/{row['.id']}", "DELETE")
+            for row in rest(f"/interface/bridge?name={FRESH_BRIDGE}"):
+                rest(f"/interface/bridge/{row['.id']}", "DELETE")
         response = request(opener, "/admin/vendos/pair", "POST", {"mac": _lab_module.UNKNOWN_VENDO_MAC})
         assert response.status == 201, response.read().decode()
         pending = json.load(response)
@@ -6574,8 +6749,8 @@ def next_steps_follow_the_shop(opener, report, address, password, client_address
     try:
         assert steps() == {"shop-settings": False, "rate-tiers": False, "vendo-paired": True, "voucher-batch": True}
         assert request(opener, "/admin/pause", "POST", {"pause_limit": "3", "idle_seconds": "120", "idle_enabled": "off"}).status == 200
-        # The shipped ₱1 = 60 s tier is not the Operator's own price yet.
-        assert request(opener, "/admin/rates", "POST", {"tiers": "1=120"}).status == 200
+        # Saving the Rate tiers finishes the task, even when the Operator keeps the shipped ₱1 = 60 s price.
+        assert request(opener, "/admin/rates", "POST", {"tiers": "1=60"}).status == 200
         assert steps() == dict.fromkeys(NEXT_STEP_PAGES, True)
     finally:
         assert request(opener, "/admin/vendos/unpair", "POST", {"id": paired["id"]}).status == 204
@@ -6646,9 +6821,10 @@ def onboarding(controller, args, data_dir, opener, report, address, password, cl
                     adopted=state["router"]["adopted_hotspot_servers"], internet_target=target)
 
     drift(opener, report, address, password)
+    controller, opener = shared_profile(controller, args, data_dir, report, address, password, existing, started)
     # Before the step below, which needs no HotSpot server: Add alongside removes its servers when done,
     # and they stay Adopted until forgotten.
-    vlan_server = add_alongside(opener, report, address, password, client_address, existing)
+    vlan_server = add_alongside(opener, report, address, password, client_address, existing, Path(data_dir) / "openpiso.db")
     forget_missing(opener, report, address, password, client_address, sorted([ALONGSIDE, vlan_server]))
 
     # Last: a re-created HotSpot server takes a while before a Device fetch through it works.

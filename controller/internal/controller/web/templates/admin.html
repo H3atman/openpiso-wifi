@@ -31,7 +31,8 @@
 <section class="card narrow">
   <div class="card-head"><div><h3>Fresh start</h3><p class="muted-fg">Delete the Router's HotSpot configuration and create one HotSpot server. Addresses, DHCP, bridges, the internet connection and firewall rules outside HotSpot are kept.</p></div></div>
   <div class="card-body">
-    {{with .FreshStart}}{{if .Blocked}}<p class="muted-fg fresh-start-blocked">Fresh start is not offered. {{.Blocked}}</p>
+    {{with .FreshStart}}{{if .Error}}<p class="field-error fresh-start-error" role="alert">Fresh start is not offered: {{.Error}}</p>
+    {{else if .Blocked}}<p class="muted-fg fresh-start-blocked">Fresh start is not offered. {{.Blocked}}</p>
     {{else}}
     <p>Fresh start deletes:</p>
     <ul class="fresh-start-counts">
@@ -81,7 +82,8 @@
 <section class="card narrow">
   <div class="card-head"><div><h3>Add alongside</h3><p class="muted-fg">Create a new HotSpot server, on a new VLAN or on an interface that has none, and Adopt it. The HotSpot servers already on the Router are not changed.</p></div></div>
   <div class="card-body">
-    {{with .AddAlongside}}{{if .Parents}}{{$parent := .Parent}}
+    {{with .AddAlongside}}{{if .Error}}<p class="field-error add-alongside-error" role="alert">Add alongside is not offered: {{.Error}}</p>
+    {{else}}{{if .Parents}}{{$parent := .Parent}}
     <form class="form add-alongside-vlan" method="post" action="/admin/router/add-alongside">
       <input type="hidden" name="placement" value="vlan">
       <p><strong>On a new VLAN</strong> <span class="xs muted-fg">recommended</span></p>
@@ -100,7 +102,7 @@
       <p class="xs muted-fg">Suggested: the next private range of the same size that overlaps nothing on the Router. The Controller adds the address, an address pool, a DHCP server, a server profile, the HotSpot server and a NAT exemption so its Devices reach the Portal.</p>
       <div><button class="btn" type="submit">Create and Adopt</button></div>
     </form>
-    {{else}}<p class="muted-fg add-alongside-none">No interface is free: every interface has a HotSpot server, is a bridge port or carries the Controller's connection to the Router. Use a new VLAN, or free a port first.</p>{{end}}{{end}}
+    {{else}}<p class="muted-fg add-alongside-none">No interface is free: every interface has a HotSpot server, is a bridge port or carries the Controller's connection to the Router. Use a new VLAN, or free a port first.</p>{{end}}{{end}}{{end}}
   </div>
 </section>
 {{end}}

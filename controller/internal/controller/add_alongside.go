@@ -21,12 +21,14 @@ import (
 // addAlongsideView is the Add alongside card on Router setup: Interfaces are
 // those with no HotSpot server, Range the suggested address range, Parents
 // those a new VLAN can go on, with Parent and VLAN the suggested parent and ID.
+// Error says why they could not be read, which the card alone shows.
 type addAlongsideView struct {
 	Interfaces []string
 	Range      string
 	Parents    []string
 	Parent     string
 	VLAN       int
+	Error      string
 }
 
 // carryVLAN tells the Operator to carry VLAN to an SSID: Server is an Adopted
@@ -128,25 +130,7 @@ func (s *Server) addAlongside(response http.ResponseWriter, request *http.Reques
 		http.Error(response, "unable to create the HotSpot server: "+err.Error(), http.StatusBadGateway)
 		return
 	}
-	if err := s.ledger.AdoptHotspotServers([]string{name}); err != nil {
-		http.Error(response, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	if err := s.applyBaseline(request.Context(), router); err != nil {
-		s.mu.Lock()
-		s.routerStatus, s.routerError = "error", err.Error()
-		s.mu.Unlock()
-		http.Error(response, "HotSpot server "+name+" created and Adopted; unable to finish the Router baseline: "+err.Error(), http.StatusBadGateway)
-		return
-	}
-	s.mu.Lock()
-	s.routerStatus, s.routerError = "ready", ""
-	s.mu.Unlock()
-	if err := s.exemptFromNAT(request.Context(), router, name); err != nil {
-		http.Error(response, "HotSpot server "+name+" created and Adopted; unable to add its NAT exemption: "+err.Error(), http.StatusBadGateway)
-		return
-	}
-	http.Redirect(response, request, "/admin", http.StatusSeeOther)
+	s.finishAdopting(response, request, router, []string{name}, "HotSpot server "+name+" created and Adopted", true)
 }
 
 // exemptFromNAT runs the portal-reachable fix for a server the Controller just

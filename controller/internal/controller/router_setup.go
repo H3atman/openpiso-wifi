@@ -131,14 +131,15 @@ func (s *Server) readRouterSetup(ctx context.Context, view *routerSetupView) err
 	view.Available = slices.DeleteFunc(slices.Clone(servers), func(server routeros.HotspotServer) bool {
 		return slices.Contains(view.Adopted, server.Name)
 	})
+	// The creating cards show their own failure, so the rest of the page stays.
 	if view.AddAlongside, err = readAddAlongside(ctx, router); err != nil {
-		return err
+		view.AddAlongside = addAlongsideView{Error: err.Error()}
 	}
 	if view.CarryVLANs, err = s.readCarryVLANs(ctx, router, servers, view.Adopted); err != nil {
 		return err
 	}
 	if view.FreshStart, err = s.readFreshStart(ctx, router); err != nil {
-		return err
+		view.FreshStart = freshStartView{Error: err.Error()}
 	}
 	if view.Checklist, err = s.readChecklist(ctx, router, view.Adopted, true); err != nil {
 		return err
@@ -193,15 +194,20 @@ func (s *Server) forgetServer(response http.ResponseWriter, request *http.Reques
 	http.Redirect(response, request, "/admin", http.StatusSeeOther)
 }
 
-// checklist is every Router setup check on the Router and on each of servers:
-// the Router client's checks, then, per server, whether a Device has reached
-// the Portal from it, which only the Controller can tell.
+// checklist is every Router setup check on the Router and on each of servers
+// (Adopted, or being Adopted): the Router client's checks, then, per server,
+// whether a Device has reached the Portal from it, which only the Controller
+// can tell.
 func (s *Server) checklist(ctx context.Context, router *routeros.Client, servers []string) ([]routeros.Check, error) {
 	settings, err := s.ledger.PauseSettings()
 	if err != nil {
 		return nil, err
 	}
-	checks, err := router.Checklist(ctx, s.portalURL, settings.IdleSeconds, servers)
+	adopted, err := s.ledger.AdoptedHotspotServers()
+	if err != nil {
+		return nil, err
+	}
+	checks, err := router.Checklist(ctx, s.portalURL, settings.IdleSeconds, servers, append(adopted, servers...))
 	if err != nil {
 		return nil, err
 	}
@@ -371,6 +377,15 @@ func (s *Server) adoptServers(response http.ResponseWriter, request *http.Reques
 		http.Error(response, err.Error(), http.StatusBadRequest)
 		return
 	}
+	s.finishAdopting(response, request, router, names, "Servers Adopted", false)
+}
+
+// finishAdopting ends Use existing, Add alongside and Fresh start: it Adopts
+// names, brings the Router and every Adopted server to the baseline and, for a
+// server the Controller just created (exempt, names its one server), adds its
+// NAT exemption, then shows Router setup. done says what has happened when a
+// step fails.
+func (s *Server) finishAdopting(response http.ResponseWriter, request *http.Request, router *routeros.Client, names []string, done string, exempt bool) {
 	// Recorded before the Router changes, so a failed repair is retried at boot.
 	if err := s.ledger.AdoptHotspotServers(names); err != nil {
 		http.Error(response, err.Error(), http.StatusInternalServerError)
@@ -380,12 +395,18 @@ func (s *Server) adoptServers(response http.ResponseWriter, request *http.Reques
 		s.mu.Lock()
 		s.routerStatus, s.routerError = "error", err.Error()
 		s.mu.Unlock()
-		http.Error(response, "Servers Adopted; unable to finish the Router baseline: "+err.Error(), http.StatusBadGateway)
+		http.Error(response, done+"; unable to finish the Router baseline: "+err.Error(), http.StatusBadGateway)
 		return
 	}
 	s.mu.Lock()
 	s.routerStatus, s.routerError = "ready", ""
 	s.mu.Unlock()
+	if exempt {
+		if err := s.exemptFromNAT(request.Context(), router, names[0]); err != nil {
+			http.Error(response, done+"; unable to add its NAT exemption: "+err.Error(), http.StatusBadGateway)
+			return
+		}
+	}
 	http.Redirect(response, request, "/admin", http.StatusSeeOther)
 }
 

@@ -119,14 +119,19 @@ the linked issue.
   is still on the Router) deletes the HotSpot tree, keeps everything outside it,
   and creates one server; **Use existing** Adopts ticked servers; **Add
   alongside** creates a server on a new VLAN (ID suggested from 2) or a free
-  interface, never on a bridge with VLAN filtering on → the ledger records the
+  interface, never on a bridge with VLAN filtering on nor over an Operator
+  object holding a name it would use (a resent create Adopts the server it made;
+  Fresh start applies the same rules, waiving the servers it wipes, and holds
+  off Vendo pairing) → the ledger records the
   Adopted set, and the baseline repairs only the Router's shared objects and the
   Adopted servers. Each start ends at one checklist read live from the Router,
   per Adopted server: enabled, network, login method exactly `http-pap`, login
   page, then a Controller NAT exemption (`openpiso-controller-<server>`) above
   every other source NAT rule plus a Router ping to the Controller from the
   server's address, and a Device seen at the Portal. Fixes only add or enable
-  Controller-owned objects; anything else is a manual step. An Adopted server
+  Controller-owned objects; anything else is a manual step, as is a server
+  profile shared with a server that is not Adopted, which neither a fix nor
+  boot repair writes. An Adopted server
   missing on the Router can be forgotten: the ledger drops it and its Portal
   arrivals, and nothing is written to the Router. Next steps then lists the
   Shop pages left to visit, read from the ledger; none of them blocks anything.

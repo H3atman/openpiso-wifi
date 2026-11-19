@@ -58,26 +58,21 @@ func (c *Client) PlanFreshStart(ctx context.Context) (FreshStartPlan, error) {
 	}
 	plan.Counts = HotspotCounts{Servers: rows["/ip/hotspot"], Users: rows["/ip/hotspot/user"], Active: rows["/ip/hotspot/active"],
 		WalledGarden: rows["/ip/hotspot/walled-garden"] + rows["/ip/hotspot/walled-garden/ip"]}
-	free, err := c.FreeInterfaces(ctx)
-	if err != nil {
-		return plan, err
-	}
-	servers, err := c.ListHotspotServers(ctx)
+	// The wipe removes every HotSpot server, so only that waives an interface.
+	free, err := c.freeInterfaces(ctx, func(HotspotServer) bool { return true })
 	if err != nil {
 		return plan, err
 	}
 	plan.Interfaces = free
-	for _, server := range servers {
-		plan.Interfaces = append(plan.Interfaces, server.Interface)
+	servers, err := c.ListHotspotServers(ctx)
+	if err != nil {
+		return plan, err
 	}
-	slices.Sort(plan.Interfaces)
-	plan.Interfaces = slices.Compact(plan.Interfaces)
-	switch {
-	case len(servers) > 0:
-		plan.Interface = servers[0].Interface
-	case len(free) > 0:
-		plan.Interface = free[0]
-	default:
+	if index := slices.IndexFunc(servers, func(server HotspotServer) bool { return slices.Contains(plan.Interfaces, server.Interface) }); index >= 0 {
+		plan.Interface = servers[index].Interface
+	} else if len(plan.Interfaces) > 0 {
+		plan.Interface = plan.Interfaces[0]
+	} else {
 		return plan, nil
 	}
 	network, ok, err := c.interfaceRange(ctx, plan.Interface)
@@ -94,28 +89,12 @@ func (c *Client) PlanFreshStart(ctx context.Context) (FreshStartPlan, error) {
 }
 
 // CheckFreshStart refuses, before any write, a Fresh start that could not
-// create its server: placement must be an interface free once the old servers
-// are gone or a new VLAN checkVLAN accepts, and network a range CheckRange
-// accepts there.
+// create its server: it applies CreateHotspotServer's checks, waiving only
+// those the wipe settles (a HotSpot server, or its server profile, already on
+// the interface or holding the name).
 func (c *Client) CheckFreshStart(ctx context.Context, placement Placement, network netip.Prefix) error {
-	iface := placement.Interface
-	if placement.VLAN != 0 {
-		name, exists, err := c.checkVLAN(ctx, placement.Parent, placement.VLAN)
-		if err != nil {
-			return err
-		}
-		if iface = name; !exists {
-			return c.CheckRange(ctx, iface, network)
-		}
-	}
-	plan, err := c.PlanFreshStart(ctx)
-	if err != nil {
-		return err
-	}
-	if !slices.Contains(plan.Interfaces, iface) {
-		return Refusal(fmt.Sprintf("interface %s is missing, is a bridge port or carries the Controller's connection to the Router", iface))
-	}
-	return c.CheckRange(ctx, iface, network)
+	_, _, err := c.checkPlacement(ctx, placement, network, true)
+	return err
 }
 
 // WipeHotspot deletes the HotSpot tree (hotspotTree) and nothing else. A wipe

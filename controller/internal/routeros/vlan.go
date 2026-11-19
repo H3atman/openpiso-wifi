@@ -84,8 +84,9 @@ func (c *Client) VLANIDs(ctx context.Context) (map[string]int, error) {
 
 // checkVLAN refuses VLAN id on parent before any write and returns the VLAN
 // interface's name, and whether it is already there from a create that failed
-// midway: id must be a VLAN ID, parent one of VLANParents and not a bridge with
-// VLAN filtering on, and id not in use on parent.
+// midway (it carries the server's name as its comment): id must be a VLAN ID,
+// parent one of VLANParents and not a bridge with VLAN filtering on, and id not
+// in use on parent by any other VLAN.
 func (c *Client) checkVLAN(ctx context.Context, parent string, id int) (string, bool, error) {
 	if id < 1 || id > 4094 {
 		return "", false, Refusal(fmt.Sprintf("VLAN ID %d is not from 1 to 4094", id))
@@ -117,12 +118,12 @@ func (c *Client) checkVLAN(ctx context.Context, parent string, id int) (string, 
 	for _, vlan := range vlans {
 		same := vlan["interface"] == parent && vlan["vlan-id"] == strconv.Itoa(id)
 		switch {
-		case vlan["name"] == iface && same:
+		case vlan["name"] == iface && same && vlan["comment"] == "openpiso-"+iface: // the Controller's own (see CreateHotspotServer)
 			exists = true
-		case vlan["name"] == iface:
-			return "", false, Refusal(fmt.Sprintf("interface %s already exists, as VLAN %s on %s", iface, vlan["vlan-id"], vlan["interface"]))
 		case same:
 			return "", false, Refusal(fmt.Sprintf("VLAN %d is already in use on %s, by interface %s", id, parent, vlan["name"]))
+		case vlan["name"] == iface:
+			return "", false, Refusal(fmt.Sprintf("interface %s already exists, as VLAN %s on %s", iface, vlan["vlan-id"], vlan["interface"]))
 		}
 	}
 	return iface, exists, nil

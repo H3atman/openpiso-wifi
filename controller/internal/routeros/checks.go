@@ -62,7 +62,7 @@ func (c *Client) EnsureBaseline(ctx context.Context, portalURL string, idleSecon
 		if index < 0 {
 			return fmt.Errorf("Adopted HotSpot server %s is missing on the Router", name)
 		}
-		if err := repair(ctx, c.serverChecks(name, servers[index].Profile, portalURL)); err != nil {
+		if err := repair(ctx, c.serverChecks(name, servers[index].Profile, portalURL, adopted)); err != nil {
 			return err
 		}
 	}
@@ -70,25 +70,27 @@ func (c *Client) EnsureBaseline(ctx context.Context, portalURL string, idleSecon
 }
 
 // Checklist is every check Router setup shows, in order: the Router's, then
-// each server's in adopted. Showing it only runs Verify; a Fix runs only when
-// the Operator asks. Unlike EnsureBaseline, it includes checks boot never
-// repairs, such as whether a server is enabled.
-func (c *Client) Checklist(ctx context.Context, portalURL string, idleSeconds int, adopted []string) ([]Check, error) {
+// each server's in servers. managed are the servers the Controller may change
+// (the Adopted ones and those being Adopted), and must include servers. Showing
+// it only runs Verify; a Fix runs only when the Operator asks. Unlike
+// EnsureBaseline, it includes checks boot never repairs, such as whether a
+// server is enabled.
+func (c *Client) Checklist(ctx context.Context, portalURL string, idleSeconds int, servers, managed []string) ([]Check, error) {
 	checks, err := c.routerChecks(portalURL, idleSeconds)
 	if err != nil {
 		return nil, err
 	}
-	servers, err := c.ListHotspotServers(ctx)
+	onRouter, err := c.ListHotspotServers(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list HotSpot servers: %w", err)
 	}
 	portal, _ := url.Parse(portalURL) // routerChecks has validated it
-	for _, name := range adopted {
+	for _, name := range servers {
 		checks = append(checks, c.serverEnabled(name))
-		if index := slices.IndexFunc(servers, func(server HotspotServer) bool { return server.Name == name }); index >= 0 {
-			checks = append(checks, c.serverNetwork(servers[index]))
-			checks = append(checks, c.serverChecks(name, servers[index].Profile, portalURL)...)
-			checks = append(checks, c.portalReachable(servers[index], portal.Hostname()))
+		if index := slices.IndexFunc(onRouter, func(server HotspotServer) bool { return server.Name == name }); index >= 0 {
+			checks = append(checks, c.serverNetwork(onRouter[index]))
+			checks = append(checks, c.serverChecks(name, onRouter[index].Profile, portalURL, managed)...)
+			checks = append(checks, c.portalReachable(onRouter[index], portal.Hostname()))
 		}
 	}
 	return checks, nil
@@ -193,10 +195,47 @@ func (c *Client) routerChecks(portalURL string, idleSeconds int) ([]Check, error
 const LoginDirectory = "openpiso"
 
 // serverChecks are the checks on HotSpot server name, whose server profile is
-// profile. Servers that share a server profile share what these checks fix.
-func (c *Client) serverChecks(name, profile, portalURL string) []Check {
+// profile, among the Adopted servers adopted. Servers that share a server
+// profile share what these checks fix, so while profile also serves a server
+// that is not Adopted (see CheckAdoptable) a wrong profile is manual and the
+// fixes, at boot too, do not write it.
+func (c *Client) serverChecks(name, profile, portalURL string, adopted []string) []Check {
 	profileQuery := "/ip/hotspot/profile?name=" + url.QueryEscape(profile)
+	// sharer is the server that is not Adopted and also uses profile, or "".
+	sharer := func(ctx context.Context) (string, error) {
+		servers, err := c.ListHotspotServers(ctx)
+		if err != nil {
+			return "", fmt.Errorf("list HotSpot servers: %w", err)
+		}
+		return unmanagedSharer(servers, profile, adopted), nil
+	}
+	// shared turns a wrong profile into manual steps while profile is shared.
+	shared := func(ctx context.Context, verdict Verdict) (Verdict, error) {
+		if verdict.Met {
+			return verdict, nil
+		}
+		other, err := sharer(ctx)
+		if err != nil || other == "" {
+			return verdict, err
+		}
+		verdict.Reason += fmt.Sprintf(", and it also serves HotSpot server %s, which is not Adopted", other)
+		verdict.Manual = fmt.Sprintf("HotSpot server %[1]s shares server profile %[2]s with %[3]s, so the Controller does not change %[2]s. "+
+			"On the Router, give %[3]s its own server profile, or Adopt %[3]s too, then check again.", name, profile, other)
+		return verdict, nil
+	}
 	ensureProfile := func(ctx context.Context, values map[string]string) error {
+		profiles, err := c.list(ctx, profileQuery)
+		if err != nil {
+			return err
+		}
+		if len(profiles) > 0 && len(changedFields(profiles[0], values)) == 0 {
+			return nil
+		}
+		if other, err := sharer(ctx); err != nil {
+			return err
+		} else if other != "" {
+			return fmt.Errorf("HotSpot server %s shares server profile %s with %s, which is not Adopted; give %s its own server profile", name, profile, other, other)
+		}
 		if err := c.ensureNamed(ctx, "/ip/hotspot/profile", profile, values); err != nil {
 			return fmt.Errorf("ensure HotSpot server profile %s: %w", profile, err)
 		}
@@ -220,7 +259,7 @@ func (c *Client) serverChecks(name, profile, portalURL string) []Check {
 				case len(profiles) == 0:
 					return Verdict{Reason: "HotSpot server profile " + profile + " is missing"}, nil
 				case profiles[0]["login-by"] != "http-pap":
-					return Verdict{Reason: fmt.Sprintf("HotSpot server profile %s logs in by %s, not http-pap only", profile, profiles[0]["login-by"])}, nil
+					return shared(ctx, Verdict{Reason: fmt.Sprintf("HotSpot server profile %s logs in by %s, not http-pap only", profile, profiles[0]["login-by"])})
 				}
 				return met, nil
 			},
@@ -235,8 +274,11 @@ func (c *Client) serverChecks(name, profile, portalURL string) []Check {
 			FixLabel: "Write the login page",
 			Verify: func(ctx context.Context) (Verdict, error) {
 				verdict, err := c.verdict(ctx, profileQuery, "HotSpot server profile "+profile, map[string]string{"html-directory": directory})
-				if err != nil || !verdict.Met {
+				if err != nil {
 					return verdict, err
+				}
+				if !verdict.Met {
+					return shared(ctx, verdict)
 				}
 				return c.verdict(ctx, "/file?name="+url.QueryEscape(loginFile), "HotSpot login page "+loginFile, map[string]string{"contents": loginHTML})
 			},

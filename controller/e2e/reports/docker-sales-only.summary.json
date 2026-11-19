@@ -1,20 +1,20 @@
 {
   "format_version": 1,
   "scenario": "sales-only",
-  "started_at": "2026-11-19T09:59:00.382841+00:00",
-  "git_commit": "c3a22f8384d4c54afea26faa512753fff59a556c",
-  "git_tree": "fb69d5271ea4ec612410e2bcdf0915277ee640d8",
+  "started_at": "2026-11-19T18:06:55.117321+00:00",
+  "git_commit": "178383617be0f51d1328adb67c421e1081873cc9",
+  "git_tree": "edc739d87e2a42298612fc4555a5eae167a8a8be",
   "git_dirty": true,
-  "binary_size_bytes": 23103576,
-  "binary_sha256": "7fe6a5be4a381cbba9e87e06760fcbbded5d7004c19deb92e41500f6521c5ca0",
+  "binary_size_bytes": 23103568,
+  "binary_sha256": "98b2195ffcb9bbda293ead6bb9516b4bda78aeebf641f324941f9a3d3fcfb6d0",
   "test_seam": "Controller binary via external HTTP against a Docker lab: stock CHR Router and Linux Devices",
   "result": "pass",
   "lab": {
-    "name": "opnwlab-476ad1",
+    "name": "opnwlab-c89155",
     "chr_version": "7.23.8",
     "chr_image": "/home/rgsv/.cache/openpiso/chr/chr-7.23.8.img",
-    "image": "opnwlab-image:00cb97e32920",
-    "router_rest_seconds": 20.1,
+    "image": "opnwlab-image:5e04c5edc5a0",
+    "router_rest_seconds": 20.3,
     "stock_router": {
       "version": "7.23.8 (long-term)",
       "admin_password": "empty",
@@ -22,7 +22,7 @@
     },
     "vlan_leases": [
       {
-        "container": "opnwlab-476ad1-vlan10-device",
+        "container": "opnwlab-c89155-vlan10-device",
         "vlan": 10,
         "mac-address": "02:00:00:00:0C:10",
         "address": "10.5.10.200",
@@ -30,7 +30,7 @@
         "status": "bound"
       },
       {
-        "container": "opnwlab-476ad1-vlan20-device",
+        "container": "opnwlab-c89155-vlan20-device",
         "vlan": 20,
         "mac-address": "02:00:00:00:0C:20",
         "address": "10.5.20.200",
@@ -41,7 +41,7 @@
     "vendo_reports": [
       {
         "vendo_id": 1,
-        "container": "opnwlab-476ad1-coin-board",
+        "container": "opnwlab-c89155-coin-board",
         "ip": "10.5.50.199",
         "source_address": [
           "10.5.50.199"
@@ -51,7 +51,7 @@
       },
       {
         "vendo_id": 2,
-        "container": "opnwlab-476ad1-coin-board",
+        "container": "opnwlab-c89155-coin-board",
         "ip": "10.5.50.199",
         "source_address": [
           "10.5.50.199"
@@ -60,14 +60,14 @@
         "status": 200
       }
     ],
-    "run_seconds": 88.5,
+    "run_seconds": 84.7,
     "removed": true
   },
   "cleanup": {
     "result": "pass",
     "failures": []
   },
-  "finished_at": "2026-11-19T10:00:30.613054+00:00",
+  "finished_at": "2026-11-19T18:08:21.062238+00:00",
   "steps": [
     "boot-admin-password-persisted-and-rate-limited",
     "authenticated-post-route-policy",
@@ -80,6 +80,5 @@
     "sales-report-rows-late-stray-open-vouchers-pagination-auth",
     "sales-report-vendo-filter-unpaired-history",
     "sales-report-csv-export"
-  ],
-  "chr_client_cleanup_removed": 0
+  ]
 }

@@ -118,15 +118,12 @@ func (c *Client) PairVendo(ctx context.Context, id uint32, mac, ip, portalURL st
 			return err
 		}
 	} else {
-		servers, err := c.list(ctx, "/ip/dhcp-server")
+		server, err := c.vendoDHCPServer(ctx, address)
 		if err != nil {
 			return err
 		}
-		if len(servers) != 1 {
-			return errors.New("Vendo needs an existing DHCP lease when the Router has multiple DHCP servers")
-		}
 		if err := c.ensureByComment(ctx, "/ip/dhcp-server/lease", comment, map[string]string{
-			"server": servers[0]["name"], "mac-address": mac, "address": ip, "disabled": "no",
+			"server": server, "mac-address": mac, "address": ip, "disabled": "no",
 		}); err != nil {
 			return err
 		}
@@ -188,6 +185,40 @@ func (c *Client) PairVendo(ctx context.Context, id uint32, mac, ip, portalURL st
 		}
 	}
 	return nil
+}
+
+// vendoDHCPServer names the DHCP server for a Vendo's new static lease: the
+// only one on the Router, or else the one on the interface whose Router
+// address covers the Vendo, as with a DHCP server per HotSpot server.
+func (c *Client) vendoDHCPServer(ctx context.Context, vendo netip.Addr) (string, error) {
+	servers, err := c.list(ctx, "/ip/dhcp-server")
+	if err != nil {
+		return "", err
+	}
+	if len(servers) == 1 {
+		return servers[0]["name"], nil
+	}
+	addresses, err := c.list(ctx, "/ip/address")
+	if err != nil {
+		return "", err
+	}
+	interfaces := make(map[string]bool)
+	for _, entry := range addresses {
+		prefix, err := netip.ParsePrefix(entry["address"])
+		if err == nil && entry["disabled"] != "true" && prefix.Masked().Contains(vendo) {
+			interfaces[entry["interface"]] = true
+		}
+	}
+	var matches []string
+	for _, server := range servers {
+		if interfaces[server["interface"]] {
+			matches = append(matches, server["name"])
+		}
+	}
+	if len(matches) != 1 {
+		return "", errors.New("Vendo needs an existing DHCP lease when no single DHCP server serves its network")
+	}
+	return matches[0], nil
 }
 
 func (c *Client) moveVendoFilterFirst(ctx context.Context, path, comment string) error {

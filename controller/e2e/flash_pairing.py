@@ -131,6 +131,31 @@ def scenario(e, opener, address, password, client_address, report):
         report.snapshot('flash-pairing-adopted-from-real-vlan-source', address, password, opener,
                         source_ip=board['ip'], source_mac=board['mac'], hostname='opnw-0c01', lease=lease, bypass=bypass, firewall=rules,
                         mismatched_mac_rejected=True, bad_hmac_rejected=True, unknown_id_rejected=True)
+
+        # A Vendo with no lease on a Router with a DHCP server per HotSpot server
+        # (#16): its static lease goes on the server of its own network.
+        servers = sorted(row['name'] for row in router('/ip/dhcp-server'))
+        assert {'opnw-vlan10', 'opnw-vlan20'} <= set(servers), servers
+        unleased = fixture.board(20, 3)
+        for row in router('/ip/dhcp-server/lease'):
+            if row['mac-address'].upper() == unleased['mac'].upper():
+                router('/ip/dhcp-server/lease/' + row['.id'], 'DELETE')
+        assert not [row for row in router('/ip/dhcp-server/lease') if row['mac-address'].upper() == unleased['mac'].upper()]
+        third = json.load(e.request(opener, '/admin/vendos/pair', 'POST', {'mac': unleased['mac']}))
+        ids.append(third['id'])
+        try:
+            adopted = adopt(e, opener, client, unleased['ip'], e.SimulatedVendo(e.BASE_URL, third['id'], bytes.fromhex(third['secret'])))
+        except AssertionError:
+            report.snapshot('vendo-without-lease-pairing-failure', address, password, opener,
+                            dhcp_servers=servers, hosts=router('/ip/hotspot/host'))
+            raise
+        assert adopted['ip'] == unleased['ip'] and adopted['hotspot_server'] == 'opnw-vlan20', adopted
+        lease = router(f"/ip/dhcp-server/lease?comment=openpiso-vendo-{third['id']}")
+        assert len(lease) == 1 and lease[0]['dynamic'] == 'false', lease
+        assert lease[0]['server'] == 'opnw-vlan20', lease
+        assert lease[0]['mac-address'].upper() == unleased['mac'].upper() and lease[0]['address'] == unleased['ip'], lease
+        report.snapshot('vendo-without-lease-paired-on-its-networks-dhcp-server', address, password, opener,
+                        dhcp_servers=servers, source_ip=unleased['ip'], lease=lease)
     finally:
         report.capture_lab_failure()
         for i in ids:

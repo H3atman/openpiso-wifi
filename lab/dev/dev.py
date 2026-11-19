@@ -353,7 +353,7 @@ def cmd_up(_args) -> None:
     say(f"chr-lab is up at {address}")
     if not router_tls_ok(address, password):  # every later REST call is HTTPS
         say("generating the Router's www-ssl certificate")
-        e2e.configure_router_tls(address, password)
+        e2e._libvirt_module.configure_router_tls(e2e, address, password)
     ensure_dns(address, password)
     ensure_routing(address, password)
     binary = build_controller()
@@ -514,7 +514,7 @@ def cmd_phone(_args) -> None:
         'user_pref("network.captive-portal-service.enabled", true);\n'
         'user_pref("browser.shell.checkDefaultBrowser", false);\n'
         'user_pref("browser.aboutwelcome.enabled", false);\n')
-    address, password = e2e.router_address(), chr_password()
+    address, password = e2e._libvirt_module.router_address(), chr_password()
     if not router_rest(address, "admin", password, f"/ip/dhcp-server/lease?mac-address={PHONE_MAC.upper()}"):
         router_rest(address, "admin", password, "/ip/dhcp-server/lease", "PUT", {
             "address": PHONE_IP, "mac-address": PHONE_MAC, "server": "hs-dhcp", "comment": LEASE_COMMENT})
@@ -572,7 +572,7 @@ def cmd_shots(args) -> None:
     ensure_image()
     ensure_hs_network()
     password = chr_password()
-    router = e2e.router_address()
+    router = e2e._libvirt_module.router_address()
     ensure_routing(router, password)  # `down` removes it; shots must not need `up` again for this
     with vendo_boot() as state:
         release_windows(state)
@@ -675,7 +675,7 @@ def cmd_down(args) -> None:
         docker("network", "rm", HS_NETWORK)
     password = chr_password()
     if virsh("domstate", "chr-lab", check=False) == "running":
-        router = e2e.router_address()
+        router = e2e._libvirt_module.router_address()
         for lease in router_rest(router, "admin", password, f"/ip/dhcp-server/lease?comment={LEASE_COMMENT}"):
             router_rest(router, "admin", password, f"/ip/dhcp-server/lease/{lease['.id']}", "DELETE")
     remove_routing(password)

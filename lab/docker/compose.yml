@@ -1,6 +1,8 @@
-# The fixed parts of one Docker lab: the Router and the Controller on the lab WAN. The harness starts
-# Devices on the lab LAN itself. Run as its own compose project; every name carries ${LAB}.
-# Docker's subnets are throwaway: the lab's own addresses (10.77.7.0/24, 10.5.x) run on the same wire.
+# The fixed parts of one Docker lab: the Router, the Controller and the internet stand-in on the lab
+# WAN. The harness starts Devices on the lab LAN itself. Run as its own compose project; every name
+# carries ${LAB}. Docker's subnets are throwaway: the lab's own addresses (10.77.7.0/24, 10.5.x) run on
+# the same wire. Memory caps are hard (no swap beyond them): the Router 320 MB, the rest 128 MB.
+# No container keeps a default route, so nothing in the lab reaches the real internet.
 name: ${LAB}
 
 services:
@@ -10,6 +12,8 @@ services:
     command: ["/bin/sh", "/lab/router.sh"]
     cap_add: [NET_ADMIN]
     devices: [/dev/kvm, /dev/net/tun]
+    mem_limit: 320m
+    memswap_limit: 320m
     ports: ["127.0.0.1::8080", "127.0.0.1::8443"]
     volumes:
       - ${CHR_IMAGE}:/img/chr.img:ro
@@ -22,6 +26,8 @@ services:
     image: ${LAB_IMAGE}
     pull_policy: never
     cap_add: [NET_ADMIN]
+    mem_limit: 128m
+    memswap_limit: 128m
     ports: ["127.0.0.1::18080"]
     environment:
       OPENPISO_ADMIN_PASSWORD: ${ADMIN_PASSWORD}
@@ -31,16 +37,44 @@ services:
     networks:
       wan: {interface_name: eth0}
     # The harness reaches the admin panel through the published port, which arrives from the WAN
-    # network's Docker gateway; admit exactly that address. Devices return via the Router, no NAT.
+    # network's Docker gateway; admit exactly that address. Replies to it stay on-link, so the
+    # default route goes. Devices return via the Router, no NAT.
     command:
       - /bin/sh
       - -c
       - |
         set -eu
         gateway=$$(ip route show default | awk '{print $$3}')
+        ip route del default
         ip addr add 10.77.7.1/24 dev eth0
         ip route add 10.5.0.0/16 via 10.77.7.2
         exec openpiso -listen 0.0.0.0:18080 -data /data -portal-url http://10.77.7.1:18080 -admin-network "$$gateway/32"
+
+  # The Router's upstream gateway (10.77.7.254), answering as 1.1.1.1, 8.8.8.8 and google.com: ping,
+  # HTTP on port 80 and DNS for google.com only. Plain routing, no NAT: it returns HotSpot traffic to
+  # the Router, so every address in the lab is the real one. It forwards nothing.
+  internet:
+    image: ${LAB_IMAGE}
+    pull_policy: never
+    cap_add: [NET_ADMIN]
+    mem_limit: 128m
+    memswap_limit: 128m
+    networks:
+      wan: {interface_name: eth0}
+    command:
+      - /bin/sh
+      - -c
+      - |
+        set -eu
+        ip addr flush dev eth0
+        ip route flush dev eth0
+        ip addr add 10.77.7.254/24 dev eth0
+        for address in 1.1.1.1 8.8.8.8 142.250.4.100; do ip addr add $$address/32 dev lo; done
+        ip route add 10.5.0.0/16 via 10.77.7.2
+        dnsmasq --no-resolv --no-hosts --bind-interfaces --listen-address=1.1.1.1,8.8.8.8 \
+          --address=/google.com/142.250.4.100
+        mkdir -p /srv && echo openpiso-lab-internet > /srv/index.html
+        exec python3 -m http.server --directory /srv 80
 
 networks:
   wan:

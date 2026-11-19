@@ -17,14 +17,13 @@ for n in wan lan; do
   ip link set "tap$n" up
 done
 ip addr add "$docker_ip" dev brwan
-# Helper address on the lab WAN: hands ether1 its address and serves the upstream target.
-ip addr add 10.77.7.254/24 dev brwan
-ip route add 10.5.0.0/16 via 10.77.7.2
+ip route del default 2>/dev/null || true  # replies to the published ports stay on-link
+# Helper address on the lab WAN: hands ether1 its address like an ISP would (gateway and DNS are the
+# internet stand-in) and relays the published ports to the Router.
+ip addr add 10.77.7.253/24 dev brwan
 
 dnsmasq --interface=brwan --bind-interfaces --port=0 \
-  --dhcp-range=10.77.7.2,10.77.7.2,255.255.255.0,1h --dhcp-option=3 --dhcp-option=6
-mkdir -p /tmp/upstream && echo openpiso-lab-upstream > /tmp/upstream/index.html
-python3 -m http.server --bind 10.77.7.254 --directory /tmp/upstream 80 >/dev/null 2>&1 &
+  --dhcp-range=10.77.7.2,10.77.7.2,255.255.255.0,1h --dhcp-option=3,10.77.7.254 --dhcp-option=6,8.8.8.8,1.1.1.1
 # Host -> Router REST over the published ports (plain HTTP until the harness enables www-ssl).
 socat TCP-LISTEN:8080,fork,reuseaddr TCP:10.77.7.2:80 2>/dev/null &
 socat TCP-LISTEN:8443,fork,reuseaddr TCP:10.77.7.2:443 2>/dev/null &

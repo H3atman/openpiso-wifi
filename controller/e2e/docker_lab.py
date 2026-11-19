@@ -302,7 +302,7 @@ class DockerLab:
     """The lab interface (see LibvirtLab) on a Docker lab. run is the loaded run.py module; `running`
     sets its BASE_URL, PORTAL_URL and CONTROLLER_HOST for the lab's published ports and Controller."""
 
-    not_ported = frozenset({30, 31, 32, 33, 34})  # tickets whose scenarios run.py skips here
+    not_ported = frozenset({30, 32, 33, 34})  # tickets whose scenarios run.py skips here
     router_url = f"https://{ROUTER_WAN}"
     router_password = ROUTER_PASSWORD
 
@@ -674,7 +674,8 @@ class DockerLab:
         return UPSTREAM_URL, self.fetch(device_ip, UPSTREAM_URL, headers=False)["data"]
 
     def ping(self, device_ip: str) -> None:
-        not_ported(31)  # only time-running-out keeps a Device active this way
+        """Real traffic from this Device to the HotSpot."""
+        device_exec(self._sender(device_ip), "ping -c 1 -W 2 10.5.50.1", check=False)
 
     def stop_background_traffic(self) -> None:
         """No traffic generator runs here."""

@@ -647,8 +647,8 @@ def vouchers_code_formats(opener, report, address, password, lab):
     assert portal["time_credit"]["bought"] == before["bought_seconds"] + 60
     redeemed = voucher_csv(opener, mixed)
     assert next(r for r in redeemed if r["code"] == rows[0]["code"])["redeemed_at"]
-    device_redeem_refused(lab, device_ip, rows[0]["code"], 409)
-    device_redeem_refused(lab, device_ip, "bad!", 400)
+    device_redeem_refused(lab, device_ip, rows[0]["code"], 409, "voucher-used")
+    device_redeem_refused(lab, device_ip, "bad!", 400, "voucher-invalid")
     report.snapshot("vouchers-code-formats-and-prefixed-different-case-redemption", address, password, opener,
                     formats=generated, batch=batch, typed_code=typed, redeemed_csv=redeemed, portal=portal)
 
@@ -775,7 +775,7 @@ def vouchers_delete_unused(opener, report, address, password, lab):
     assert request(opener, path, "POST", {}).status == 404
     assert request(opener, "/admin/logs?kind=audit").read().decode().count(audit_line) == 1
     device_ip = lab.device_ip()
-    device_redeem_refused(lab, device_ip, codes[0], 400)
+    device_redeem_refused(lab, device_ip, codes[0], 400, "voucher-unknown")
     next_batch = generate_vouchers(opener, {"seconds": "60", "count": "1"})
     next_state = json.load(request(opener, "/admin/state"))
     assert next(b for b in next_state["purchases"]["batches"] if b["id"] in next_batch.url)["number"] > batch["number"]
@@ -912,16 +912,15 @@ def pause_device_fetch(lab, device_ip, path, form=None, cookie=""):
     return lab.fetch(device_ip, PORTAL_URL + path, form, cookie)
 
 
-def device_redeem_refused(lab, device_ip, code, status):
-    """Redeem a code from the Device and assert the Portal refused it with status.
-
-    RouterOS /tool/fetch fails on a non-2xx reply and keeps only the status, not the
-    Portal's JSON message, so a refusal can be told apart only by its status here."""
+def device_redeem_refused(lab, device_ip, code, status, refusal):
+    """Redeem a code from the Device and assert the Portal refused it with status and,
+    where the lab's fetch keeps the reply, the refusal message code (see assert_refused)."""
     try:
         pause_device_fetch(lab, device_ip, "/portal/api/redeem", {"code": code})
     except urllib.error.HTTPError as error:
         detail = error.read().decode(errors="replace")
         assert f"Status {status}" in detail, detail
+        assert_refused(error, refusal)
         return
     raise AssertionError(f"redeeming {code!r} was not refused")
 
@@ -5406,8 +5405,7 @@ def scenario(args, report: Report, lab) -> None:
                 idle_pause(opener, report, address, password, lab, device_ip)
                 top_up_code = top_up_online(opener, report, address, password, lab, device_ip, time_credit_cookie)
                 top_up_pause_budget(opener, report, address, password, lab, device_ip, time_credit_cookie, top_up_code)
-                if ported(lab, report, 31, "router-exhaustion-redirects-with-no-invented-time"):
-                    time_running_out(opener, report, address, password, lab, device_ip)
+                time_running_out(opener, report, address, password, lab, device_ip)
                 controller, opener = pending_credit_recovery(controller, args, data_dir, opener, report, address,
                                                              password, lab, device_ip)
                 concurrent_voucher(opener, report, address, password, lab, codes[1])
@@ -5536,7 +5534,7 @@ ONLY_SCENARIOS = {
     "update": "with --armv7, without CHR: install a throwaway-key v0.1.0, then update, roll back and refuse releases (see update_vm.py)",
 }
 # --only scenarios the Docker lab has not ported yet, by the ticket that ports them.
-ONLY_TICKETS = {"pairing": 30, "vouchers": 31, "time-running-out": 31, "vlan": 32,
+ONLY_TICKETS = {"pairing": 30, "vlan": 32,
                 "sales": 33, "vendo-list": 33, "shop-defaults": 33, "browser": 34}
 
 

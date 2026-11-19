@@ -5441,13 +5441,8 @@ def scenario(args, report: Report, lab) -> None:
                           "sales-report-rows-late-stray-open-vouchers-pagination-auth",
                           "sales-report-vendo-filter-unpaired-history", "sales-report-csv-export"):
                     sales_report(opener, report, address, password, lab)
-                if ported(lab, report, 34, "custom-portal-save-check-publish-revert-reset",
-                          "browser-portal-new-voucher-pause-coin-window", "browser-portal-rebind-to-new-device",
-                          "browser-portal-out-of-time", "browser-custom-portal-throwing-custom-js",
-                          "browser-custom-portal-preview", "browser-custom-portal-cover-logo",
-                          "browser-sales-report", "browser-signin-logout-restart"):
-                    custom_portal(opener, report, address, password, lab, device_ip)
-                    _browser_module.scenario(sys.modules[__name__], opener, address, password, lab, report, restart_browser_controller)
+                custom_portal(opener, report, address, password, lab, device_ip)
+                _browser_module.scenario(sys.modules[__name__], opener, address, password, lab, report, restart_browser_controller)
                 _flash_module.scenario(sys.modules[__name__], opener, address, password, lab, report)
                 if ported(lab, report, 32, "single-vendo-auto-select-from-either-vlan",
                           "one-vendo-per-vlan-learned-and-auto-selected",
@@ -5513,7 +5508,7 @@ ONLY_SCENARIOS = {
 }
 # --only scenarios the Docker lab has not ported yet, by the ticket that ports them.
 ONLY_TICKETS = {"vlan": 32,
-                "sales": 33, "vendo-list": 33, "shop-defaults": 33, "browser": 34}
+                "sales": 33, "vendo-list": 33, "shop-defaults": 33}
 
 
 def main() -> None:

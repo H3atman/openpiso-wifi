@@ -5881,17 +5881,21 @@ def carry_vlan_notes(page):
 
 
 def add_alongside_vlan(opener, report, address, password, client_address, existing):
-    """Router setup's Add alongside on a new VLAN on the interface under hs1, next to hs1 (Adopted) and the second
-    server (not Adopted, VLAN 30 on the same parent)."""
+    """Router setup's Add alongside on a new VLAN on the interface under hs1, next to hs1 and Add alongside's server
+    (both Adopted) and the second server (not Adopted, VLAN 30 on the same parent). add_alongside runs it."""
     server = _hotspot_module.SERVER
     router = lambda path, method="GET", body=None: router_rest(address, "admin", password, path, method, body)
     client = lambda path, method="GET", body=None: router_rest(client_address, "admin", password, path, method, body, scheme="http")
+    load_seconds = []  # Router setup page loads; the Controller gives its Router reads 10 s
     def setup_page():  # the checklist pings the Controller from each Adopted server, about a second each
-        return request(opener, "/admin", timeout=15).read().decode()
+        started = time.monotonic()
+        page = request(opener, "/admin", timeout=15).read().decode()
+        load_seconds.append(round(time.monotonic() - started, 2))
+        assert "Router unavailable" not in page, page
+        return page
     remove_vlan_alongside(address, password, client_address)
     lan2 = client("/interface/ethernet?name=lan2")[0]
     try:
-        existing.setup_other()
         router("/interface/bridge", "PUT", {"name": FILTERING_BRIDGE, "vlan-filtering": "yes"})
         other_before, users_before = existing.other(), existing.users()
         tree_before, network_before = hotspot_tree(address, password), network_tree(address, password)
@@ -5935,7 +5939,7 @@ def add_alongside_vlan(opener, report, address, password, client_address, existi
         page = response.read().decode()
         assert response.status == 200 and urllib.parse.urlsplit(response.url).path == "/admin", page
         state = json.load(request(opener, "/admin/state"))
-        assert state["router"]["adopted_hotspot_servers"] == sorted([server, name]), state["router"]
+        assert state["router"]["adopted_hotspot_servers"] == sorted([server, ALONGSIDE, name]), state["router"]
         assert state["router"]["status"] == "ready", state["router"]
         vlans = router(f"/interface/vlan?name={iface}")
         assert len(vlans) == 1 and (vlans[0]["interface"], vlans[0]["vlan-id"]) == (parent, str(vlan)), vlans
@@ -5979,11 +5983,12 @@ def add_alongside_vlan(opener, report, address, password, client_address, existi
         page = setup_page()
         assert unmet(checklist(page)) == [] and carry_vlan_notes(page) == {}, page
         report.snapshot("add-alongside-vlan-sends-a-device-on-the-vlan-online", address, password, opener,
-                        device=device_ip, redirect_html=redirect_page, internet_target=target)
+                        device=device_ip, redirect_html=redirect_page, internet_target=target,
+                        adopted=json.load(request(opener, "/admin/state"))["router"]["adopted_hotspot_servers"],
+                        setup_page_seconds=load_seconds)
     finally:
         report.capture_lab_failure()
         remove_vlan_alongside(address, password, client_address)
-        existing.teardown_other()
         client(f"/interface/ethernet/{lan2['.id']}", "PATCH", {"disabled": lan2["disabled"]})
 
 
@@ -6127,6 +6132,10 @@ def add_alongside(opener, report, address, password, client_address, existing):
         assert [row["address"] for row in router(f"/ip/address?interface={SPARE}")] == ["10.5.20.1/24"]
         report.snapshot("add-alongside-server-network-reported-and-created-by-its-fix", address, password, opener,
                         missing_dhcp=no_dhcp, missing_address=no_address)
+        # While this server is still on the Router: removing it below leaves it Adopted, and the baseline that
+        # every create runs refuses an Adopted server that is missing. This also loads Router setup with three
+        # Adopted servers.
+        add_alongside_vlan(opener, report, address, password, client_address, existing)
     finally:
         report.capture_lab_failure()
         remove_alongside(address, password, client_address)
@@ -6283,7 +6292,6 @@ def onboarding(controller, args, data_dir, opener, report, address, password, cl
     drift(opener, report, address, password)
     # Before the step below, which needs no HotSpot server: Add alongside removes its server when done.
     add_alongside(opener, report, address, password, client_address, existing)
-    add_alongside_vlan(opener, report, address, password, client_address, existing)
 
     # Last: a re-created HotSpot server takes a while before a Device fetch through it works.
     def no_use_existing():

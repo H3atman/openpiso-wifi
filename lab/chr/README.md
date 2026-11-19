@@ -23,7 +23,7 @@ Answers L5-L8 in `docs/research/mikrotik-controller.md` §8. The controller is s
 
 ## VLAN auto-select lab (#41)
 
-`make -C controller e2e` owns the existing `chr-lab` and `chr-client` exclusively.
+`make -C controller e2e LAB=libvirt` (or `run.py --lab libvirt`) owns the existing `chr-lab` and `chr-client` exclusively. The default `make e2e` uses the Docker lab instead and does not touch them.
 It runs the prerequisite before application scenarios, using `vlan_lab.py`:
 
 - Router `ether2` is the existing NIC on `hotspot-lan` (`virbr-hs`). It carries
@@ -64,7 +64,7 @@ untagged MACVLAN for their Vendo rather than a made-up MAC/IP.
 For a focused run after building the Controller:
 
 ```sh
-python3 -I controller/e2e/run.py --binary controller/bin/openpiso --only pairing --report /tmp/openpiso-flash-pairing.json
+python3 -I controller/e2e/run.py --lab libvirt --binary controller/bin/openpiso --only pairing --report /tmp/openpiso-flash-pairing.json
 ```
 
 Client source-policy tables route VLAN Device HTTP through the appropriate

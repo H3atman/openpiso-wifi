@@ -1,0 +1,119 @@
+{
+  "format_version": 1,
+  "scenario": "vouchers-only",
+  "started_at": "2026-11-19T08:13:19.869460+00:00",
+  "git_commit": "8b009e8e67aa38becf384fc77b5aee0d7de9f32e",
+  "git_tree": "bb4ff2efa67e9f6612d3cbb3374b425247d5f169",
+  "git_dirty": true,
+  "binary_size_bytes": 23103576,
+  "binary_sha256": "fbff02a73023dbad86d3534637840caf877360c250e2d162e40932b4e5e905af",
+  "test_seam": "Controller binary via external HTTP against a Docker lab: stock CHR Router and Linux Devices",
+  "result": "pass",
+  "lab": {
+    "name": "opnwlab-05009b",
+    "chr_version": "7.23.8",
+    "chr_image": "/home/rgsv/.cache/openpiso/chr/chr-7.23.8.img",
+    "image": "opnwlab-image:00cb97e32920",
+    "router_rest_seconds": 20.1,
+    "stock_router": {
+      "version": "7.23.8 (long-term)",
+      "admin_password": "empty",
+      "hotspot_servers": 0
+    },
+    "run_seconds": 71.3,
+    "removed": true
+  },
+  "not_ported": {
+    "#32": [
+      "vlan-hosts-evidence"
+    ]
+  },
+  "voucher_print_sheet": {
+    "screenshots": [
+      "voucher-print-sheet/01-redeemed-reprint.png"
+    ],
+    "browser": {
+      "cards": 2,
+      "rendered_event": true,
+      "loads": [
+        "http://127.0.0.1:32940/admin/vouchers?batch=0cMO2rKWBCrwpKorqqB7FY2VXEugDJXNjQd6za95H_A"
+      ],
+      "browser": "chromium 156.0.8078.4",
+      "device_profile": "desktop",
+      "screenshots": [
+        "01-redeemed-reprint"
+      ],
+      "csp_violations": []
+    }
+  },
+  "voucher_template_editor": {
+    "screenshots": [
+      "voucher-template-editor/01-draft-preview.png",
+      "voucher-template-editor/02-published-throwing-script.png",
+      "voucher-template-editor/03-reset-default.png"
+    ],
+    "browser": {
+      "preview_cards": 6,
+      "preview_used": 1,
+      "throwing_custom_js": true,
+      "draft_isolated": true,
+      "reverted": true,
+      "reset": true,
+      "shop_marker": true,
+      "browser": "chromium 156.0.8078.4",
+      "device_profile": "desktop",
+      "screenshots": [
+        "01-draft-preview",
+        "02-published-throwing-script",
+        "03-reset-default"
+      ],
+      "csp_violations": []
+    }
+  },
+  "vouchers_mobile": {
+    "screenshots": [
+      "vouchers-mobile/01-mobile-batches.png",
+      "vouchers-mobile/02-mobile-search.png"
+    ],
+    "browser": {
+      "viewport": "390x844",
+      "touch": true,
+      "search_matches": 50,
+      "no_horizontal_overflow": true,
+      "labelled_price_seller": true,
+      "actions_min_height": 44,
+      "browser": "chromium 156.0.8078.4",
+      "device_profile": "Pixel 7",
+      "screenshots": [
+        "01-mobile-batches",
+        "02-mobile-search"
+      ],
+      "csp_violations": []
+    }
+  },
+  "cleanup": {
+    "result": "pass",
+    "failures": []
+  },
+  "finished_at": "2026-11-19T08:14:32.834276+00:00",
+  "steps": [
+    "boot-admin-password-persisted-and-rate-limited",
+    "authenticated-post-route-policy",
+    "non-v7-onboarding-refused-before-any-write",
+    "operator-compares-certificate",
+    "onboarded-with-special-character-admin-password",
+    "second-onboarding-is-idempotent",
+    "boot-reverified-with-bootstrap-admin-deleted",
+    "vouchers-tier-and-custom-zero-batches-csv-and-list",
+    "vouchers-tier-snapshot-redemption-and-router-limits",
+    "vouchers-print-sheet-rendered-and-used",
+    "vouchers-template-editor-publish-revert-reset",
+    "vouchers-code-formats-and-prefixed-different-case-redemption",
+    "vouchers-seller-sales-filter-and-csv",
+    "vouchers-code-search-redeemed-device-and-print-sheet",
+    "vouchers-search-cap-and-newest-batch-first",
+    "vouchers-delete-unused-and-append-only-audit",
+    "vouchers-delete-redeemed-direct-post-refused"
+  ],
+  "chr_client_cleanup_removed": 0
+}

@@ -281,6 +281,9 @@ func (s *Server) portalStateRead(response http.ResponseWriter, request *http.Req
 		s.renderPortal(response, request, nil, device, http.StatusOK, msgNotOnWiFi)
 		return
 	}
+	// The Portal reads its state on every load: a Device has arrived from this
+	// server (the checklist's last item). It never blocks the Portal's answer.
+	_ = s.ledger.RecordPortalArrival(device.HotspotServer)
 	state, tc, status := s.readPortalState(request, router, device)
 	// Refresh ownership after falling back from an expired cookie. The cookie is
 	// idempotent and touches neither ledger nor Router; a tapped-Paused visit never gets one.

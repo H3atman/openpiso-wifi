@@ -11,20 +11,26 @@ import (
 	"strings"
 )
 
-// Check is one requirement of the Router baseline. Verify only reads the
-// Router; Fix, when set, is a safe change that makes the check met. Server is
-// the HotSpot server the check is about, empty for a check on the whole Router.
+// Check is one requirement of the Router baseline and one item of the Router
+// setup checklist. Verify only reads the Router; Fix, when set, is a safe change
+// that makes the check met, and FixLabel names it on its button. Server is the
+// HotSpot server the check is about, empty for a check on the whole Router.
+// Title is the requirement as the Operator reads it.
 type Check struct {
-	Name   string
-	Server string
-	Verify func(context.Context) (Verdict, error)
-	Fix    func(context.Context) error
+	Name     string
+	Server   string
+	Title    string
+	FixLabel string
+	Verify   func(context.Context) (Verdict, error)
+	Fix      func(context.Context) error
 }
 
-// Verdict is a check's result. Reason says why a check is not met.
+// Verdict is a check's result. Reason says why a check is not met. Manual, when
+// set, is the steps the Operator takes by hand, because the Fix does not apply.
 type Verdict struct {
 	Met    bool
 	Reason string
+	Manual string
 }
 
 var met = Verdict{Met: true}
@@ -62,8 +68,30 @@ func (c *Client) EnsureBaseline(ctx context.Context, portalURL string, idleSecon
 	return nil
 }
 
+// Checklist is every check Router setup shows, in order: the Router's, then
+// each server's in adopted. Showing it only runs Verify; a Fix runs only when
+// the Operator asks. Unlike EnsureBaseline, it includes checks boot never
+// repairs, such as whether a server is enabled.
+func (c *Client) Checklist(ctx context.Context, portalURL string, idleSeconds int, adopted []string) ([]Check, error) {
+	checks, err := c.routerChecks(portalURL, idleSeconds)
+	if err != nil {
+		return nil, err
+	}
+	servers, err := c.ListHotspotServers(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list HotSpot servers: %w", err)
+	}
+	for _, name := range adopted {
+		checks = append(checks, c.serverEnabled(name))
+		if index := slices.IndexFunc(servers, func(server HotspotServer) bool { return server.Name == name }); index >= 0 {
+			checks = append(checks, c.serverChecks(name, servers[index].Profile, portalURL)...)
+		}
+	}
+	return checks, nil
+}
+
 // repair makes each check met in order: a check that is not met runs its fix,
-// and one without a fix fails with its reason.
+// and one without a fix that applies fails with its reason.
 func repair(ctx context.Context, checks []Check) error {
 	for _, check := range checks {
 		verdict, err := check.Verify(ctx)
@@ -73,7 +101,7 @@ func repair(ctx context.Context, checks []Check) error {
 		if verdict.Met {
 			continue
 		}
-		if check.Fix == nil {
+		if check.Fix == nil || verdict.Manual != "" {
 			return errors.New(verdict.Reason)
 		}
 		if err := check.Fix(ctx); err != nil {
@@ -107,7 +135,8 @@ func (c *Client) routerChecks(portalURL string, idleSeconds int) ([]Check, error
 
 	return []Check{
 		{
-			Name: "routeros-v7",
+			Name:  "routeros-v7",
+			Title: "The Router runs RouterOS v7 and the Controller's own user works",
 			Verify: func(ctx context.Context) (Verdict, error) {
 				version, err := c.Version(ctx)
 				if err != nil {
@@ -120,7 +149,9 @@ func (c *Client) routerChecks(portalURL string, idleSeconds int) ([]Check, error
 			},
 		},
 		{
-			Name: "base-profiles",
+			Name:     "base-profiles",
+			Title:    "The Controller's two base HotSpot profiles exist with the right settings",
+			FixLabel: "Create or correct the profiles",
 			Verify: func(ctx context.Context) (Verdict, error) {
 				for _, idle := range []bool{false, true} {
 					name := ProfileName("", idle)
@@ -136,7 +167,9 @@ func (c *Client) routerChecks(portalURL string, idleSeconds int) ([]Check, error
 			},
 		},
 		{
-			Name: "walled-garden",
+			Name:     "walled-garden",
+			Title:    "The walled garden lets unpaid Devices reach the Portal",
+			FixLabel: "Add the Controller's entry",
 			Verify: func(ctx context.Context) (Verdict, error) {
 				return c.verdict(ctx, "/ip/hotspot/walled-garden/ip?comment=openpiso-controller", "Controller walled garden entry", walledGarden())
 			},
@@ -171,18 +204,31 @@ func (c *Client) serverChecks(name, profile, portalURL string) []Check {
 
 	return []Check{
 		{
-			Name:   "login-method",
-			Server: name,
+			Name:     "login-method",
+			Server:   name,
+			Title:    "The login method is http-pap",
+			FixLabel: "Set http-pap",
 			Verify: func(ctx context.Context) (Verdict, error) {
-				return c.verdict(ctx, profileQuery, "HotSpot server profile "+profile, map[string]string{"login-by": "http-pap"})
+				profiles, err := c.list(ctx, profileQuery)
+				switch {
+				case err != nil:
+					return Verdict{}, err
+				case len(profiles) == 0:
+					return Verdict{Reason: "HotSpot server profile " + profile + " is missing"}, nil
+				case profiles[0]["login-by"] != "http-pap":
+					return Verdict{Reason: fmt.Sprintf("HotSpot server profile %s logs in by %s, not http-pap only", profile, profiles[0]["login-by"])}, nil
+				}
+				return met, nil
 			},
 			Fix: func(ctx context.Context) error {
 				return ensureProfile(ctx, map[string]string{"login-by": "http-pap"})
 			},
 		},
 		{
-			Name:   "login-page",
-			Server: name,
+			Name:     "login-page",
+			Server:   name,
+			Title:    "The login page is the Portal redirect",
+			FixLabel: "Write the login page",
 			Verify: func(ctx context.Context) (Verdict, error) {
 				verdict, err := c.verdict(ctx, profileQuery, "HotSpot server profile "+profile, map[string]string{"html-directory": directory})
 				if err != nil || !verdict.Met {
@@ -199,6 +245,55 @@ func (c *Client) serverChecks(name, profile, portalURL string) []Check {
 				}
 				return nil
 			},
+		},
+	}
+}
+
+// serverEnabled checks that HotSpot server name is enabled on an interface that
+// is up. Its fix enables the server; an interface that is down is manual, since
+// the interface is the Operator's own configuration.
+func (c *Client) serverEnabled(name string) Check {
+	query := "/ip/hotspot?name=" + url.QueryEscape(name)
+	return Check{
+		Name:     "server-enabled",
+		Server:   name,
+		Title:    "The server is enabled on an interface that is up",
+		FixLabel: "Enable the server",
+		Verify: func(ctx context.Context) (Verdict, error) {
+			servers, err := c.list(ctx, query)
+			if err != nil {
+				return Verdict{}, err
+			}
+			if len(servers) == 0 {
+				return Verdict{Reason: "HotSpot server " + name + " is missing on the Router",
+					Manual: "Create HotSpot server " + name + " on the Router again, or restore the Router backup."}, nil
+			}
+			if servers[0]["disabled"] == "true" {
+				return Verdict{Reason: "HotSpot server " + name + " is disabled"}, nil
+			}
+			iface := servers[0]["interface"]
+			interfaces, err := c.list(ctx, "/interface?name="+url.QueryEscape(iface))
+			if err != nil {
+				return Verdict{}, err
+			}
+			if len(interfaces) == 0 || interfaces[0]["running"] != "true" {
+				return Verdict{Reason: "Interface " + iface + " is down",
+					Manual: "On the Router, enable interface " + iface + " and check the cable or access point connected to it."}, nil
+			}
+			return met, nil
+		},
+		Fix: func(ctx context.Context) error {
+			servers, err := c.list(ctx, query)
+			if err != nil {
+				return err
+			}
+			if len(servers) == 0 {
+				return fmt.Errorf("HotSpot server %s is missing on the Router", name)
+			}
+			if err := c.updateChanged(ctx, "/ip/hotspot", servers[0], map[string]string{"disabled": "no"}); err != nil {
+				return fmt.Errorf("enable HotSpot server %s: %w", name, err)
+			}
+			return nil
 		},
 	}
 }

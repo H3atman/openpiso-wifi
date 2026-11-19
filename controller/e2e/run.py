@@ -5608,20 +5608,53 @@ def router_setup_finished(opener):
     return dashboard(opener)["router_setup_finished"], notice
 
 
+def checklist(page):
+    """The Router setup checklist on a page: {(server, check): {"met", "reason", "fix"}}, server "" for the Router.
+    fix is the label of the item's one-click fix, or None; manual is its manual steps, or None."""
+    items = {}
+    for match in re.finditer(r'<li class="check" data-check="([^"]+)" data-server="([^"]*)" data-met="(true|false)">(.*?)</li>', page, re.S):
+        name, server, met, body = match.groups()
+        reason = re.search(r'<span class="check-reason">(.*?)</span>', body, re.S)
+        fix = re.search(r'<form method="post" action="/admin/router/fix">.*?<button[^>]*>(.*?)</button>', body, re.S)
+        manual = re.search(r'<p class="check-manual">(.*?)</p>', body, re.S)
+        items[(server, name)] = {"met": met == "true", "reason": reason and html.unescape(reason.group(1)),
+                                 "fix": fix and html.unescape(fix.group(1)), "manual": manual and html.unescape(manual.group(1))}
+    return items
+
+
+def unmet(items):
+    """The (server, check) keys of the items that are not met."""
+    return sorted(key for key, item in items.items() if not item["met"])
+
+
 def use_existing(opener, report, address, password, existing, tree_before, other_before, users_before):
     """Router setup's Use existing: Adopt hs1 and leave the second server unticked."""
     server, other = _hotspot_module.SERVER, _hotspot_module.OTHER
+    user_profiles_before = router_rest(address, "admin", password, "/ip/hotspot/user/profile")
     page = request(opener, "/admin").read().decode()
     for name in (server, other):
         assert f'<input type="checkbox" name="server" value="{name}" checked>' in page, page
+    # Before anything is Adopted the checklist reads the Router alone: what someone else's HotSpot lacks.
+    router_items = checklist(page)
+    assert sorted(router_items) == [("", "base-profiles"), ("", "routeros-v7"), ("", "walled-garden")], router_items
+    assert unmet(router_items) == [("", "base-profiles"), ("", "walled-garden")], router_items
+    assert all(router_items[key]["reason"] and router_items[key]["fix"] for key in unmet(router_items)), router_items
     response = request(opener, "/admin/router/use-existing?" + urllib.parse.urlencode({"server": server}))
     review = response.read().decode()
     assert response.status == 200, review
     assert "login page" in review and "login method" in review and server in review and other not in review, review
     assert 'action="/admin/router/adopt"' in review
+    # The review reports the ticked server's items before Adopting fixes any; it offers no fix itself.
+    server_items = checklist(review)
+    assert sorted(server_items) == [(server, "device-seen"), (server, "login-method"), (server, "login-page"),
+                                    (server, "server-enabled")], server_items
+    assert unmet(server_items) == [(server, "device-seen"), (server, "login-method"), (server, "login-page")], server_items
+    assert "http-pap" in server_items[(server, "login-method")]["reason"], server_items
+    assert all(item["fix"] is None for item in server_items.values()), server_items
     for form, status in (({}, 400), ({"server": "opnw-missing"}, 400)):
         assert request(opener, "/admin/router/adopt", "POST", form).status == status, form
-    assert hotspot_tree(address, password) == tree_before, "reviewing or a refused Adopt changed the Router"
+    assert hotspot_tree(address, password) == tree_before, "the checklist, reviewing or a refused Adopt changed the Router"
+    assert router_rest(address, "admin", password, "/ip/hotspot/user/profile") == user_profiles_before, "the checklist wrote a profile"
     assert json.load(request(opener, "/admin/state"))["router"]["adopted_hotspot_servers"] == []
     report.snapshot("use-existing-lists-servers-ticked-and-names-both-changes", address, password, opener,
                     review_html=review)
@@ -5659,6 +5692,11 @@ def use_existing(opener, report, address, password, existing, tree_before, other
     assert controller_rules[0]["dst-address"] == urllib.parse.urlsplit(PORTAL_URL).hostname
     assert controller_rules[0]["dst-port"] == "18080"
     assert router_setup_finished(opener) == (True, False)
+    # After Adopting only item 9 is open: no Device has been sent to the Portal from hs1 yet.
+    items = checklist(page)
+    assert unmet(items) == [(server, "device-seen")], items
+    assert items[(server, "device-seen")]["fix"] is None and items[(server, "device-seen")]["reason"], items
+    assert not any(key[0] == other for key in items), items
     report.snapshot("use-existing-adopts-only-the-ticked-server", address, password, opener,
                     adopted=[server], unticked=other, server_profile=profile,
                     default_login_page_unchanged=True)
@@ -5676,15 +5714,47 @@ def without_hotspot_servers(address, password, check):
         router_rest(address, "admin", password, "/ip/hotspot", "PUT", kept)
 
 
+def drift(opener, report, address, password):
+    """Break checklist items by hand on the Router; the checklist reports each, and its fix clears it alone."""
+    server, profile_name = _hotspot_module.SERVER, _hotspot_module.SERVER_PROFILE
+    for form in ({"check": "login-method", "server": "opnw-missing"}, {"check": "no-such-check", "server": ""}):
+        assert request(opener, "/admin/router/fix", "POST", form).status == 400, form
+    for name, path, query, broken in (
+        ("login-method", "/ip/hotspot/profile", f"name={profile_name}", {"login-by": "cookie,http-pap"}),
+        ("server-enabled", "/ip/hotspot", f"name={server}", {"disabled": "yes"}),
+    ):
+        tree_before = hotspot_tree(address, password)
+        target = router_rest(address, "admin", password, f"{path}?{query}")[0]
+        router_rest(address, "admin", password, f"{path}/{target['.id']}", "PATCH", broken)
+        items = checklist(request(opener, "/admin").read().decode())
+        assert unmet(items) == [(server, name)], items
+        assert items[(server, name)]["reason"] and items[(server, name)]["fix"], items
+        response = request(opener, "/admin/router/fix", "POST", {"check": name, "server": server})
+        page = response.read().decode()
+        assert response.status == 200 and urllib.parse.urlsplit(response.url).path == "/admin", page
+        assert unmet(checklist(page)) == [], page
+        assert hotspot_tree(address, password) == tree_before, f"the {name} fix changed more than its item"
+        report.snapshot(f"drift-{name}-reported-and-cleared-by-its-fix", address, password, opener,
+                        broken=broken, reason=items[(server, name)]["reason"], fix=items[(server, name)]["fix"])
+
+
 def onboarding(controller, args, data_dir, opener, report, address, password, client_address, existing, other_before):
     """Use existing on someone else's HotSpot, after the shared onboarding Adopted hs1 (see use_existing)."""
     assert existing.other() == other_before, "Controller boot changed the server that was not ticked"
     report.snapshot("boot-leaves-the-unticked-server-unchanged", address, password, opener, unticked=existing.other())
     existing.teardown_other()
 
+    server = _hotspot_module.SERVER
+    assert unmet(checklist(request(opener, "/admin").read().decode())) == [(server, "device-seen")]
     redirect_page, _ = device_redirect(client_address, password)
     assert f"{PORTAL_URL}/portal" in redirect_page, redirect_page
     device_ip = router_rest(client_address, "admin", password, "/ip/address?interface=lan1", scheme="http")[0]["address"].split("/")[0]
+    # The Portal page reads its state on load, as a Device's browser does.
+    portal_state(pause_device_fetch(client_address, password, device_ip, "/portal/api/state"))
+    items = checklist(request(opener, "/admin").read().decode())
+    assert unmet(items) == [], items
+    report.snapshot("device-sent-to-the-portal-meets-the-last-item", address, password, opener,
+                    checklist={f"{key[0]}/{key[1]}": item["met"] for key, item in items.items()})
     response = generate_vouchers(opener, {"seconds": "600", "count": "2"})
     assert response.status == 200
     codes = voucher_codes(opener, response)
@@ -5723,6 +5793,8 @@ def onboarding(controller, args, data_dir, opener, report, address, password, cl
     assert PORTAL_URL.removeprefix("http://") + "/portal" not in internet
     report.snapshot("ledger-from-before-router-setup-starts-adopted-and-brings-a-device-online", address, password, opener,
                     adopted=state["router"]["adopted_hotspot_servers"], internet_target=target)
+
+    drift(opener, report, address, password)
 
     # Last: a re-created HotSpot server takes a while before a Device fetch through it works.
     def no_use_existing():

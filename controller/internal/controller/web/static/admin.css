@@ -600,6 +600,10 @@ a.badge { color: inherit; }
 .vendo-properties dd { min-width: 0; overflow-wrap: anywhere; }
 
 .field-error { color: var(--bad); font-size: .75rem; }
+.checklist { display: grid; gap: .625rem; margin: .5rem 0 1rem; padding: 0; list-style: none; }
+.check-reason, .check-manual { color: var(--muted-foreground); font-size: .8125rem; }
+.check-manual { margin: .25rem 0 0; }
+.check form { margin-top: .375rem; }
 .tiers { gap: .75rem; max-width: none; }
 /* Tiers: stacked cards on narrow surfaces; one row per tier under shared headings from 31rem (container query). */
 .tiers { container-type: inline-size; }

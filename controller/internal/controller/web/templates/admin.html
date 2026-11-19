@@ -1,4 +1,4 @@
-{{/* Router setup: connect a Router, then Use existing Adopts the ticked HotSpot servers. */}}
+{{/* Router setup: connect a Router, the checklist of the Router and each Adopted server, then Use existing Adopts the ticked HotSpot servers. */}}
 {{define "content"}}
 {{if .Connected}}
 <section class="card narrow">
@@ -10,6 +10,10 @@
   </div>
 </section>
 {{if not .Error}}
+<section class="card narrow">
+  <div class="card-head"><div><h3>Checklist</h3><p class="muted-fg">Each requirement, read from the Router just now. Reload the page to check again.</p></div></div>
+  <div class="card-body">{{template "checklist" .Checklist}}</div>
+</section>
 <section class="card narrow">
   <div class="card-head"><div><h3>Use existing</h3><p class="muted-fg">Adopt HotSpot servers already on the Router. The next page names what changes.</p></div></div>
   <div class="card-body">

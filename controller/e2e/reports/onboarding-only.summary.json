@@ -1,19 +1,19 @@
 {
   "format_version": 1,
   "scenario": "onboarding-only",
-  "started_at": "2026-11-19T03:32:05.027693+00:00",
-  "git_commit": "71fa905f1c91bf2c1ef1986d9c1dc28504f22d8e",
-  "git_tree": "ea26e9199bc5fada4be48e466bb0375169c57379",
+  "started_at": "2026-11-19T03:52:04.816840+00:00",
+  "git_commit": "1ba7df139b9619b93144fea045d1f1b444a4c7ed",
+  "git_tree": "2a57622fe71f891491feeee739b12510aed70f96",
   "git_dirty": true,
-  "binary_size_bytes": 23202191,
-  "binary_sha256": "4ff8694091878fcd996d49195fb0bf73a0d7acd9bca92824a3588863c52f2eed",
+  "binary_size_bytes": 23233582,
+  "binary_sha256": "8073024401cfc891c4ef25f362995e3be57b66aa12a0da7ee91dde1168bee9f5",
   "test_seam": "Controller binary via external HTTP against chr-lab and chr-client",
   "result": "pass",
   "cleanup": {
     "result": "pass",
     "failures": []
   },
-  "finished_at": "2026-11-19T03:33:37.909884+00:00",
+  "finished_at": "2026-11-19T03:53:45.021209+00:00",
   "steps": [
     "boot-admin-password-persisted-and-rate-limited",
     "authenticated-post-route-policy",
@@ -27,8 +27,11 @@
     "second-onboarding-is-idempotent",
     "boot-reverified-with-bootstrap-admin-deleted",
     "boot-leaves-the-unticked-server-unchanged",
+    "device-sent-to-the-portal-meets-the-last-item",
     "adopted-server-sends-a-device-online-with-a-voucher",
     "ledger-from-before-router-setup-starts-adopted-and-brings-a-device-online",
+    "drift-login-method-reported-and-cleared-by-its-fix",
+    "drift-server-enabled-reported-and-cleared-by-its-fix",
     "use-existing-hidden-without-a-hotspot-server"
   ],
   "chr_client_cleanup_removed": 3

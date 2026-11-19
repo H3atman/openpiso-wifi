@@ -52,6 +52,9 @@ REAL_INTERNET = "9.9.9.9"  # a public address the stand-in does not answer
 ROUTER_MEMORY = 320 << 20
 OTHER_MEMORY = 128 << 20
 BROWSER_MEMORY = 1 << 30
+# The ARMv7 guest's 256 MiB, TCG's 64 MiB translation cache and QEMU (about 400 MiB resident, measured),
+# plus room for the guest disk's page cache.
+ARM_MEMORY = 512 << 20
 DEVICE_MACS = {1: "02:00:00:00:0C:01", 2: "02:00:00:00:0C:02"}  # Device 1 is lab/chr/e2e_lab.py's DEVICE_MAC
 OWN_DEVICE_MAC = "02:00:00:00:0C:31"
 VLAN_DEVICE_MAC = "02:00:00:00:0C:11"
@@ -305,14 +308,15 @@ def sealed_from_internet(lab: Lab, device: str) -> dict:
 
 def memory_caps(lab: Lab) -> dict:
     """Every lab container has a hard memory cap (no swap beyond it): the Router 320 MB, browsers 1 GB,
-    the rest 128 MB."""
+    the ARMv7 guest 512 MB, the rest 128 MB."""
     return {container: memory_cap(container) for container in lab.containers()}
 
 
 def memory_cap(container: str) -> str:
     memory, swap = sh("docker", "inspect", "-f", "{{.HostConfig.Memory}} {{.HostConfig.MemorySwap}}",
                       container).split()
-    want = ROUTER_MEMORY if "-router-" in container else BROWSER_MEMORY if "-browser-" in container else OTHER_MEMORY
+    want = (ROUTER_MEMORY if "-router-" in container else BROWSER_MEMORY if "-browser-" in container
+            else ARM_MEMORY if container.endswith("-armv7") else OTHER_MEMORY)
     assert int(memory) == int(swap) == want, (container, memory, swap)
     return f"{want >> 20} MB"
 
@@ -358,6 +362,7 @@ class DockerLab:
         self.binary = binary.resolve()
         self.keep = keep
         self.lab = None
+        self.arm = None  # run.py's ArmContainer for --armv7: it takes the Controller's place on the WAN
         self._ip = {}  # Device container -> its leased address, while it is on the WiFi
         self._lan = {}  # Vendo board and VLAN Device container -> its leased address
         self._vendo_senders = {}  # Vendo ID -> the container it made first contact from

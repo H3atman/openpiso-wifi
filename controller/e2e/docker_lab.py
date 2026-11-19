@@ -179,6 +179,20 @@ def device_lease(device: str, interface: str = "eth0", hostname: str = "") -> st
     return re.search(r"inet (\S+)/", output).group(1)
 
 
+def lease_for(lab: Lab, container: str) -> tuple[str, str]:
+    """Drop Docker's IPv4 address in container's network namespace and take a DHCP lease from the Router;
+    returns (address, MAC). For images with no ip or DHCP client (Playwright): a lab-image helper sharing
+    the namespace (and so its resolv.conf) does both, then goes."""
+    helper = f"{lab.name}-lease-{container.rpartition('-')[2]}"
+    sh("docker", "run", "-d", "--name", helper, "--network", f"container:{container}", "--cap-add", "NET_ADMIN",
+       "--memory", "128m", "--memory-swap", "128m", lab.image, "sleep", "infinity")
+    try:
+        device_exec(helper, "ip -4 addr flush dev eth0; ip -4 route flush dev eth0")
+        return device_lease(helper), device_exec(helper, "cat /sys/class/net/eth0/address").strip().upper()
+    finally:
+        sh("docker", "rm", "-f", helper, check=False)
+
+
 def device_http(device: str, url: str, form=None, cookie: str = "", follow: bool = False,
                 max_time: int = 10) -> tuple[int, list[str], str]:
     """An HTTP request as the Device: status, the final reply's "Name: value" header lines, full body.
@@ -393,16 +407,26 @@ class DockerLab:
                 self.lab.down()
             report.data["lab"]["removed"] = not self.keep
 
+    def attach(self, lab: Lab) -> None:
+        """Use lab and its published Router ports (lab/dev/dev.py does this for its dev lab too)."""
+        self.lab = lab
+        self._router_http = lab.port("router", 8080)
+        self.router_address = lab.port("router", 8443)
+
     def _setup(self, report) -> None:
-        self._router_http = self.lab.port("router", 8080)
-        self.router_address = self.lab.port("router", 8443)
+        self.attach(self.lab)
         self.controller = f"{self.lab.name}-controller-1"
         self.run.BASE_URL = "http://" + self.lab.port("controller", 18080)
         self.run.PORTAL_URL = PORTAL_URL
         self.run.CONTROLLER_HOST = self
         self.run.SimulatedVendo = container_vendo(self.run.SimulatedVendo, self._vendo_senders)
         self.run._browser_module.LAN = self
+        report.data["lab"].update(self.set_up_router())
+        print("PASS router-is-stock-chr", flush=True)
 
+    def set_up_router(self) -> dict:
+        """Wait for the stock Router's REST, then take it to the HotSpot baseline; returns the stock
+        Router's evidence. Shared with lab/dev/dev.py's dev lab."""
         def stock(path, method="GET", body=None):
             return self.run.router_rest(self._router_http, "admin", "", path, method, body, scheme="http")
 
@@ -415,11 +439,10 @@ class DockerLab:
             except (OSError, urllib.error.URLError, json.JSONDecodeError):
                 assert time.monotonic() < deadline, "Router REST did not answer on the published port"
                 time.sleep(1)
-        report.data["lab"]["router_rest_seconds"] = round(time.monotonic() - started, 1)
+        evidence = {"router_rest_seconds": round(time.monotonic() - started, 1)}
         assert resource["version"].startswith(CHR_VERSION), resource
         assert stock("/ip/hotspot") == []
-        report.data["lab"]["stock_router"] = {"version": resource["version"], "admin_password": "empty", "hotspot_servers": 0}
-        print("PASS router-is-stock-chr", flush=True)
+        evidence["stock_router"] = {"version": resource["version"], "admin_password": "empty", "hotspot_servers": 0}
 
         try:
             stock("/user/set", "POST", {"numbers": "admin", "password": ROUTER_PASSWORD})
@@ -450,6 +473,7 @@ class DockerLab:
                                                 "login-by": "cookie,http-pap"})
             rest("/ip/hotspot", "PUT", {"name": name, "interface": interface, "address-pool": pool_name,
                                         "profile": profile, "disabled": "no"})
+        return evidence
 
     def start_controller(self, initialize: bool) -> ContainerProcess:
         """Start the Controller in its container (run.Controller calls this). Its data is the container's
@@ -900,16 +924,8 @@ class DockerLab:
             time.sleep(0.2)
         row = {"container": container, "phase": phase, "memory_cap": memory_cap(container)}
         if mac is not None:
-            helper = f"{self.lab.name}-lease-{container.rpartition('-')[2]}"
-            sh("docker", "run", "-d", "--name", helper, "--network", f"container:{container}", "--cap-add", "NET_ADMIN",
-               "--memory", "128m", "--memory-swap", "128m", self.lab.image, "sleep", "infinity")
-            try:
-                device_exec(helper, "ip -4 addr flush dev eth0; ip -4 route flush dev eth0")
-                row["ip"] = device_lease(helper)
-                row["mac"] = device_exec(helper, "cat /sys/class/net/eth0/address").strip().upper()
-                row["resolv_conf"] = sh("docker", "exec", container, "cat", "/etc/resolv.conf").strip()
-            finally:
-                sh("docker", "rm", "-f", helper, check=False)
+            row["ip"], row["mac"] = lease_for(self.lab, container)
+            row["resolv_conf"] = sh("docker", "exec", container, "cat", "/etc/resolv.conf").strip()
             leases = self._rest(f"/ip/dhcp-server/lease?mac-address={mac}")
             assert row["mac"] == mac.upper() and [lease["address"] for lease in leases] == [row["ip"]], (row, leases)
             row["router_lease"] = {key: leases[0].get(key) for key in ("address", "mac-address", "server", "status")}

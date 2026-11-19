@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Persistent local dev lab: a dev-build Controller on the shared chr-lab Router, with a
-browser standing in for the customer Device. See lab/dev/README.md.
+"""Persistent local dev lab: a dev-build Controller, with browsers standing in for customer Devices.
+It runs on the shared chr-lab Router, or with --lab docker on a long-lived Docker lab of its own.
+See lab/dev/README.md.
 
-Run: python3 -I lab/dev/dev.py {up,vendo,phone,shots,admin-shots,down}
+Run: python3 -I lab/dev/dev.py [--lab docker] {up,vendo,phone,shots,admin-shots,down}
 """
 
 import argparse
@@ -29,6 +30,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 RUN = ROOT / "lab/dev/.run"
+STATE = RUN  # the dev Vendo's state; --lab docker keeps its own (DOCKER_RUN)
 VIRSH = ["virsh", "-c", "qemu:///system"]
 
 CONTROLLER = "http://127.0.0.1"  # admin and Vendo traffic, from the host
@@ -68,6 +70,16 @@ e2e = load("controller/e2e/run.py", "e2e_run")  # router_rest, rcon, configure_r
 e2e.BASE_URL = CONTROLLER  # e2e.request and e2e.wait_for address the dev Controller
 SimulatedVendo = e2e.SimulatedVendo
 router_rest = e2e.router_rest
+docker_lab = e2e._docker_module
+
+# --lab docker: one long-lived lab of its own, the E2E lab's compose project (lab/docker) under a fixed
+# name plus lab/docker/dev.yml. E2E labs are opnwlab-<random>, so they run beside it.
+DOCKER_LAB = "opnwdev"
+ADMIN_PORT = 18088  # the admin panel's fixed local port
+DOCKER_RUN = RUN / "docker"  # dev binary and Vendo state; they go with the lab, the admin password stays
+DOCKER_CONTROLLER = f"{DOCKER_LAB}-controller-1"
+DOCKER_VENDO = f"{DOCKER_LAB}-vendo"  # the dev Vendo board, sending every Report from its own address
+VENDO_SENDERS = {}  # Vendo ID -> its board container (docker_lab.container_vendo)
 
 
 def say(message: str) -> None:
@@ -227,8 +239,9 @@ class Admin:
         return json.loads(self.request("/admin/state")[1])
 
 
-def onboard_router(admin: Admin, address: str, password: str) -> None:
-    """Pin the Router's current certificate, as the operator does on the Router page.
+def onboard_router(admin: Admin, address: str, password: str, url: str) -> None:
+    """Pin the Router's current certificate, as the operator does on the Router page. address is where
+    this script reaches the Router's REST; url is where the Controller does.
 
     An E2E run leaves openpiso-controller with its own secret, and re-onboarding never resets an
     existing user's password (routeros.Onboard), so drop the user and let the Controller recreate it."""
@@ -241,7 +254,7 @@ def onboard_router(admin: Admin, address: str, password: str) -> None:
     router_rest(address, "admin", password, "/user", "PUT", {
         "name": e2e.ROUTER_ADMIN, "group": "full", "password": e2e.ROUTER_ADMIN_PASSWORD})
     try:
-        admin.post("/admin/router/probe", {"address": f"https://{address}", "username": e2e.ROUTER_ADMIN,
+        admin.post("/admin/router/probe", {"address": url, "username": e2e.ROUTER_ADMIN,
                                            "password": e2e.ROUTER_ADMIN_PASSWORD})
         admin.post("/admin/router/confirm", {})
     finally:
@@ -251,7 +264,7 @@ def onboard_router(admin: Admin, address: str, password: str) -> None:
 def ensure_vendo(admin: Admin, address: str, password: str) -> dict:
     """Exactly one live dev Vendo; its id/secret/epoch live in .run/vendo.json. Pairing only provisions
     it (flash-time pairing): it stays provisioned or pending until adopt_vendo's first Report."""
-    path = RUN / "vendo.json"
+    path = STATE / "vendo.json"
     saved = json.loads(path.read_text()) if path.exists() else None
     live = [v for v in admin.state().get("vendos") or [] if v["status"] != "unpaired"]
     if saved and [v["id"] for v in live] == [saved["id"]]:
@@ -308,7 +321,7 @@ def adopt_vendo(admin: Admin, address: str, password: str) -> None:
              "--network", HS_NETWORK, "--ip", VENDO_IP, "--mac-address", VENDO_MAC,
              "--user", f"{os.getuid()}:{os.getgid()}",
              "-v", f"{ROOT / 'controller/e2e/simulated_vendo.py'}:/work/simulated_vendo.py:ro",
-             "-v", f"{RUN / 'vendo.json'}:/work/vendo.json:ro",
+             "-v", f"{STATE / 'vendo.json'}:/work/vendo.json:ro",
              PLAYWRIGHT_IMAGE, "python", "-I", "-c", FIRST_REPORT, PORTAL_URL],
             capture_output=True, text=True, timeout=90)
         if status() != "paired":
@@ -323,14 +336,17 @@ def write_private(path: Path, text: str) -> None:
         file.write(text)
 
 
-def build_controller() -> Path:
+def build_controller(binary: Path = RUN / "openpiso-dev") -> Path:
     go = shutil.which("go") or str(Path.home() / ".local/go/bin/go")
-    binary = RUN / "openpiso-dev"
     say("building the Controller (-tags dev)")
     result = subprocess.run([go, "build", "-tags", "dev", "-o", str(binary), "./cmd/openpiso"],
                             cwd=ROOT / "controller", env={**os.environ, "CGO_ENABLED": "0"})
     if result.returncode != 0:
         die("go build failed")
+    return binary
+
+
+def grant_port_80(binary: Path) -> None:
     # Port 80 needs cap_net_bind_service. An up-to-date build only touches the binary, so the
     # capability survives restarts; a real rebuild rewrites it and clears the capability.
     caps = subprocess.run(["getcap", str(binary)], capture_output=True, text=True).stdout
@@ -338,7 +354,6 @@ def build_controller() -> Path:
         say("granting the dev binary cap_net_bind_service with sudo (port 80 is below 1024)")
         if subprocess.run(["sudo", "setcap", "cap_net_bind_service=+ep", str(binary)]).returncode != 0:
             die("setcap failed: the Controller cannot bind port 80 without cap_net_bind_service")
-    return binary
 
 
 def cmd_up(_args) -> None:
@@ -357,6 +372,7 @@ def cmd_up(_args) -> None:
     ensure_dns(address, password)
     ensure_routing(address, password)
     binary = build_controller()
+    grant_port_80(binary)
 
     admin_file = RUN / "admin-password"
     fresh = not admin_file.exists()
@@ -384,7 +400,7 @@ def cmd_up(_args) -> None:
             # Every E2E run regenerates the Router certificate, so a stale pin here is expected.
             say(f"Router onboarding is {router.get('status') or 'missing'} ({router.get('error') or 'no error'}); "
                 f"pinning {address} (E2E runs regenerate the Router certificate)")
-            onboard_router(admin, address, password)
+            onboard_router(admin, address, password, f"https://{address}")
             router = admin.state().get("router") or {}
             if router.get("status") != "ready":
                 die(f"Router is not ready after onboarding: {router}")
@@ -420,10 +436,10 @@ Streaming the Controller log; Ctrl+C stops the Controller only.
 @contextmanager
 def vendo_boot():
     """Take the Vendo pidfile lock and bump the persisted epoch: each holder is one board boot."""
-    path = RUN / "vendo.json"
+    path = STATE / "vendo.json"
     if not path.exists():
         die("no dev Vendo yet: run `up` first")
-    lock = open(RUN / "vendo.pid", "a+")
+    lock = open(STATE / "vendo.pid", "a+")
     try:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
@@ -558,6 +574,21 @@ def ensure_hs_network() -> None:
                "-o", "parent=virbr-hs", HS_NETWORK)
 
 
+def record_shot(report: dict, name: str, mac: str, ip: str, started: float, profile_dir: Path, reason: str,
+                stdout: str, stderr: str) -> None:
+    """Add one profile's result.json (or the failure reason) to report and print its verdict."""
+    result = profile_dir / "result.json"
+    entry = json.loads(result.read_text()) if result.exists() else {
+        "result": "fail", "error": reason, "steps": [], "stderr": stderr[-2000:]}
+    report["profiles"].append({"profile": name, "device": PROFILES[name], "mac": mac, "ip": ip,
+                               "seconds": round(time.monotonic() - started, 1), **entry})
+    print(stdout, end="")
+    status = entry["result"]
+    say(f"{name}: {status}" + ("" if status == "pass" else f" ({entry.get('error')})"))
+    if status != "pass" and stderr.strip():
+        print(stderr[-1500:], file=sys.stderr)
+
+
 def cmd_shots(args) -> None:
     for name in args.profile:
         if name not in PROFILES:
@@ -586,7 +617,7 @@ def cmd_shots(args) -> None:
                 say(f"{name}: {PROFILES[name]} as {mac} {ip}")
                 # Each container is one board boot: a new epoch, so its totals start from 0 again.
                 state["epoch"] += 1
-                write_private(RUN / "vendo.json", json.dumps(state))
+                write_private(STATE / "vendo.json", json.dumps(state))
                 write_private(out / "vendo.json", json.dumps(state))
                 reserve_device(router, password, mac, ip)
                 started = time.monotonic()
@@ -610,16 +641,7 @@ def cmd_shots(args) -> None:
                     reason = "timed out after 300 s"
                 finally:
                     forget_device(router, password, mac, ip)
-                result = profile_dir / "result.json"
-                entry = json.loads(result.read_text()) if result.exists() else {
-                    "result": "fail", "error": reason, "steps": [], "stderr": stderr[-2000:]}
-                report["profiles"].append({"profile": name, "device": PROFILES[name], "mac": mac, "ip": ip,
-                                           "seconds": round(time.monotonic() - started, 1), **entry})
-                print(stdout, end="")
-                status = entry["result"]
-                say(f"{name}: {status}" + ("" if status == "pass" else f" ({entry.get('error')})"))
-                if status != "pass" and stderr.strip():
-                    print(stderr[-1500:], file=sys.stderr)
+                record_shot(report, name, mac, ip, started, profile_dir, reason, stdout, stderr)
         finally:
             (out / "vendo.json").unlink(missing_ok=True)  # holds the Vendo secret
             write_private(out / "report.json", json.dumps(report, indent=2))
@@ -685,8 +707,187 @@ def cmd_down(args) -> None:
     say("down: shots containers, macvlan network and routing fixture removed" + ("" if args.vm else "; chr-lab left running (down --vm shuts it down)"))
 
 
+class DevLab(docker_lab.Lab):
+    """The dev lab: the E2E lab's compose project under DOCKER_LAB, with dev.yml mounting the repository
+    at its real path (the dev build reads web/ from there) and publishing the admin on ADMIN_PORT."""
+
+    def __init__(self):
+        super().__init__(DOCKER_RUN / "openpiso-dev", docker_lab.router_image(), docker_lab.lab_image())
+        self.name = DOCKER_LAB
+        self.env.update(LAB=DOCKER_LAB, SOURCE=str(ROOT), ADMIN_PORT=str(ADMIN_PORT))
+
+    def compose(self, *args: str) -> str:
+        files = [arg for name in ("compose.yml", "dev.yml") for arg in ("-f", str(docker_lab.LAB_DIR / name))]
+        return docker_lab.sh("docker", "compose", *files, *args, env={**os.environ, **self.env})
+
+
+def running(container: str) -> bool:
+    return docker("inspect", "-f", "{{.State.Running}}", container, check=False).stdout.strip() == "true"
+
+
+def start_docker_controller(binary: Path, admin_password: str) -> None:
+    """(Re)start the dev Controller in its container, from the binary in the mounted repository. Its
+    data is the container's /data, so it survives restarts and goes with the lab. Its log is the
+    container's (docker logs)."""
+    docker("exec", DOCKER_CONTROLLER, "sh", "-c", "pid=$(cat /run/openpiso.pid 2>/dev/null) || exit 0; "
+           "kill $pid 2>/dev/null; while kill -0 $pid 2>/dev/null; do sleep 0.1; done")
+    script = (f'echo $$ > /run/openpiso.pid; exec {binary} -listen 0.0.0.0:18080 -data /data -portal-url "$1" '
+              '-admin-network "$(cat /run/admin-network)" >/proc/1/fd/1 2>&1')
+    docker("exec", "-d", "-e", f"OPENPISO_ADMIN_PASSWORD={admin_password}", DOCKER_CONTROLLER,
+           "sh", "-c", script, "sh", docker_lab.PORTAL_URL)
+    e2e.wait_for(CONTROLLER + "/healthz", timeout=30)
+    if docker("exec", DOCKER_CONTROLLER, "sh", "-c", "kill -0 $(cat /run/openpiso.pid)", check=False).returncode:
+        die(f"the Controller exited after starting: docker logs {DOCKER_CONTROLLER}")
+
+
+def docker_up(_args) -> None:
+    DOCKER_RUN.mkdir(mode=0o700, parents=True, exist_ok=True)
+    binary = build_controller(DOCKER_RUN / "openpiso-dev")
+    lab = DevLab()
+    router = docker_lab.DockerLab(e2e, binary, keep=True)
+    if not lab.containers():
+        try:
+            urllib.request.urlopen(CONTROLLER + "/healthz", timeout=1)
+            die(f"something already answers on 127.0.0.1:{ADMIN_PORT}; stop it first")
+        except OSError:
+            pass
+        (STATE / "vendo.json").unlink(missing_ok=True)  # paired with an earlier lab's Controller
+        say(f"creating the dev lab {DOCKER_LAB} (stock CHR {docker_lab.CHR_VERSION})")
+        lab.up()
+        router.attach(lab)
+        router.set_up_router()
+        router.new_router_certificate()
+    elif not all(running(f"{DOCKER_LAB}-{service}-1") for service in ("router", "controller", "internet")):
+        die(f"the dev lab {DOCKER_LAB} is not fully running (after a reboot?): run `down`, then `up`")
+    else:
+        router.attach(lab)
+        say(f"dev lab {DOCKER_LAB} is up; restarting its Controller")
+
+    admin_file = RUN / "admin-password"
+    if not admin_file.exists():
+        write_private(admin_file, secrets.token_urlsafe(12))
+    admin_password = admin_file.read_text().strip()
+    start_docker_controller(binary, admin_password)
+    admin = Admin(admin_password)
+    if (admin.state().get("router") or {}).get("status") != "ready":
+        say("onboarding the Router")
+        onboard_router(admin, router.router_address, docker_lab.ROUTER_PASSWORD, router.router_url)
+        if (status := admin.state().get("router") or {}).get("status") != "ready":
+            die(f"Router is not ready after onboarding: {status}")
+    VENDO_SENDERS[ensure_vendo(admin, router.router_address, docker_lab.ROUTER_PASSWORD)["id"]] = DOCKER_VENDO
+    docker_adopt_vendo(admin, lab)
+    if not admin.state().get("rate_tiers"):
+        admin.post("/admin/rates", {"tiers": RATES})
+        say(f"seeded Coin rates: {RATES.replace(chr(10), ', ')}")
+    print(f"""
+Dev lab {DOCKER_LAB} is up; it stays up until `down`.
+  Admin:     {CONTROLLER}/admin/login  (password in {admin_file})
+  Portal:    {docker_lab.PORTAL_URL}/portal  (only reachable by Devices behind the HotSpot)
+  Log:       docker logs -f {DOCKER_CONTROLLER}
+  Next:      python3 -I lab/dev/dev.py --lab docker vendo   # coin slot for the dev Vendo
+             python3 -I lab/dev/dev.py --lab docker shots   # scripted phones, screenshots
+             python3 -I lab/dev/dev.py --lab docker down    # remove the lab and its data
+Template/CSS/JS edits show on refresh. After Go changes run `up` again (it rebuilds; data is kept).
+""", flush=True)
+
+
+def docker_adopt_vendo(admin: Admin, lab: DevLab) -> None:
+    """Finish the dev Vendo's pairing: its board is a container on the HotSpot LAN with its own MAC, lease
+    and opnw-XXXX hostname, and sends its first Report (and every later one) from there."""
+    with vendo_boot() as state:
+        status = lambda: next(v["status"] for v in admin.state()["vendos"] if v["id"] == state["id"])
+        if status() == "paired":
+            return
+        if DOCKER_VENDO not in lab.containers():
+            lab.device("vendo", VENDO_MAC)
+            docker_lab.device_lease(DOCKER_VENDO, hostname=docker_lab.vendo_hostname(VENDO_MAC))
+        say(f"pairing dev Vendo {state['id']}: first Report from {DOCKER_VENDO}")
+        board = SimulatedVendo(CONTROLLER, state["id"], bytes.fromhex(state["secret"]), state["epoch"])
+        deadline = time.monotonic() + 40
+        while status() != "paired":  # pairing resets the first connection, so Report until it shows
+            if time.monotonic() > deadline:
+                die(f"dev Vendo {state['id']} is {status()} after 40 s of Reports")
+            try:
+                board.post(board.frame())
+            except OSError:
+                pass
+            time.sleep(1)
+        say(f"paired dev Vendo {state['id']}")
+
+
+def docker_shots(args) -> None:
+    for name in args.profile:
+        if name not in PROFILES:
+            die(f"unknown profile {name}; known: {', '.join(PROFILES)}")
+    if not running(DOCKER_CONTROLLER):
+        die(f"no dev lab {DOCKER_LAB}: run `--lab docker up` first")
+    lab = DevLab()
+    router = docker_lab.DockerLab(e2e, DOCKER_RUN / "openpiso-dev", keep=True)
+    router.attach(lab)
+    address, password = router.router_address, docker_lab.ROUTER_PASSWORD
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    out = RUN / "shots" / stamp
+    report = {"started": stamp, "profiles": []}
+    ensure_image()
+    with vendo_boot() as state:
+        release_windows(state)
+        try:
+            for name in args.profile:
+                mac = "02:de:" + ":".join(f"{b:02x}" for b in secrets.token_bytes(4))
+                container, ip = f"{DOCKER_LAB}-shots-{name}", ""
+                profile_dir = out / name
+                profile_dir.mkdir(parents=True)
+                state["epoch"] += 1  # each phone's in-process Vendo is one board boot
+                write_private(STATE / "vendo.json", json.dumps(state))
+                write_private(out / "vendo.json", json.dumps(state))
+                started = time.monotonic()
+                stdout = stderr = ""
+                try:
+                    # Started idle, so it can take its lease from the Router before the journey begins.
+                    docker("run", "-d", "--init", "--ipc=host", "--name", container, "--network", f"name={DOCKER_LAB}-lan",
+                           "--mac-address", mac, *docker_lab.DockerLab.browser_limits,
+                           "--user", f"{os.getuid()}:{os.getgid()}", "-e", "HOME=/tmp",
+                           "-v", f"{ROOT / 'lab/dev/shots.py'}:/work/shots.py:ro",
+                           "-v", f"{ROOT / 'controller/e2e/simulated_vendo.py'}:/work/simulated_vendo.py:ro",
+                           "-v", f"{out / 'vendo.json'}:/work/vendo.json:ro",
+                           "-v", f"{profile_dir}:/out", PLAYWRIGHT_IMAGE, "sleep", "infinity")
+                    ip = docker_lab.lease_for(lab, container)[0]
+                    say(f"{name}: {PROFILES[name]} as {mac} {ip}")
+                    run = subprocess.run(
+                        ["docker", "exec", container, "python", "/work/shots.py", "--device", PROFILES[name],
+                         "--controller", docker_lab.PORTAL_URL, "--vendo", "/work/vendo.json", "--out", "/out",
+                         "--start", "http://google.com/", "--online-text", docker_lab.INTERNET_BODY],
+                        capture_output=True, text=True, timeout=300)
+                    stdout, stderr = run.stdout, run.stderr
+                    reason = "flow did not finish"
+                except subprocess.TimeoutExpired:
+                    reason = "timed out after 300 s"
+                finally:
+                    docker("rm", "-f", container, check=False)
+                    if ip:
+                        forget_device(address, password, mac, ip)
+                record_shot(report, name, mac, ip, started, profile_dir, reason, stdout, stderr)
+        finally:
+            (out / "vendo.json").unlink(missing_ok=True)  # holds the Vendo secret
+            write_private(out / "report.json", json.dumps(report, indent=2))
+    if any(p["result"] != "pass" for p in report["profiles"]):
+        sys.exit(1)
+
+
+def docker_down(_args) -> None:
+    DevLab().down()
+    (STATE / "vendo.json").unlink(missing_ok=True)
+    say(f"down: dev lab {DOCKER_LAB} removed")
+
+
+DOCKER_COMMANDS = {"up": docker_up, "vendo": cmd_vendo, "shots": docker_shots, "admin-shots": cmd_admin_shots,
+                   "down": docker_down}  # `phone` is #37
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--lab", choices=("libvirt", "docker"), default="libvirt",
+                        help="libvirt: the shared chr-lab (default). docker: a long-lived Docker lab of its own")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("up", help="start the dev Controller and make the lab healthy").set_defaults(run=cmd_up)
     commands.add_parser("vendo", help="interactive coin slot for the dev Vendo").set_defaults(run=cmd_vendo)
@@ -702,6 +903,16 @@ def main() -> None:
     down.set_defaults(run=cmd_down)
     args = parser.parse_args()
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
+    if args.lab == "docker":
+        global STATE, CONTROLLER, SimulatedVendo
+        STATE, CONTROLLER = DOCKER_RUN, f"http://127.0.0.1:{ADMIN_PORT}"
+        e2e.BASE_URL = CONTROLLER
+        SimulatedVendo = docker_lab.container_vendo(e2e.SimulatedVendo, VENDO_SENDERS)
+        if (STATE / "vendo.json").exists():
+            VENDO_SENDERS[json.loads((STATE / "vendo.json").read_text())["id"]] = DOCKER_VENDO
+        if args.command not in DOCKER_COMMANDS:
+            die(f"`{args.command}` is not on the Docker dev lab yet (#37)")
+        args.run = DOCKER_COMMANDS[args.command]
     args.run(args)
 
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""No-CHR command checks: python3 -I controller/e2e/safety_checks.py [case]."""
+"""No-CHR command checks of the libvirt lab entry: python3 -I controller/e2e/safety_checks.py [case]."""
 
 import fcntl
 import os
@@ -31,7 +31,7 @@ class SafetyChecks(unittest.TestCase):
         path.write_text(f'#!/bin/sh\necho "$*" >> "{self.calls}"\n{body}\n')
         path.chmod(0o755)
 
-    def entry(self, command=("make", "-C", str(ROOT / "controller"), "e2e")):
+    def entry(self, command=("make", "-C", str(ROOT / "controller"), "e2e", "LAB=libvirt")):
         result = subprocess.run(command, env=self.env, capture_output=True, text=True, timeout=10)
         self.assertNotEqual(result.returncode, 0, "refusal must fail")
         return result.stdout + result.stderr
@@ -46,7 +46,7 @@ class SafetyChecks(unittest.TestCase):
             lock.write(f"pid {os.getpid()} (safety_checks.py)\n")
             lock.flush()
             # Same entry as `make e2e`, with a short queue so the wait gives up.
-            output = self.entry((sys.executable, "-I", str(ROOT / "controller/e2e/run.py"), "--build",
+            output = self.entry((sys.executable, "-I", str(ROOT / "controller/e2e/run.py"), "--build", "--lab", "libvirt",
                                  "--binary", str(ROOT / "controller/bin/openpiso"), "--lock-timeout", "1"))
             self.assertIn(f"CHR lab is locked by pid {os.getpid()} (safety_checks.py); waiting up to 1s", output)
             self.assertIn(f"CHR lab is locked by pid {os.getpid()} (safety_checks.py); gave up after 1s", output)
@@ -100,7 +100,7 @@ esac''')
   "-c qemu:///system net-list --name") echo openpiso-dev-routing ;;
   *) echo "UNEXPECTED LAB ACCESS" >&2; exit 90 ;;
 esac''')
-        result = subprocess.run([sys.executable, "-I", str(checkout / "controller/e2e/run.py"),
+        result = subprocess.run([sys.executable, "-I", str(checkout / "controller/e2e/run.py"), "--lab", "libvirt",
                                  "--binary", str(checkout / "controller/bin/openpiso")],
                                 env=self.env, capture_output=True, text=True, timeout=10)
         output = result.stdout + result.stderr

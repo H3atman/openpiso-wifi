@@ -15,9 +15,12 @@ build:
 check:
 	CGO_ENABLED=0 $(GO) vet ./...
 
-# Exclusive use of chr-lab and chr-client; see README.md before running.
+# Lab for `e2e`: docker (a throwaway lab per run) or libvirt (exclusive chr-lab and chr-client,
+# goes away with #39); see README.md before running.
+LAB ?= docker
+
 e2e:
-	python3 -I e2e/run.py --build --binary "$(CURDIR)/bin/openpiso"
+	python3 -I e2e/run.py --build --lab $(LAB) --binary "$(CURDIR)/bin/openpiso"
 
 armv7:
 	CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 $(GO) build -ldflags "$(LDFLAGS)" -o $(OUT)/openpiso-linux-armv7 ./cmd/openpiso
@@ -30,11 +33,11 @@ amd64:
 
 cross: armv7 arm64 amd64
 
-# Same scenario body as native; requires exclusive CHR lab access.
+# Same scenario body as native; libvirt lab only (exclusive CHR lab access) until #38.
 e2e-armv7:
-	python3 -I e2e/run.py --build --armv7 --binary "$(CURDIR)/bin/openpiso-linux-armv7" --report "$(CURDIR)/e2e/reports/armv7.json"
+	python3 -I e2e/run.py --build --lab libvirt --armv7 --binary "$(CURDIR)/bin/openpiso-linux-armv7" --report "$(CURDIR)/e2e/reports/armv7.json"
 
 # ARMv7 guest only, no CHR: install v0.1.0, update, roll back and refuse; see e2e/update_vm.py.
 # Builds its own throwaway-key releases with $(GO).
 e2e-armv7-update:
-	GO="$(GO)" python3 -I e2e/run.py --armv7 --only update
+	GO="$(GO)" python3 -I e2e/run.py --lab libvirt --armv7 --only update

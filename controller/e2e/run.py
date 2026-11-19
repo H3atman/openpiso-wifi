@@ -5492,11 +5492,11 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--only", choices=ONLY_SCENARIOS,
                         help="run onboarding, then one scenario: " + "; ".join(f"{name}: {what}" for name, what in ONLY_SCENARIOS.items()))
-    parser.add_argument("--lab", choices=LABS, default="libvirt",
-                        help="which lab runs the Router, Devices and Vendos (default libvirt). docker: a throwaway "
-                             "Docker lab per run (stock CHR, Controller, Devices), no lab lock")
-    parser.add_argument("--keep", action="store_true", help="with --lab docker: leave the lab running and print how to reach and remove it")
-    parser.add_argument("--build", action="store_true", help="build the Controller while holding the lab lock")
+    parser.add_argument("--lab", choices=LABS, default="docker",
+                        help="which lab runs the Router, Devices and Vendos (default docker: a throwaway Docker lab "
+                             "per run, no lab lock). libvirt: the shared chr-lab and chr-client VMs, one run at a time")
+    parser.add_argument("--keep", action="store_true", help="Docker lab only: leave the lab running and print how to reach and remove it")
+    parser.add_argument("--build", action="store_true", help="build the Controller first (on libvirt, while holding the lab lock)")
     parser.add_argument("--binary", help="Controller binary under test; --only update builds its own")
     parser.add_argument("--report", type=Path)
     parser.add_argument("--write-vlan-hosts", action="store_true", help="refresh the committed VLAN auto-select research hosts.json")
@@ -5515,12 +5515,12 @@ def main() -> None:
     if args.binary is None and args.only != "update":
         parser.error("--binary is required")
     if args.keep and args.lab != "docker":
-        parser.error("--keep needs --lab docker")
+        parser.error("--keep works on the Docker lab only")
     if args.lab == "docker":
         if args.armv7:
-            parser.error("--armv7 runs on the libvirt lab only")
+            parser.error("--armv7 runs on the libvirt lab only: add --lab libvirt")
         if args.write_vlan_hosts:
-            parser.error("--write-vlan-hosts refreshes research recorded on the libvirt lab only")
+            parser.error("--write-vlan-hosts refreshes research recorded on the libvirt lab only: add --lab libvirt")
         run(args)  # each Docker lab is its own; the shared CHR lab's lock does not apply
         return
     with _safety_module.lab_lock(args.lock_timeout):

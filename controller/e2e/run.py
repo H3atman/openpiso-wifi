@@ -5647,8 +5647,9 @@ def use_existing(opener, report, address, password, existing, tree_before, other
     # The review reports the ticked server's items before Adopting fixes any; it offers no fix itself.
     server_items = checklist(review)
     assert sorted(server_items) == [(server, "device-seen"), (server, "login-method"), (server, "login-page"),
-                                    (server, "server-enabled")], server_items
-    assert unmet(server_items) == [(server, "device-seen"), (server, "login-method"), (server, "login-page")], server_items
+                                    (server, "portal-reachable"), (server, "server-enabled")], server_items
+    assert unmet(server_items) == [(server, "device-seen"), (server, "login-method"), (server, "login-page"),
+                                   (server, "portal-reachable")], server_items
     assert "http-pap" in server_items[(server, "login-method")]["reason"], server_items
     assert all(item["fix"] is None for item in server_items.values()), server_items
     for form, status in (({}, 400), ({"server": "opnw-missing"}, 400)):
@@ -5692,9 +5693,9 @@ def use_existing(opener, report, address, password, existing, tree_before, other
     assert controller_rules[0]["dst-address"] == urllib.parse.urlsplit(PORTAL_URL).hostname
     assert controller_rules[0]["dst-port"] == "18080"
     assert router_setup_finished(opener) == (True, False)
-    # After Adopting only item 9 is open: no Device has been sent to the Portal from hs1 yet.
+    # After Adopting items 8 and 9 are open: Adopting adds no NAT rule, and no Device has been sent to the Portal yet.
     items = checklist(page)
-    assert unmet(items) == [(server, "device-seen")], items
+    assert unmet(items) == [(server, "device-seen"), (server, "portal-reachable")], items
     assert items[(server, "device-seen")]["fix"] is None and items[(server, "device-seen")]["reason"], items
     assert not any(key[0] == other for key in items), items
     report.snapshot("use-existing-adopts-only-the-ticked-server", address, password, opener,
@@ -5738,6 +5739,93 @@ def drift(opener, report, address, password):
                         broken=broken, reason=items[(server, name)]["reason"], fix=items[(server, name)]["fix"])
 
 
+def portal_reachability(opener, report, address, password, client_address, device_ip):
+    """Item 8: a masquerade that source-NATs hs1's Devices on the way to the Portal is reported, its fix adds one
+    Controller rule above it and leaves the other NAT rules as they were, and a lost return route is manual.
+    The masquerade stays, so a Device that gets online afterwards does so through the Controller's rule."""
+    server = _hotspot_module.SERVER
+    def rest(path, method="GET", body=None):
+        return router_rest(address, "admin", password, path, method, body)
+    def owned(row):  # the walled garden's dynamic rules carry its comment openpiso-controller
+        return row.get("comment", "").startswith("openpiso-controller-") and row.get("dynamic") != "true"
+    def others():  # every other static NAT rule (dynamic ones are the HotSpot's), without its traffic counters
+        return [{key: value for key, value in row.items() if key not in ("bytes", "packets")}
+                for row in rest("/ip/firewall/nat") if not owned(row) and row.get("dynamic") != "true"]
+    def takes_effect(comment):
+        # RouterOS applies a NAT change to new connections only seconds later, so wait until the Device's
+        # fetch of a static Portal file (no side effects) is counted by the rule with comment.
+        rule = f"/ip/firewall/nat/{rest('/ip/firewall/nat?comment=' + comment)[0]['.id']}"
+        deadline = time.monotonic() + 30
+        while True:
+            packets = rest(rule)["packets"]
+            pause_device_fetch(client_address, password, device_ip, "/portal/ready.js")
+            if rest(rule)["packets"] != packets:
+                return
+            assert time.monotonic() < deadline, f"NAT rule {comment} never took effect"
+            time.sleep(2)
+    # The harness's own exemption would hide the masquerade; the Controller's fix takes its place.
+    for row in rest("/ip/firewall/nat?comment=openpiso-e2e-routing") + rest("/ip/firewall/nat?comment=openpiso-e2e-masquerade"):
+        rest(f"/ip/firewall/nat/{row['.id']}", "DELETE")
+    # Like the masquerade the HotSpot setup wizard adds for the server's network, first so that no exemption
+    # already on the Router (such as lab/dev's) hides it.
+    first = next(row for row in rest("/ip/firewall/nat") if row.get("dynamic") != "true")
+    rest("/ip/firewall/nat", "PUT", {"chain": "srcnat", "action": "masquerade", "src-address": "10.5.50.0/24",
+                                     "comment": "openpiso-e2e-masquerade", "place-before": first[".id"]})
+    # Until it applies, RouterOS reads the new rule as invalid; compare the rules from then on.
+    takes_effect("openpiso-e2e-masquerade")
+    nat_before = others()
+    items = checklist(request(opener, "/admin").read().decode())
+    assert unmet(items) == [(server, "device-seen"), (server, "portal-reachable")], items
+    broken = items[(server, "portal-reachable")]
+    assert broken["reason"] and broken["fix"] and broken["manual"] is None, broken
+    # The masquerade really rewrites the Device's address: the Portal cannot find it and refuses a good Voucher.
+    response = generate_vouchers(opener, {"seconds": "600", "count": "1"})
+    assert response.status == 200
+    device_redeem_refused(client_address, password, device_ip, voucher_codes(opener, response)[0], 403)
+    response = request(opener, "/admin/router/fix", "POST", {"check": "portal-reachable", "server": server})
+    page = response.read().decode()
+    assert response.status == 200 and urllib.parse.urlsplit(response.url).path == "/admin", page
+    assert unmet(checklist(page)) == [(server, "device-seen")], page
+    assert (nat_after := others()) == nat_before, ("the fix changed a NAT rule it does not own", nat_before, nat_after)
+    rules = rest("/ip/firewall/nat")
+    exemptions = [row for row in rules if owned(row)]
+    assert len(exemptions) == 1, exemptions
+    exemption = exemptions[0]
+    assert (exemption["chain"], exemption["action"], exemption["src-address"], exemption["dst-address"]) == (
+        "srcnat", "accept", "10.5.50.0/24", urllib.parse.urlsplit(PORTAL_URL).hostname), exemption
+    srcnat = [row for row in rules if row["chain"] == "srcnat" and row.get("dynamic") != "true"]
+    assert srcnat[0][".id"] == exemption[".id"], srcnat
+    takes_effect(exemption["comment"])
+    report.snapshot("masquerade-reported-and-exempted-by-one-controller-rule", address, password, opener,
+                    reason=broken["reason"], fix=broken["fix"], exemption=exemption)
+
+    # Without the routing NIC the Controller's replies to 10.5.50.1 have no way back: manual, no fix.
+    nic = rest("/interface/ethernet?mac-address=52:54:00:07:07:07")[0]
+    rest(f"/interface/ethernet/{nic['.id']}", "PATCH", {"disabled": "yes"})
+    try:
+        # The checklist's pings reuse one ICMP id, so they would keep riding a connection masqueraded before the
+        # exemption applied, with replies to the Router's management address. Drop those connections.
+        for connection in rest("/ip/firewall/connection?protocol=icmp"):
+            if connection.get("dst-address", "").split(":")[0] == urllib.parse.urlsplit(PORTAL_URL).hostname:
+                rest(f"/ip/firewall/connection/{connection['.id']}", "DELETE")
+        deadline = time.monotonic() + 20  # the disabled NIC can take a few seconds to stop receiving
+        while unmet(items := checklist(request(opener, "/admin").read().decode())) != [(server, "device-seen"), (server, "portal-reachable")]:
+            assert time.monotonic() < deadline, items
+            time.sleep(2)
+        unroutable = items[(server, "portal-reachable")]
+        assert unroutable["reason"] and unroutable["manual"] and unroutable["fix"] is None, unroutable
+        assert request(opener, "/admin/router/fix", "POST", {"check": "portal-reachable", "server": server}).status == 400
+    finally:
+        rest(f"/interface/ethernet/{nic['.id']}", "PATCH", {"disabled": "no"})
+    assert others() == nat_before
+    deadline = time.monotonic() + 30
+    while unmet(items := checklist(request(opener, "/admin").read().decode())) != [(server, "device-seen")]:
+        assert time.monotonic() < deadline, items
+        time.sleep(2)
+    report.snapshot("missing-return-route-reported-with-manual-steps", address, password, opener,
+                    reason=unroutable["reason"], manual=unroutable["manual"])
+
+
 def onboarding(controller, args, data_dir, opener, report, address, password, client_address, existing, other_before):
     """Use existing on someone else's HotSpot, after the shared onboarding Adopted hs1 (see use_existing)."""
     assert existing.other() == other_before, "Controller boot changed the server that was not ticked"
@@ -5745,10 +5833,11 @@ def onboarding(controller, args, data_dir, opener, report, address, password, cl
     existing.teardown_other()
 
     server = _hotspot_module.SERVER
-    assert unmet(checklist(request(opener, "/admin").read().decode())) == [(server, "device-seen")]
     redirect_page, _ = device_redirect(client_address, password)
     assert f"{PORTAL_URL}/portal" in redirect_page, redirect_page
     device_ip = router_rest(client_address, "admin", password, "/ip/address?interface=lan1", scheme="http")[0]["address"].split("/")[0]
+    # Item 8 first: the Device below gets online only through the Controller's NAT exemption.
+    portal_reachability(opener, report, address, password, client_address, device_ip)
     # The Portal page reads its state on load, as a Device's browser does.
     portal_state(pause_device_fetch(client_address, password, device_ip, "/portal/api/state"))
     items = checklist(request(opener, "/admin").read().decode())
@@ -6183,6 +6272,7 @@ def scenario(args, report: Report, lab: dict[str, str]) -> None:
             ("bootstrap admin", lambda: cleanup_router(lab["CHR_PASSWORD"])),
             ("fixture Router address", lambda: rcon(lab["CHR_PASSWORD"], '/ip address remove [find where comment="openpiso-e2e-routing"]')),
             ("fixture source NAT", lambda: rcon(lab["CHR_PASSWORD"], '/ip firewall nat remove [find where comment="openpiso-e2e-routing"]')),
+            ("fixture masquerade", lambda: rcon(lab["CHR_PASSWORD"], '/ip firewall nat remove [find where comment="openpiso-e2e-masquerade"]')),
             ("fixture Router NIC", detach_device_routing),
             ("fixture network", destroy_device_network),
         ])

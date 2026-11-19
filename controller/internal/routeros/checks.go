@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"html"
 	"net"
+	"net/http"
 	"net/url"
 	"slices"
 	"strings"
@@ -81,10 +82,12 @@ func (c *Client) Checklist(ctx context.Context, portalURL string, idleSeconds in
 	if err != nil {
 		return nil, fmt.Errorf("list HotSpot servers: %w", err)
 	}
+	portal, _ := url.Parse(portalURL) // routerChecks has validated it
 	for _, name := range adopted {
 		checks = append(checks, c.serverEnabled(name))
 		if index := slices.IndexFunc(servers, func(server HotspotServer) bool { return server.Name == name }); index >= 0 {
 			checks = append(checks, c.serverChecks(name, servers[index].Profile, portalURL)...)
+			checks = append(checks, c.portalReachable(servers[index], portal.Hostname()))
 		}
 	}
 	return checks, nil
@@ -292,6 +295,117 @@ func (c *Client) serverEnabled(name string) Check {
 			}
 			if err := c.updateChanged(ctx, "/ip/hotspot", servers[0], map[string]string{"disabled": "no"}); err != nil {
 				return fmt.Errorf("enable HotSpot server %s: %w", name, err)
+			}
+			return nil
+		},
+	}
+}
+
+// portalReachable checks that Devices on server reach the Portal at host with
+// their own address, which the Portal needs to find them in the HotSpot host
+// table. Router-originated packets pass source NAT too, so a ping alone cannot
+// tell: the Controller's NAT exemption for the server's network must come before
+// every other source NAT rule, and then a ping from the server's own address
+// proves the Controller has a route back. The fix adds or moves the exemption
+// and never edits the Operator's rules; a missing route back is manual. Not
+// repaired at boot, since it can be manual.
+func (c *Client) portalReachable(server HotspotServer, host string) Check {
+	name, comment := server.Name, "openpiso-controller-"+server.Name
+	// serverNetwork is the server interface's address and its network, or a nil network when it has none.
+	serverNetwork := func(ctx context.Context) (string, *net.IPNet, error) {
+		addresses, err := c.list(ctx, "/ip/address?interface="+url.QueryEscape(server.Interface))
+		if err != nil {
+			return "", nil, err
+		}
+		for _, address := range addresses {
+			if address["disabled"] != "true" {
+				ip, network, err := net.ParseCIDR(address["address"])
+				if err != nil {
+					return "", nil, fmt.Errorf("read the address of interface %s: %w", server.Interface, err)
+				}
+				return ip.String(), network, nil
+			}
+		}
+		return "", nil, nil
+	}
+	exemption := func(network *net.IPNet) map[string]string {
+		return map[string]string{"chain": "srcnat", "action": "accept", "src-address": network.String(), "dst-address": host, "disabled": "no"}
+	}
+	// exemptionAt is the exemption's index in the source NAT rules, -1 when
+	// missing, and the index of the first enabled rule of the Operator's above it, or -1.
+	exemptionAt := func(rules []map[string]string) (int, int) {
+		index := slices.IndexFunc(rules, func(rule map[string]string) bool { return rule["comment"] == comment })
+		if index < 0 {
+			return -1, -1
+		}
+		return index, slices.IndexFunc(rules[:index], func(rule map[string]string) bool {
+			return rule["dynamic"] != "true" && rule["disabled"] != "true" && !strings.HasPrefix(rule["comment"], "openpiso-controller-")
+		})
+	}
+	const rules = "/ip/firewall/nat?chain=srcnat"
+	return Check{
+		Name:     "portal-reachable",
+		Server:   name,
+		Title:    "Devices on this server can reach the Portal without source NAT",
+		FixLabel: "Add the Controller's NAT exemption",
+		Verify: func(ctx context.Context) (Verdict, error) {
+			ip, network, err := serverNetwork(ctx)
+			if err != nil {
+				return Verdict{}, err
+			}
+			if network == nil {
+				return Verdict{Reason: "Interface " + server.Interface + " has no IP address",
+					Manual: "Give interface " + server.Interface + " an IP address on the Router, then check again."}, nil
+			}
+			current, err := c.list(ctx, rules)
+			if err != nil {
+				return Verdict{}, err
+			}
+			switch index, above := exemptionAt(current); {
+			case index < 0:
+				return Verdict{Reason: "Nothing keeps a source NAT rule from rewriting the address of Devices on " + name + " on the way to the Portal"}, nil
+			case len(changedFields(current[index], exemption(network))) > 0:
+				return Verdict{Reason: "The Controller's NAT exemption for " + name + " has been changed"}, nil
+			case above >= 0:
+				return Verdict{Reason: fmt.Sprintf("A source NAT %s rule comes before the Controller's NAT exemption for %s and can rewrite Devices' addresses", current[above]["action"], name)}, nil
+			}
+			var replies []map[string]string
+			if err := c.request(ctx, http.MethodPost, "/ping", map[string]string{"address": host, "src-address": ip, "count": "2"}, &replies); err != nil {
+				return Verdict{}, err
+			}
+			if !slices.ContainsFunc(replies, func(reply map[string]string) bool { return reply["status"] == "" && reply["time"] != "" }) {
+				return Verdict{Reason: fmt.Sprintf("The Controller at %s does not answer the Router from %s's address %s", host, name, ip),
+					Manual: fmt.Sprintf("Give the Controller a route back to %s through the Router, on the Controller itself or on the router it uses as its gateway, then check again.", network)}, nil
+			}
+			return met, nil
+		},
+		Fix: func(ctx context.Context) error {
+			_, network, err := serverNetwork(ctx)
+			if err != nil {
+				return err
+			}
+			if network == nil {
+				return fmt.Errorf("interface %s has no IP address", server.Interface)
+			}
+			if err := c.ensureByComment(ctx, "/ip/firewall/nat", comment, exemption(network)); err != nil {
+				return fmt.Errorf("ensure the NAT exemption for %s: %w", name, err)
+			}
+			current, err := c.list(ctx, rules)
+			if err != nil {
+				return err
+			}
+			index, above := exemptionAt(current)
+			if index < 0 {
+				return fmt.Errorf("the NAT exemption for %s is missing after adding it", name)
+			}
+			if above < 0 {
+				return nil
+			}
+			// Moving the Controller's own rule leaves the Operator's rules and their order as they are.
+			if err := c.request(ctx, http.MethodPost, "/ip/firewall/nat/move", map[string]string{
+				"numbers": current[index][".id"], "destination": current[above][".id"],
+			}, nil); err != nil {
+				return fmt.Errorf("move the NAT exemption for %s above the Operator's rules: %w", name, err)
 			}
 			return nil
 		},

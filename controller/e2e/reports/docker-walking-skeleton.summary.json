@@ -1,20 +1,20 @@
 {
   "format_version": 1,
   "scenario": "6-skeleton-7-vouchers-8-pause-9-top-up-10-rebind-11-reconciler-13-admin-dashboard-15-vendo-16-coin-window-41-vlan-auto-select-61-default-portal-62-custom-portal",
-  "started_at": "2026-11-19T10:54:35.222276+00:00",
-  "git_commit": "ff9d6a64d2407fe52fe6952b7f6a95d50edcd267",
-  "git_tree": "e91f1ad726d9cc44031c9503097bc93aad9ca04d",
-  "git_dirty": true,
-  "binary_size_bytes": 23103568,
-  "binary_sha256": "6a1cb83b7f4c4a2ded841339d31498c9aabf2d09da557f07a901a86c49cfe0a6",
+  "started_at": "2026-11-19T14:58:53.341931+00:00",
+  "git_commit": "6514daedfb6c30b212454058d729141d309dcf92",
+  "git_tree": "ea234886616f91d196a7325284c2073f532a90cf",
+  "git_dirty": false,
+  "binary_size_bytes": 23103576,
+  "binary_sha256": "ce047d665e6e620fc8648590b280d905a57f339938dff53ab58e88655059df63",
   "test_seam": "Controller binary via external HTTP against a Docker lab: stock CHR Router and Linux Devices",
   "result": "pass",
   "lab": {
-    "name": "opnwlab-d09dcb",
+    "name": "opnwlab-34cf7e",
     "chr_version": "7.23.8",
     "chr_image": "/home/rgsv/.cache/openpiso/chr/chr-7.23.8.img",
-    "image": "opnwlab-image:00cb97e32920",
-    "router_rest_seconds": 19.8,
+    "image": "opnwlab-image:5e04c5edc5a0",
+    "router_rest_seconds": 20.0,
     "stock_router": {
       "version": "7.23.8 (long-term)",
       "admin_password": "empty",
@@ -22,7 +22,7 @@
     },
     "vlan_leases": [
       {
-        "container": "opnwlab-d09dcb-vlan10-device",
+        "container": "opnwlab-34cf7e-vlan10-device",
         "vlan": 10,
         "mac-address": "02:00:00:00:0C:10",
         "address": "10.5.10.200",
@@ -30,7 +30,7 @@
         "status": "bound"
       },
       {
-        "container": "opnwlab-d09dcb-vlan20-device",
+        "container": "opnwlab-34cf7e-vlan20-device",
         "vlan": 20,
         "mac-address": "02:00:00:00:0C:20",
         "address": "10.5.20.200",
@@ -38,7 +38,7 @@
         "status": "bound"
       },
       {
-        "container": "opnwlab-d09dcb-vlan10-device",
+        "container": "opnwlab-34cf7e-vlan10-device",
         "vlan": 10,
         "mac-address": "02:00:00:00:0C:10",
         "address": "10.5.10.200",
@@ -46,7 +46,7 @@
         "status": "bound"
       },
       {
-        "container": "opnwlab-d09dcb-vlan20-device",
+        "container": "opnwlab-34cf7e-vlan20-device",
         "vlan": 20,
         "mac-address": "02:00:00:00:0C:20",
         "address": "10.5.20.200",
@@ -54,7 +54,7 @@
         "status": "bound"
       },
       {
-        "container": "opnwlab-d09dcb-board1",
+        "container": "opnwlab-34cf7e-board1",
         "vlan": 10,
         "mac-address": "02:00:00:41:00:01",
         "address": "10.5.10.199",
@@ -62,7 +62,7 @@
         "status": "bound"
       },
       {
-        "container": "opnwlab-d09dcb-board2",
+        "container": "opnwlab-34cf7e-board2",
         "vlan": 10,
         "mac-address": "02:00:00:41:00:02",
         "address": "10.5.10.198",
@@ -70,7 +70,7 @@
         "status": "bound"
       },
       {
-        "container": "opnwlab-d09dcb-vlan10-device",
+        "container": "opnwlab-34cf7e-vlan10-device",
         "vlan": 10,
         "mac-address": "02:00:00:00:0C:10",
         "address": "10.5.10.200",
@@ -78,7 +78,7 @@
         "status": "bound"
       },
       {
-        "container": "opnwlab-d09dcb-vlan20-device",
+        "container": "opnwlab-34cf7e-vlan20-device",
         "vlan": 20,
         "mac-address": "02:00:00:00:0C:20",
         "address": "10.5.20.200",
@@ -86,7 +86,7 @@
         "status": "bound"
       },
       {
-        "container": "opnwlab-d09dcb-board1",
+        "container": "opnwlab-34cf7e-board1",
         "vlan": 10,
         "mac-address": "02:00:00:41:00:01",
         "address": "10.5.10.199",
@@ -94,7 +94,7 @@
         "status": "bound"
       },
       {
-        "container": "opnwlab-d09dcb-board2",
+        "container": "opnwlab-34cf7e-board2",
         "vlan": 20,
         "mac-address": "02:00:00:41:00:02",
         "address": "10.5.20.199",
@@ -102,7 +102,7 @@
         "status": "bound"
       },
       {
-        "container": "opnwlab-d09dcb-board3",
+        "container": "opnwlab-34cf7e-board3",
         "vlan": 10,
         "mac-address": "02:00:00:41:00:03",
         "address": "10.5.10.198",
@@ -110,7 +110,7 @@
         "status": "bound"
       },
       {
-        "container": "opnwlab-d09dcb-vlan10-device",
+        "container": "opnwlab-34cf7e-vlan10-device",
         "vlan": 10,
         "mac-address": "02:00:00:00:0C:10",
         "address": "10.5.10.200",
@@ -121,7 +121,7 @@
     "vendo_reports": [
       {
         "vendo_id": 1,
-        "container": "opnwlab-d09dcb-device1",
+        "container": "opnwlab-34cf7e-device1",
         "ip": "10.5.50.200",
         "source_address": [
           "10.5.50.200"
@@ -131,7 +131,7 @@
       },
       {
         "vendo_id": 3,
-        "container": "opnwlab-d09dcb-coin-board",
+        "container": "opnwlab-34cf7e-coin-board",
         "ip": "10.5.50.198",
         "source_address": [
           "10.5.50.198"
@@ -141,7 +141,7 @@
       },
       {
         "vendo_id": 4,
-        "container": "opnwlab-d09dcb-coin-board",
+        "container": "opnwlab-34cf7e-coin-board",
         "ip": "10.5.50.198",
         "source_address": [
           "10.5.50.198"
@@ -151,7 +151,7 @@
       },
       {
         "vendo_id": 5,
-        "container": "opnwlab-d09dcb-coin-board",
+        "container": "opnwlab-34cf7e-coin-board",
         "ip": "10.5.50.198",
         "source_address": [
           "10.5.50.198"
@@ -161,7 +161,7 @@
       },
       {
         "vendo_id": 6,
-        "container": "opnwlab-d09dcb-coin-board",
+        "container": "opnwlab-34cf7e-coin-board",
         "ip": "10.5.50.198",
         "source_address": [
           "10.5.50.198"
@@ -171,7 +171,7 @@
       },
       {
         "vendo_id": 7,
-        "container": "opnwlab-d09dcb-coin-board",
+        "container": "opnwlab-34cf7e-coin-board",
         "ip": "10.5.50.198",
         "source_address": [
           "10.5.50.198"
@@ -181,7 +181,7 @@
       },
       {
         "vendo_id": 8,
-        "container": "opnwlab-d09dcb-board2",
+        "container": "opnwlab-34cf7e-board2",
         "ip": "10.5.10.198",
         "source_address": [
           "10.5.10.198"
@@ -191,7 +191,7 @@
       },
       {
         "vendo_id": 8,
-        "container": "opnwlab-d09dcb-board1",
+        "container": "opnwlab-34cf7e-board1",
         "ip": "10.5.10.199",
         "source_address": [
           "10.5.10.199"
@@ -201,7 +201,7 @@
       },
       {
         "vendo_id": 4294967295,
-        "container": "opnwlab-d09dcb-board1",
+        "container": "opnwlab-34cf7e-board1",
         "ip": "10.5.10.199",
         "source_address": [
           "10.5.10.199"
@@ -211,7 +211,7 @@
       },
       {
         "vendo_id": 8,
-        "container": "opnwlab-d09dcb-board1",
+        "container": "opnwlab-34cf7e-board1",
         "ip": "10.5.10.199",
         "source_address": [
           "10.5.10.199"
@@ -221,7 +221,7 @@
       },
       {
         "vendo_id": 10,
-        "container": "opnwlab-d09dcb-board1",
+        "container": "opnwlab-34cf7e-board1",
         "ip": "10.5.10.199",
         "source_address": [
           "10.5.10.199"
@@ -231,7 +231,7 @@
       },
       {
         "vendo_id": 11,
-        "container": "opnwlab-d09dcb-board2",
+        "container": "opnwlab-34cf7e-board2",
         "ip": "10.5.20.199",
         "source_address": [
           "10.5.20.199"
@@ -241,7 +241,7 @@
       },
       {
         "vendo_id": 12,
-        "container": "opnwlab-d09dcb-board3",
+        "container": "opnwlab-34cf7e-board3",
         "ip": "10.5.10.198",
         "source_address": [
           "10.5.10.198"
@@ -252,7 +252,7 @@
     ],
     "browsers": [
       {
-        "container": "opnwlab-d09dcb-browser-a",
+        "container": "opnwlab-34cf7e-browser-a",
         "phase": "first",
         "memory_cap": "1024 MB",
         "ip": "10.5.50.171",
@@ -266,7 +266,7 @@
         }
       },
       {
-        "container": "opnwlab-d09dcb-browser-b",
+        "container": "opnwlab-34cf7e-browser-b",
         "phase": "rebind",
         "memory_cap": "1024 MB",
         "ip": "10.5.50.172",
@@ -280,7 +280,7 @@
         }
       },
       {
-        "container": "opnwlab-d09dcb-browser-a",
+        "container": "opnwlab-34cf7e-browser-a",
         "phase": "out",
         "memory_cap": "1024 MB",
         "ip": "10.5.50.171",
@@ -294,7 +294,7 @@
         }
       },
       {
-        "container": "opnwlab-d09dcb-browser-c",
+        "container": "opnwlab-34cf7e-browser-c",
         "phase": "custom",
         "memory_cap": "1024 MB",
         "ip": "10.5.50.173",
@@ -308,17 +308,17 @@
         }
       },
       {
-        "container": "opnwlab-d09dcb-browser-admin",
+        "container": "opnwlab-34cf7e-browser-admin",
         "phase": "preview",
         "memory_cap": "1024 MB"
       },
       {
-        "container": "opnwlab-d09dcb-browser-admin",
+        "container": "opnwlab-34cf7e-browser-admin",
         "phase": "upload",
         "memory_cap": "1024 MB"
       },
       {
-        "container": "opnwlab-d09dcb-browser-d",
+        "container": "opnwlab-34cf7e-browser-d",
         "phase": "branded",
         "memory_cap": "1024 MB",
         "ip": "10.5.50.174",
@@ -332,17 +332,17 @@
         }
       },
       {
-        "container": "opnwlab-d09dcb-browser-admin",
+        "container": "opnwlab-34cf7e-browser-admin",
         "phase": "sales",
         "memory_cap": "1024 MB"
       },
       {
-        "container": "opnwlab-d09dcb-browser-admin",
+        "container": "opnwlab-34cf7e-browser-admin",
         "phase": "signin",
         "memory_cap": "1024 MB"
       }
     ],
-    "run_seconds": 1286.4,
+    "run_seconds": 1275.4,
     "removed": true
   },
   "browser_portal": {
@@ -527,7 +527,7 @@
     "result": "pass",
     "failures": []
   },
-  "finished_at": "2026-11-19T11:16:05.035668+00:00",
+  "finished_at": "2026-11-19T15:20:10.605289+00:00",
   "steps": [
     "boot-admin-password-persisted-and-rate-limited",
     "authenticated-post-route-policy",
@@ -618,6 +618,5 @@
     "containers-have-memory-caps",
     "vlan-hotspot-server-logs-device-in",
     "changed-certificate-refused"
-  ],
-  "chr_client_cleanup_removed": 0
+  ]
 }

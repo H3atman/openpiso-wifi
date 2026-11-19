@@ -831,10 +831,13 @@ class DockerLab:
         return {"mac": mac, "ip": self._lan[board]}
 
     def _vlan_lease(self, container: str, mac: str, vlan: int) -> None:
-        """Assert the container's lease came from its VLAN's own DHCP server and record it as evidence."""
-        rows = self._rest(f"/ip/dhcp-server/lease?mac-address={mac}")
+        """Assert the container's lease came from its VLAN's own DHCP server and record it as evidence.
+        A MAC can hold a lease on each server (an earlier scenario used it on another VLAN), so the row
+        is the one for the address the container leased."""
+        rows = [row for row in self._rest(f"/ip/dhcp-server/lease?mac-address={mac}")
+                if row["address"] == self._lan[container]]
         lease = {key: rows[0].get(key) for key in ("mac-address", "address", "server", "status")} if rows else {}
-        assert (lease.get("server"), lease.get("address")) == (f"opnw-vlan{vlan}", self._lan[container]), (container, rows)
+        assert len(rows) == 1 and lease["server"] == f"opnw-vlan{vlan}", (container, rows)
         self._report.data["lab"].setdefault("vlan_leases", []).append({"container": container, "vlan": vlan, **lease})
 
     def coin_board(self) -> dict:

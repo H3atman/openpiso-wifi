@@ -59,10 +59,6 @@ VLAN_DEVICE_MACS = {10: "02:00:00:00:0C:10", 20: "02:00:00:00:0C:20"}  # vlan_up
 SIGNALS = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
 
 
-def not_ported(ticket: int):
-    raise AssertionError(f"not ported to the Docker lab yet (#{ticket})")
-
-
 def sh(*command: str, check: bool = True, env=None) -> str:
     result = subprocess.run(command, capture_output=True, text=True, env=env)
     if check and result.returncode != 0:
@@ -339,7 +335,7 @@ class DockerLab:
     """The lab interface (see LibvirtLab) on a Docker lab. run is the loaded run.py module; `running`
     sets its BASE_URL, PORTAL_URL and CONTROLLER_HOST for the lab's published ports and Controller."""
 
-    not_ported = frozenset({32, 33})  # tickets whose scenarios run.py skips here
+    not_ported = frozenset({33})  # tickets whose scenarios run.py skips here
     router_url = f"https://{ROUTER_WAN}"
     router_password = ROUTER_PASSWORD
     browser_limits = ["--memory", f"{BROWSER_MEMORY >> 20}m", "--memory-swap", f"{BROWSER_MEMORY >> 20}m"]
@@ -837,7 +833,19 @@ class DockerLab:
             interface = f"eth0.{vlan}"
             device_exec(board, f"ip link add link eth0 name {interface} type vlan id {vlan} && ip link set {interface} up")
         self._lan[board] = device_lease(board, interface, hostname)
+        if vlan:
+            self._vlan_lease(board, mac, vlan)
         return {"mac": mac, "ip": self._lan[board]}
+
+    def _vlan_lease(self, container: str, mac: str, vlan: int) -> None:
+        """Assert the container's lease came from its VLAN's own DHCP server and record it as evidence.
+        A MAC can hold a lease on each server (an earlier scenario used it on another VLAN), so the row
+        is the one for the address the container leased."""
+        rows = [row for row in self._rest(f"/ip/dhcp-server/lease?mac-address={mac}")
+                if row["address"] == self._lan[container]]
+        lease = {key: rows[0].get(key) for key in ("mac-address", "address", "server", "status")} if rows else {}
+        assert len(rows) == 1 and lease["server"] == f"opnw-vlan{vlan}", (container, rows)
+        self._report.data["lab"].setdefault("vlan_leases", []).append({"container": container, "vlan": vlan, **lease})
 
     def coin_board(self) -> dict:
         """The coin board beside Device 1 on the HotSpot LAN, hostname opnw-0c04; returns {"mac", "ip"}.
@@ -925,24 +933,36 @@ class DockerLab:
         return evidence
 
     def vlan_devices(self) -> dict[int, str]:
-        not_ported(32)
+        """Each VLAN Device's IP: {vlan: Device IP}. Each container already routes out its own VLAN
+        interface, so unlike libvirt there is no routing to set up."""
+        return {vlan: self._lan[f"{self.lab.name}-vlan{vlan}-device"] for vlan in VLAN_DEVICE_MACS}
 
     def vlan_board(self, vlan: int, number: int, hostname=None) -> dict:
         """Vendo board number (1-3) on this VLAN, sending hostname over DHCP when given; returns {"mac", "ip"}."""
         return self._board(f"board{number}", self.run._lab_module.BOARD_MACS[number - 1], vlan, hostname or "")
 
     def vlan_leave(self, vlan: int) -> None:
-        not_ported(32)
+        """This VLAN's Device leaves the WiFi: its VLAN interface goes down. Undo with vlan_rejoin."""
+        device_exec(f"{self.lab.name}-vlan{vlan}-device", f"ip link set eth0.{vlan} down")
 
     def vlan_rejoin(self, vlan: int) -> None:
-        not_ported(32)
+        """The VLAN Device's interface comes back up and leases again (down dropped its routes)."""
+        device = f"{self.lab.name}-vlan{vlan}-device"
+        device_exec(device, f"ip link set eth0.{vlan} up; ip -4 addr flush dev eth0.{vlan}")
+        self._lan[device] = device_lease(device, f"eth0.{vlan}")
+        self._vlan_lease(device, VLAN_DEVICE_MACS[vlan], vlan)
 
     def vlan_down(self) -> None:
-        """Remove the VLAN Devices and boards; the VLAN HotSpots stay, they are part of the lab."""
+        """Remove the VLAN Devices and boards and their VLAN leases, as libvirt's teardown does; the VLAN
+        HotSpots stay, they are part of the lab. A board MAC left leased on one VLAN would stop it
+        pairing on the other (the Controller refuses a MAC with two leases)."""
         names = [f"{self.lab.name}-{suffix}" for suffix in
                  (*(f"vlan{vlan}-device" for vlan in VLAN_DEVICE_MACS), "board1", "board2", "board3")]
         if gone := [name for name in names if name in self.lab.containers()]:
             sh("docker", "rm", "-f", "-v", *gone)
+        for vlan in VLAN_DEVICE_MACS:
+            for lease in self._rest(f"/ip/dhcp-server/lease?server=opnw-vlan{vlan}"):
+                self._rest(f"/ip/dhcp-server/lease/{lease['.id']}", "DELETE")
         for name in names:
             self._lan.pop(name, None)
         for vendo_id, board in list(self._vendo_senders.items()):

@@ -3199,16 +3199,15 @@ def vendo_list_deactivate(opener, report, address, password, lab):
             coin_window_wait(opener, window_id, lambda w: w["status"] == "settled")
             assert str(window_id) in coin_sales()
 
-        def refused(vlan, status):
-            """Insert Coin is refused with this HTTP status and reserves nothing.
-            The Device's /tool/fetch reports only the status: 503 is the
-            out-of-service refusal, 400 is "No Vendo serves this network"."""
+        def refused(vlan, status, refusal):
+            """Insert Coin is refused with this HTTP status and Portal message code, and reserves nothing."""
             before = windows()
             try:
                 pause_device_fetch(lab, ips[vlan], "/portal/api/coins/open", {})
             except urllib.error.HTTPError as error:
                 detail = json.load(error).get("detail", "")
                 assert str(status) in detail, detail
+                assert_refused(error, refusal)
             else:
                 raise AssertionError(f"Insert Coin on VLAN {vlan} was accepted")
             assert windows() == before, "a refused Insert Coin reserved a Vendo"
@@ -3242,7 +3241,7 @@ def vendo_list_deactivate(opener, report, address, password, lab):
         assert 'data-vendo-action="power"' in row and re.search(r'\bReactivate</button>', row), row
         assert stored(first)["status"] == "paired" and stored(first)["active"] is False
         for vlan in (10, 20):
-            refused(vlan, 503)
+            refused(vlan, 503, "vendo-out-of-service")
         # Its reports are still accepted, and the Status stays Deactivated while it is Online.
         assert first.heartbeat()[0] == 200
         row = vendo_row(request(opener, "/admin/vendos").read().decode(), first.id)
@@ -3265,7 +3264,7 @@ def vendo_list_deactivate(opener, report, address, password, lab):
         second = SimulatedVendo(BASE_URL, second_board["id"], bytes.fromhex(second_board["secret"]), timeout=HTTP_TIMEOUT)
         assert second.heartbeat()[0] == 200
         set_active(first, False, htmx=False)
-        refused(10, 503)
+        refused(10, 503, "vendo-out-of-service")
         state = portal_state(pause_device_fetch(lab, ips[20], "/portal/api/state"))
         assert vendo_ids(state) == [second.id], state
         buy(20, second)
@@ -3468,7 +3467,8 @@ def vendo_list_points_tab(opener, report, address, password, lab):
                 pause_device_fetch(lab, ips[vlan], "/portal/api/points/redeem", form)
             except urllib.error.HTTPError as error:
                 detail = json.load(error).get("detail", "")
-                assert "400" in detail, detail  # /tool/fetch reports only the status: points-row-unknown
+                assert "400" in detail, detail
+                assert_refused(error, "points-row-unknown")
                 after = portal(vlan)["time_credit"]
                 kept = ("bought", "points_milli", "pause_limit", "pauses_left", "valid_until")
                 assert {k: after[k] for k in kept} == {k: before[k] for k in kept}, (before, after)
@@ -4298,7 +4298,8 @@ def vendo_list_points_redeem(opener, report, address, password, lab, device_ip):
             fetch("/portal/api/points/redeem", {"points_milli": points_milli, "seconds": seconds})
         except urllib.error.HTTPError as error:
             detail = json.load(error).get("detail", "")
-            assert "409" in detail, detail  # /tool/fetch reports only the status
+            assert "409" in detail, detail
+            assert_refused(error, "points-too-low")
             return detail
         raise AssertionError("a redemption above the balance was accepted")
 

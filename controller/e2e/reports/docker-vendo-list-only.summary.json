@@ -1,20 +1,20 @@
 {
   "format_version": 1,
   "scenario": "vendo-list-only",
-  "started_at": "2026-11-19T09:52:42.450499+00:00",
-  "git_commit": "c3a22f8384d4c54afea26faa512753fff59a556c",
-  "git_tree": "fb69d5271ea4ec612410e2bcdf0915277ee640d8",
+  "started_at": "2026-11-19T19:17:17.804538+00:00",
+  "git_commit": "2f5fc18a545c82db1b1407d548d92a269a147c60",
+  "git_tree": "e5fa7a2aeeff3fd3c9ba3c8067a7b714f61bd0e3",
   "git_dirty": true,
-  "binary_size_bytes": 23103576,
-  "binary_sha256": "7fe6a5be4a381cbba9e87e06760fcbbded5d7004c19deb92e41500f6521c5ca0",
+  "binary_size_bytes": 23103568,
+  "binary_sha256": "81e15e1e205b0ba9025509c1f5f882e9f4f3ed4633360c933dbfad2f3db9cfb7",
   "test_seam": "Controller binary via external HTTP against a Docker lab: stock CHR Router and Linux Devices",
   "result": "pass",
   "lab": {
-    "name": "opnwlab-1c5b60",
+    "name": "opnwlab-e52454",
     "chr_version": "7.23.8",
     "chr_image": "/home/rgsv/.cache/openpiso/chr/chr-7.23.8.img",
-    "image": "opnwlab-image:00cb97e32920",
-    "router_rest_seconds": 20.5,
+    "image": "opnwlab-image:5e04c5edc5a0",
+    "router_rest_seconds": 19.9,
     "stock_router": {
       "version": "7.23.8 (long-term)",
       "admin_password": "empty",
@@ -22,7 +22,7 @@
     },
     "vlan_leases": [
       {
-        "container": "opnwlab-1c5b60-vlan10-device",
+        "container": "opnwlab-e52454-vlan10-device",
         "vlan": 10,
         "mac-address": "02:00:00:00:0C:10",
         "address": "10.5.10.200",
@@ -30,7 +30,7 @@
         "status": "bound"
       },
       {
-        "container": "opnwlab-1c5b60-vlan20-device",
+        "container": "opnwlab-e52454-vlan20-device",
         "vlan": 20,
         "mac-address": "02:00:00:00:0C:20",
         "address": "10.5.20.200",
@@ -38,7 +38,7 @@
         "status": "bound"
       },
       {
-        "container": "opnwlab-1c5b60-vlan10-device",
+        "container": "opnwlab-e52454-vlan10-device",
         "vlan": 10,
         "mac-address": "02:00:00:00:0C:10",
         "address": "10.5.10.200",
@@ -46,7 +46,7 @@
         "status": "bound"
       },
       {
-        "container": "opnwlab-1c5b60-vlan20-device",
+        "container": "opnwlab-e52454-vlan20-device",
         "vlan": 20,
         "mac-address": "02:00:00:00:0C:20",
         "address": "10.5.20.200",
@@ -54,7 +54,7 @@
         "status": "bound"
       },
       {
-        "container": "opnwlab-1c5b60-board1",
+        "container": "opnwlab-e52454-board1",
         "vlan": 10,
         "mac-address": "02:00:00:41:00:01",
         "address": "10.5.10.199",
@@ -62,7 +62,7 @@
         "status": "bound"
       },
       {
-        "container": "opnwlab-1c5b60-board2",
+        "container": "opnwlab-e52454-board2",
         "vlan": 20,
         "mac-address": "02:00:00:41:00:02",
         "address": "10.5.20.199",
@@ -70,7 +70,7 @@
         "status": "bound"
       },
       {
-        "container": "opnwlab-1c5b60-vlan10-device",
+        "container": "opnwlab-e52454-vlan10-device",
         "vlan": 10,
         "mac-address": "02:00:00:00:0C:10",
         "address": "10.5.10.200",
@@ -78,7 +78,7 @@
         "status": "bound"
       },
       {
-        "container": "opnwlab-1c5b60-vlan20-device",
+        "container": "opnwlab-e52454-vlan20-device",
         "vlan": 20,
         "mac-address": "02:00:00:00:0C:20",
         "address": "10.5.20.200",
@@ -86,7 +86,7 @@
         "status": "bound"
       },
       {
-        "container": "opnwlab-1c5b60-board1",
+        "container": "opnwlab-e52454-board1",
         "vlan": 10,
         "mac-address": "02:00:00:41:00:01",
         "address": "10.5.10.199",
@@ -94,7 +94,7 @@
         "status": "bound"
       },
       {
-        "container": "opnwlab-1c5b60-board2",
+        "container": "opnwlab-e52454-board2",
         "vlan": 20,
         "mac-address": "02:00:00:41:00:02",
         "address": "10.5.20.199",
@@ -102,7 +102,7 @@
         "status": "bound"
       },
       {
-        "container": "opnwlab-1c5b60-vlan10-device",
+        "container": "opnwlab-e52454-vlan10-device",
         "vlan": 10,
         "mac-address": "02:00:00:00:0C:10",
         "address": "10.5.10.200",
@@ -110,7 +110,7 @@
         "status": "bound"
       },
       {
-        "container": "opnwlab-1c5b60-vlan20-device",
+        "container": "opnwlab-e52454-vlan20-device",
         "vlan": 20,
         "mac-address": "02:00:00:00:0C:20",
         "address": "10.5.20.200",
@@ -118,7 +118,7 @@
         "status": "bound"
       },
       {
-        "container": "opnwlab-1c5b60-board1",
+        "container": "opnwlab-e52454-board1",
         "vlan": 10,
         "mac-address": "02:00:00:41:00:01",
         "address": "10.5.10.199",
@@ -126,7 +126,7 @@
         "status": "bound"
       },
       {
-        "container": "opnwlab-1c5b60-board2",
+        "container": "opnwlab-e52454-board2",
         "vlan": 20,
         "mac-address": "02:00:00:41:00:02",
         "address": "10.5.20.199",
@@ -134,7 +134,7 @@
         "status": "bound"
       },
       {
-        "container": "opnwlab-1c5b60-vlan10-device",
+        "container": "opnwlab-e52454-vlan10-device",
         "vlan": 10,
         "mac-address": "02:00:00:00:0C:10",
         "address": "10.5.10.200",
@@ -142,7 +142,7 @@
         "status": "bound"
       },
       {
-        "container": "opnwlab-1c5b60-vlan20-device",
+        "container": "opnwlab-e52454-vlan20-device",
         "vlan": 20,
         "mac-address": "02:00:00:00:0C:20",
         "address": "10.5.20.200",
@@ -150,7 +150,7 @@
         "status": "bound"
       },
       {
-        "container": "opnwlab-1c5b60-board1",
+        "container": "opnwlab-e52454-board1",
         "vlan": 10,
         "mac-address": "02:00:00:41:00:01",
         "address": "10.5.10.199",
@@ -158,7 +158,7 @@
         "status": "bound"
       },
       {
-        "container": "opnwlab-1c5b60-board2",
+        "container": "opnwlab-e52454-board2",
         "vlan": 20,
         "mac-address": "02:00:00:41:00:02",
         "address": "10.5.20.199",
@@ -169,7 +169,7 @@
     "vendo_reports": [
       {
         "vendo_id": 1,
-        "container": "opnwlab-1c5b60-coin-board",
+        "container": "opnwlab-e52454-coin-board",
         "ip": "10.5.50.199",
         "source_address": [
           "10.5.50.199"
@@ -179,7 +179,7 @@
       },
       {
         "vendo_id": 2,
-        "container": "opnwlab-1c5b60-coin-board",
+        "container": "opnwlab-e52454-coin-board",
         "ip": "10.5.50.199",
         "source_address": [
           "10.5.50.199"
@@ -189,7 +189,7 @@
       },
       {
         "vendo_id": 3,
-        "container": "opnwlab-1c5b60-coin-board",
+        "container": "opnwlab-e52454-coin-board",
         "ip": "10.5.50.199",
         "source_address": [
           "10.5.50.199"
@@ -199,7 +199,7 @@
       },
       {
         "vendo_id": 4,
-        "container": "opnwlab-1c5b60-coin-board",
+        "container": "opnwlab-e52454-coin-board",
         "ip": "10.5.50.199",
         "source_address": [
           "10.5.50.199"
@@ -209,7 +209,7 @@
       },
       {
         "vendo_id": 5,
-        "container": "opnwlab-1c5b60-coin-board",
+        "container": "opnwlab-e52454-coin-board",
         "ip": "10.5.50.199",
         "source_address": [
           "10.5.50.199"
@@ -219,7 +219,7 @@
       },
       {
         "vendo_id": 6,
-        "container": "opnwlab-1c5b60-coin-board",
+        "container": "opnwlab-e52454-coin-board",
         "ip": "10.5.50.199",
         "source_address": [
           "10.5.50.199"
@@ -229,7 +229,7 @@
       },
       {
         "vendo_id": 7,
-        "container": "opnwlab-1c5b60-board1",
+        "container": "opnwlab-e52454-board1",
         "ip": "10.5.10.199",
         "source_address": [
           "10.5.10.199"
@@ -239,7 +239,7 @@
       },
       {
         "vendo_id": 8,
-        "container": "opnwlab-1c5b60-board2",
+        "container": "opnwlab-e52454-board2",
         "ip": "10.5.20.199",
         "source_address": [
           "10.5.20.199"
@@ -249,7 +249,7 @@
       },
       {
         "vendo_id": 9,
-        "container": "opnwlab-1c5b60-board1",
+        "container": "opnwlab-e52454-board1",
         "ip": "10.5.10.199",
         "source_address": [
           "10.5.10.199"
@@ -259,7 +259,7 @@
       },
       {
         "vendo_id": 10,
-        "container": "opnwlab-1c5b60-board2",
+        "container": "opnwlab-e52454-board2",
         "ip": "10.5.20.199",
         "source_address": [
           "10.5.20.199"
@@ -269,7 +269,7 @@
       },
       {
         "vendo_id": 11,
-        "container": "opnwlab-1c5b60-board1",
+        "container": "opnwlab-e52454-board1",
         "ip": "10.5.10.199",
         "source_address": [
           "10.5.10.199"
@@ -279,7 +279,7 @@
       },
       {
         "vendo_id": 12,
-        "container": "opnwlab-1c5b60-board2",
+        "container": "opnwlab-e52454-board2",
         "ip": "10.5.20.199",
         "source_address": [
           "10.5.20.199"
@@ -289,7 +289,7 @@
       },
       {
         "vendo_id": 13,
-        "container": "opnwlab-1c5b60-board1",
+        "container": "opnwlab-e52454-board1",
         "ip": "10.5.10.199",
         "source_address": [
           "10.5.10.199"
@@ -299,7 +299,7 @@
       },
       {
         "vendo_id": 14,
-        "container": "opnwlab-1c5b60-board2",
+        "container": "opnwlab-e52454-board2",
         "ip": "10.5.20.199",
         "source_address": [
           "10.5.20.199"
@@ -310,17 +310,17 @@
     ],
     "browsers": [
       {
-        "container": "opnwlab-1c5b60-browser-admin",
+        "container": "opnwlab-e52454-browser-admin",
         "phase": "vendos",
         "memory_cap": "1024 MB"
       },
       {
-        "container": "opnwlab-1c5b60-browser-admin",
+        "container": "opnwlab-e52454-browser-admin",
         "phase": "vendo-rates",
         "memory_cap": "1024 MB"
       }
     ],
-    "run_seconds": 368.3,
+    "run_seconds": 359.7,
     "removed": true
   },
   "vendo_list": {
@@ -348,7 +348,7 @@
       "ip_mac_read_only": true,
       "deactivate_undo": true,
       "unpair_undo": true,
-      "unpair_real_grace_seconds": 29.537118837994058,
+      "unpair_real_grace_seconds": 29.52718457794981,
       "phone_sheet": true,
       "structured_rates_persisted": true,
       "browser": "chromium 156.0.8078.4",
@@ -394,7 +394,7 @@
     "result": "pass",
     "failures": []
   },
-  "finished_at": "2026-11-19T09:58:52.289153+00:00",
+  "finished_at": "2026-11-19T19:23:18.813301+00:00",
   "steps": [
     "boot-admin-password-persisted-and-rate-limited",
     "authenticated-post-route-policy",
@@ -435,6 +435,5 @@
     "vendo-points-device-redeems-from-its-vendos-table",
     "vendo-points-no-serving-vendo-uses-site-table",
     "vendo-points-use-site-rates-restores-site-table"
-  ],
-  "chr_client_cleanup_removed": 0
+  ]
 }

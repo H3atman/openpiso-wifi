@@ -118,9 +118,9 @@ rm lab/chr/.env   # only if lab/chr/wizard.sh will not be run again
 
 ## Follow-ups
 
-- **Firmware-sim Vendo**, tracked in issue #__. Gate: every pairing and Coin
+- **Firmware-sim Vendo**, tracked in issue #41. Gate: every pairing and Coin
   Window scenario passes on the Docker lab with `simulated_vendo.py`.
-- **The lab in CI on GitHub Actions**, tracked in issue #__. Gate: the lab is
+- **The lab in CI on GitHub Actions**, tracked in issue #42. Gate: the lab is
   verified locally and its run time is known; the runner needs `/dev/kvm` for
   the Router.
 

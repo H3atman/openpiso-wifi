@@ -5114,8 +5114,7 @@ def scenario(args, report: Report, lab) -> None:
     lab.start(report.data["chr_client_cleanup"])
     cleanup_vendo_router(address, password)
     report.data["chr_client_cleanup"]["device_lease"] = lab.reset_device()
-    if ported(lab, report, 32, "vlan-hosts-evidence"):
-        vlan_host_evidence(lab, report, args.write_vlan_hosts)
+    vlan_host_evidence(lab, report, args.write_vlan_hosts)
     resource = router_rest(address, ROUTER_ADMIN, ROUTER_ADMIN_PASSWORD, "/system/resource")
     assert resource["version"].startswith("7.")
     original_hotspot_names = {entry["name"] for entry in router_rest(address, "admin", password, "/ip/hotspot/user")}
@@ -5449,12 +5448,7 @@ def scenario(args, report: Report, lab) -> None:
                     custom_portal(opener, report, address, password, lab, device_ip)
                     _browser_module.scenario(sys.modules[__name__], opener, address, password, lab, report, restart_browser_controller)
                 _flash_module.scenario(sys.modules[__name__], opener, address, password, lab, report)
-                if ported(lab, report, 32, "single-vendo-auto-select-from-either-vlan",
-                          "one-vendo-per-vlan-learned-and-auto-selected",
-                          "picker-is-limited-to-network-and-forged-id-reserves-nothing",
-                          "coin-window-keeps-reserved-vendo-after-vlan-move",
-                          "admin-overrides-network-and-no-match-reserves-nothing"):
-                    vendo_auto_select(opener, address, password, lab, report)
+                vendo_auto_select(opener, address, password, lab, report)
                 lab.own_scenarios(opener, report)
             finally:
                 report.capture_lab_failure()
@@ -5512,8 +5506,7 @@ ONLY_SCENARIOS = {
     "update": "with --armv7, without CHR: install a throwaway-key v0.1.0, then update, roll back and refuse releases (see update_vm.py)",
 }
 # --only scenarios the Docker lab has not ported yet, by the ticket that ports them.
-ONLY_TICKETS = {"vlan": 32,
-                "sales": 33, "vendo-list": 33, "shop-defaults": 33, "browser": 34}
+ONLY_TICKETS = {"sales": 33, "vendo-list": 33, "shop-defaults": 33, "browser": 34}
 
 
 def main() -> None:
@@ -5548,6 +5541,8 @@ def main() -> None:
     if args.lab == "docker":
         if args.armv7:
             parser.error("--armv7 runs on the libvirt lab only")
+        if args.write_vlan_hosts:
+            parser.error("--write-vlan-hosts refreshes research recorded on the libvirt lab only")
         if args.only in ONLY_TICKETS:
             ticket = ONLY_TICKETS[args.only]
             print(f"SKIP --only {args.only}: not ported to the Docker lab yet (#{ticket})", flush=True)

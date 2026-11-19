@@ -80,6 +80,8 @@ DOCKER_RUN = RUN / "docker"  # dev binary and Vendo state; they go with the lab,
 DOCKER_CONTROLLER = f"{DOCKER_LAB}-controller-1"
 DOCKER_VENDO = f"{DOCKER_LAB}-vendo"  # the dev Vendo board, sending every Report from its own address
 VENDO_SENDERS = {}  # Vendo ID -> its board container (docker_lab.container_vendo)
+DOCKER_PHONE = f"{DOCKER_LAB}-phone"  # `phone`: a proxy on the lab LAN as one Device, for your own browser
+PHONE_PORT = 18089  # the proxy's fixed local port
 
 
 def say(message: str) -> None:
@@ -874,14 +876,64 @@ def docker_shots(args) -> None:
         sys.exit(1)
 
 
+def docker_phone(_args) -> None:
+    """A Device for your own browser: a container on the lab LAN with PHONE_MAC and a lease from the
+    Router, running lab/dev/phone_proxy.py, published on 127.0.0.1:PHONE_PORT. The lab LAN is internal
+    (no published ports), so the container also joins a network of its own that only carries the
+    published port; its default route goes, as the Controller's does, and replies to the host stay
+    on-link. Runs until Ctrl+C, then the container goes and the Router forgets the Device."""
+    if not running(DOCKER_CONTROLLER):
+        die(f"no dev lab {DOCKER_LAB}: run `--lab docker up` first")
+    if DOCKER_PHONE in DevLab().containers():
+        die(f"{DOCKER_PHONE} already exists: another `phone` runs (or remove it with docker rm -f {DOCKER_PHONE})")
+    lab = DevLab()
+    router = docker_lab.DockerLab(e2e, DOCKER_RUN / "openpiso-dev", keep=True)
+    router.attach(lab)
+    address, password = router.router_address, docker_lab.ROUTER_PASSWORD
+    port_network = f"{DOCKER_LAB}-phone-port"
+    if docker("network", "inspect", port_network, check=False).returncode != 0:
+        docker("network", "create", port_network)
+    ifname = "driver-opt=com.docker.network.endpoint.ifname"
+    docker("run", "-d", "--name", DOCKER_PHONE, "--cap-add", "NET_ADMIN",
+           "--network", f"name={port_network},{ifname}=port0",
+           "--network", f"name={DOCKER_LAB}-lan,mac-address={PHONE_MAC},{ifname}=eth0",
+           "-p", f"127.0.0.1:{PHONE_PORT}:8888", "--memory", "128m", "--memory-swap", "128m",
+           "-v", f"{ROOT / 'lab/dev/phone_proxy.py'}:/work/phone_proxy.py:ro",
+           lab.image, "python3", "-I", "/work/phone_proxy.py", "8888")
+    ip = ""
+    try:
+        docker_lab.device_exec(DOCKER_PHONE, "ip route del default; ip -4 addr flush dev eth0; ip -4 route flush dev eth0")
+        ip = docker_lab.device_lease(DOCKER_PHONE)
+        lease = router_rest(address, "admin", password, f"/ip/dhcp-server/lease?mac-address={PHONE_MAC.upper()}")
+        say(f"phone {DOCKER_PHONE} is a Device on the lab LAN: {PHONE_MAC.upper()} {ip}, "
+            f"Router lease {[row['address'] for row in lease]}")
+        print(f"""
+Proxy: http://127.0.0.1:{PHONE_PORT}  (stays up until Ctrl+C here)
+Point a browser at it with a throwaway profile, then open http://google.com/:
+  chromium --user-data-dir="$(mktemp -d)" --proxy-server=http://127.0.0.1:{PHONE_PORT} http://google.com/
+  curl -x http://127.0.0.1:{PHONE_PORT} -i http://google.com/
+Coins: python3 -I lab/dev/dev.py --lab docker vendo  (after "Insert coin" in the Portal)
+""", flush=True)
+        while running(DOCKER_PHONE):
+            time.sleep(2)
+        say(f"{DOCKER_PHONE} is gone")
+    except KeyboardInterrupt:
+        pass
+    finally:
+        docker("rm", "-f", DOCKER_PHONE, check=False)
+        if ip:
+            forget_device(address, password, PHONE_MAC, ip)
+        say("phone stopped; the Router forgot its Device")
+
+
 def docker_down(_args) -> None:
     DevLab().down()
     (STATE / "vendo.json").unlink(missing_ok=True)
     say(f"down: dev lab {DOCKER_LAB} removed")
 
 
-DOCKER_COMMANDS = {"up": docker_up, "vendo": cmd_vendo, "shots": docker_shots, "admin-shots": cmd_admin_shots,
-                   "down": docker_down}  # `phone` is #37
+DOCKER_COMMANDS = {"up": docker_up, "vendo": cmd_vendo, "phone": docker_phone, "shots": docker_shots,
+                   "admin-shots": cmd_admin_shots, "down": docker_down}
 
 
 def main() -> None:
@@ -910,8 +962,6 @@ def main() -> None:
         SimulatedVendo = docker_lab.container_vendo(e2e.SimulatedVendo, VENDO_SENDERS)
         if (STATE / "vendo.json").exists():
             VENDO_SENDERS[json.loads((STATE / "vendo.json").read_text())["id"]] = DOCKER_VENDO
-        if args.command not in DOCKER_COMMANDS:
-            die(f"`{args.command}` is not on the Docker dev lab yet (#37)")
         args.run = DOCKER_COMMANDS[args.command]
     args.run(args)
 

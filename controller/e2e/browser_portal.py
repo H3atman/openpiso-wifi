@@ -74,7 +74,7 @@ def container_name(name: str) -> str:
 def screenshots(report, name: str) -> Path:
     """The screenshot directory for one browser scenario; on the Docker lab it is named after the
     run's report, so it never replaces the committed libvirt screenshots or a parallel run's."""
-    return report.path.parent / (name if LAN is None else f"{report.path.stem}-{name}")
+    return report.path.parent.resolve() / (name if LAN is None else f"{report.path.stem}-{name}")  # docker -v needs it absolute
 
 
 def teardown(run, address, password) -> None:
@@ -329,8 +329,8 @@ def vouchers_mobile(run, report):
     out = screenshots(report, "vouchers-mobile")
     out.mkdir(parents=True, exist_ok=True)
     ensure_image()
-    browser = run_browser("admin", ["--network", "host"], run.BASE_URL, "vouchers-mobile",
-                          {"password": run.ADMIN_PASSWORD}, out, {}, report)
+    inputs = {"password": run.ADMIN_PASSWORD} if LAN is None else {"password": run.ADMIN_PASSWORD, "scale": "css"}
+    browser = run_browser("admin", ["--network", "host"], run.BASE_URL, "vouchers-mobile", inputs, out, {}, report)
     report.data["vouchers_mobile"] = {
         "screenshots": [f"{out.name}/{name}.png" for name in browser["screenshots"]], "browser": browser}
     return browser

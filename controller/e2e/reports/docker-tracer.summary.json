@@ -1,0 +1,50 @@
+{
+  "format_version": 1,
+  "scenario": "26-docker-lab-tracer",
+  "started_at": "2026-11-19T04:35:44.322526+00:00",
+  "git_commit": "9462653fbddbf677da157c1900c450202dc5263c",
+  "git_tree": "d2532f907eddc5d877ec77aad595dcb9026be9dd",
+  "git_dirty": true,
+  "binary_size_bytes": 23103576,
+  "binary_sha256": "9332b74f450e03f711681b1aa242ba476fc13a81256746ec95bdac4b0677df2a",
+  "test_seam": "Controller binary via external HTTP against a Docker lab: stock CHR Router and Linux Devices",
+  "result": "pass",
+  "lab": {
+    "name": "opnwlab-261c50",
+    "chr_version": "7.23.8",
+    "router_rest_seconds": 20.7,
+    "stock_router": {
+      "version": "7.23.8 (long-term)",
+      "admin_password": "empty",
+      "hotspot_servers": 0
+    },
+    "journey_seconds": 121.7,
+    "removed": true,
+    "total_seconds": 123.9
+  },
+  "ipv6": {
+    "how": "Docker sets disable_ipv6=1 on every endpoint of a network without IPv6; a global --sysctl does not undo it, the per-endpoint driver option com.docker.network.endpoint.sysctls=net.ipv6.conf.IFNAME.disable_ipv6=0 does. Link-local only: no prefix or RA.",
+    "default_container_disable_ipv6": "1",
+    "device_link_local": [
+      "fe80::ff:fe00:c22"
+    ],
+    "router_link_local": [
+      "fe80::ff:feaa:1"
+    ],
+    "device_pings_router": true,
+    "router_neighbor_rows": 1,
+    "drop_rule_blocks_device": true,
+    "drop_rule_packets": 5,
+    "global_address_on_device": false,
+    "result": "isolation assertions can run"
+  },
+  "finished_at": "2026-11-19T04:37:48.264789+00:00",
+  "steps": [
+    "router-onboarded-from-stock-over-rest",
+    "voucher-batch-printable-and-validated",
+    "device-leased-and-redirected-before-time-credit",
+    "voucher-redeemed-device-online-router-lists-active",
+    "controller-saw-device-real-address",
+    "vlan-hotspot-server-logs-device-in"
+  ]
+}

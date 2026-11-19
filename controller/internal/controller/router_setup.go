@@ -27,6 +27,8 @@ type routerSetupView struct {
 	Servers   int // HotSpot servers on the Router
 	Checklist []checkGroup
 	Error     string
+
+	AddAlongside addAlongsideView
 }
 
 // useExistingView is the review before Adopting Servers, with the ticked
@@ -94,6 +96,9 @@ func (s *Server) readRouterSetup(ctx context.Context, view *routerSetupView) err
 	view.Available = slices.DeleteFunc(slices.Clone(servers), func(server routeros.HotspotServer) bool {
 		return slices.Contains(view.Adopted, server.Name)
 	})
+	if view.AddAlongside, err = readAddAlongside(ctx, router); err != nil {
+		return err
+	}
 	view.Checklist, err = s.readChecklist(ctx, router, view.Adopted, true)
 	return err
 }

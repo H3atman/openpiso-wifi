@@ -84,6 +84,7 @@ func (c *Client) Checklist(ctx context.Context, portalURL string, idleSeconds in
 	for _, name := range adopted {
 		checks = append(checks, c.serverEnabled(name))
 		if index := slices.IndexFunc(servers, func(server HotspotServer) bool { return server.Name == name }); index >= 0 {
+			checks = append(checks, c.serverNetwork(servers[index]))
 			checks = append(checks, c.serverChecks(name, servers[index].Profile, portalURL)...)
 		}
 	}

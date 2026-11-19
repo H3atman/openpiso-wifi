@@ -16,6 +16,7 @@ import html
 import http.cookiejar
 import importlib.util
 import io
+import ipaddress
 import json
 import os
 import re
@@ -721,14 +722,14 @@ class Controller:
             raise AssertionError(f"Controller exited {self.process.returncode}:\n{output}")
 
 
-def request(opener, path: str, method: str = "GET", form=None, headers=None, data=None):
+def request(opener, path: str, method: str = "GET", form=None, headers=None, data=None, timeout=HTTP_TIMEOUT):
     headers = dict(headers or {})
     if form is not None:
         data = urllib.parse.urlencode(form).encode()
         headers["Content-Type"] = "application/x-www-form-urlencoded"
     req = urllib.request.Request(f"{BASE_URL}{path}", data=data, headers=headers, method=method)
     try:
-        return opener.open(req, timeout=HTTP_TIMEOUT)
+        return opener.open(req, timeout=timeout)
     except urllib.error.HTTPError as error:
         return error
 
@@ -5647,7 +5648,7 @@ def use_existing(opener, report, address, password, existing, tree_before, other
     # The review reports the ticked server's items before Adopting fixes any; it offers no fix itself.
     server_items = checklist(review)
     assert sorted(server_items) == [(server, "device-seen"), (server, "login-method"), (server, "login-page"),
-                                    (server, "server-enabled")], server_items
+                                    (server, "server-enabled"), (server, "server-network")], server_items
     assert unmet(server_items) == [(server, "device-seen"), (server, "login-method"), (server, "login-page")], server_items
     assert "http-pap" in server_items[(server, "login-method")]["reason"], server_items
     assert all(item["fix"] is None for item in server_items.values()), server_items
@@ -5738,6 +5739,205 @@ def drift(opener, report, address, password):
                         broken=broken, reason=items[(server, name)]["reason"], fix=items[(server, name)]["fix"])
 
 
+# Add alongside: the Operator's spare port is a VLAN on the HotSpot LAN with no HotSpot server.
+# The Controller names its server on it openpiso-<interface>.
+SPARE = "opnw-spare"
+SPARE_VLAN = "40"
+ALONGSIDE = "openpiso-" + SPARE
+# Edited from the suggestion: the lab host routes 10.5.20.0/24 back via the Router (configure_device_routing).
+ALONGSIDE_RANGE = "10.5.20.0/24"
+OLD_DEVICE = "opnw-old"  # the Device on the server that is not Adopted: VLAN 30 on lan1
+NEW_DEVICE = "opnw-new"  # the Device on the new server: VLAN 40 on lan2
+
+
+def network_tree(address, password):
+    """The Router's addresses, pools, DHCP servers and networks and VLANs: what a refused create must not touch."""
+    return {path: router_rest(address, "admin", password, path)
+            for path in ("/ip/address", "/ip/pool", "/ip/dhcp-server", "/ip/dhcp-server/network", "/interface/vlan")}
+
+
+def remove_alongside(address, password, client_address):
+    """Remove Add alongside's server, its network and the spare VLAN, and the Devices' VLANs on chr-client."""
+    def remove(rest, path, query):
+        for row in rest(f"{path}?{query}"):
+            rest(f"{path}/{row['.id']}", "DELETE")
+    router = lambda path, method="GET", body=None: router_rest(address, "admin", password, path, method, body)
+    client = lambda path, method="GET", body=None: router_rest(client_address, "admin", password, path, method, body, scheme="http")
+    for path, query in (("/ip/hotspot", f"name={ALONGSIDE}"), ("/ip/hotspot/profile", f"name={ALONGSIDE}"),
+                        ("/ip/dhcp-server/lease", f"server={ALONGSIDE}"), ("/ip/dhcp-server", f"name={ALONGSIDE}"),
+                        ("/ip/dhcp-server/network", f"comment={ALONGSIDE}"), ("/ip/pool", f"name={ALONGSIDE}"),
+                        ("/ip/address", f"interface={SPARE}"), ("/interface/vlan", f"name={SPARE}")):
+        remove(router, path, query)
+    for name in (OLD_DEVICE, NEW_DEVICE):
+        for path, query in (("/routing/rule", f"comment={name}"), ("/ip/route", f"comment={name}"),
+                            ("/routing/table", f"name={name}"), ("/ip/dhcp-client", f"interface={name}"),
+                            ("/ip/address", f"interface={name}"), ("/interface/vlan", f"name={name}")):
+            remove(client, path, query)
+
+
+def vlan_device(client, name, nic, vlan, gateway, static=None):
+    """A Device on chr-client: VLAN vlan on nic with a static address, or a DHCP lease, routed via gateway.
+    Returns its address."""
+    client("/interface/vlan", "PUT", {"name": name, "interface": nic, "vlan-id": vlan})
+    if static:
+        client("/ip/address", "PUT", {"address": static, "interface": name})
+    else:
+        client("/ip/dhcp-client", "PUT", {"interface": name, "add-default-route": "no", "use-peer-dns": "no", "disabled": "no"})
+    deadline = time.monotonic() + 30
+    while not (addresses := client(f"/ip/address?interface={name}")):
+        assert time.monotonic() < deadline, f"{name}: no address"
+        time.sleep(1)
+    ip = addresses[0]["address"].split("/")[0]
+    client("/routing/table", "PUT", {"name": name, "fib": "yes"})
+    client("/ip/route", "PUT", {"dst-address": "0.0.0.0/0", "gateway": f"{gateway}%{name}", "routing-table": name, "comment": name})
+    client("/routing/rule", "PUT", {"src-address": ip + "/32", "action": "lookup-only-in-table", "table": name, "comment": name})
+    client("/ping", "POST", {"address": gateway, "src-address": ip, "interface": name, "count": "1"})
+    return ip
+
+
+def fetch_until(client, ip, url, marker):
+    """The page a Device at ip gets for url, retried until it contains marker while a new server or lease settles."""
+    deadline, detail = time.monotonic() + 30, ""
+    while time.monotonic() < deadline:
+        try:
+            data = client("/tool/fetch", "POST", {"url": url, "output": "user", "src-address": ip})[-1].get("data", "")
+            if marker in data:
+                return data
+            detail = data[:300]
+        except urllib.error.HTTPError as error:
+            detail = f"HTTP {error.code}: {error.read().decode(errors='replace')[:300]}"
+        time.sleep(1)
+    raise AssertionError(f"Device {ip} fetching {url} never got {marker!r}: {detail}")
+
+
+def add_alongside_card(page):
+    """The Add alongside card on Router setup: (interfaces offered, suggested range)."""
+    card = re.search(r"<h3>Add alongside</h3>(.*?)</section>", page, re.S).group(1)
+    assert 'action="/admin/router/add-alongside"' in card, card
+    return re.findall(r'<option value="([^"]+)">', card), re.search(r'<input name="range" value="([^"]*)"', card).group(1)
+
+
+def add_alongside(opener, report, address, password, client_address, existing):
+    """Router setup's Add alongside on a spare interface, next to hs1 (Adopted) and the second server (not Adopted)."""
+    server = _hotspot_module.SERVER
+    router = lambda path, method="GET", body=None: router_rest(address, "admin", password, path, method, body)
+    client = lambda path, method="GET", body=None: router_rest(client_address, "admin", password, path, method, body, scheme="http")
+    remove_alongside(address, password, client_address)
+    lan2 = client("/interface/ethernet?name=lan2")[0]
+    try:
+        existing.setup_other()
+        router("/interface/vlan", "PUT", {"name": SPARE, "interface": "ether2", "vlan-id": SPARE_VLAN})
+        other_before, users_before = existing.other(), existing.users()
+        tree_before, network_before = hotspot_tree(address, password), network_tree(address, password)
+        backups_before = router_backups(address, password)
+
+        # The card offers only interfaces with no HotSpot server and suggests a free private range of hs1's size.
+        interfaces, suggested = add_alongside_card(request(opener, "/admin").read().decode())
+        management = next(row["interface"] for row in router("/ip/address") if row["address"].startswith(address + "/"))
+        assert SPARE in interfaces, interfaces
+        for taken in [row["interface"] for row in router("/ip/hotspot")] + [management]:
+            assert taken not in interfaces, (taken, interfaces)
+        suggestion = ipaddress.ip_network(suggested)
+        used = [ipaddress.ip_network(row["address"], strict=False) for row in router("/ip/address")]
+        used += [ipaddress.ip_network(row["dst-address"]) for row in router("/ip/route") if row["dst-address"] != "0.0.0.0/0"]
+        assert suggestion.is_private and suggestion.prefixlen == 24, suggested
+        assert not any(suggestion.overlaps(network) for network in used), (suggested, used)
+
+        # Refused with the reason before any Router write.
+        refusals = {}
+        for form, reason in (({"interface": SPARE, "range": f"{_hotspot_module.OTHER_SUBNET}.0/24"}, "overlaps"),
+                             ({"interface": SPARE, "range": "8.8.8.0/24"}, "not a private range"),
+                             ({"interface": "ether2", "range": suggested}, "already has a HotSpot server")):
+            response = request(opener, "/admin/router/add-alongside", "POST", form)
+            body = response.read().decode()
+            assert response.status == 400 and reason in body, (form, response.status, body)
+            refusals[form["range"] + " on " + form["interface"]] = body.strip()
+        assert hotspot_tree(address, password) == tree_before, "a refused Add alongside changed the HotSpot"
+        assert network_tree(address, password) == network_before, "a refused Add alongside changed the network"
+        report.snapshot("add-alongside-offers-free-interfaces-and-refuses-a-bad-range", address, password, opener,
+                        interfaces=interfaces, suggested=suggested, refusals=refusals)
+
+        # The Operator edits the suggested range and creates the server.
+        response = request(opener, "/admin/router/add-alongside", "POST", {"interface": SPARE, "range": ALONGSIDE_RANGE}, timeout=30)
+        page = response.read().decode()
+        assert response.status == 200 and urllib.parse.urlsplit(response.url).path == "/admin", page
+        state = json.load(request(opener, "/admin/state"))
+        assert state["router"]["adopted_hotspot_servers"] == sorted([server, ALONGSIDE]), state["router"]
+        assert state["router"]["status"] == "ready", state["router"]
+        created = router(f"/ip/hotspot?name={ALONGSIDE}")
+        assert len(created) == 1 and created[0]["interface"] == SPARE and created[0]["disabled"] == "false", created
+        profile = router(f"/ip/hotspot/profile?name={ALONGSIDE}")[0]
+        assert (profile["login-by"], profile["html-directory"], profile["hotspot-address"]) == (
+            "http-pap", _hotspot_module.CONTROLLER_LOGIN_DIRECTORY, "10.5.20.1"), profile
+        assert [row["address"] for row in router(f"/ip/address?interface={SPARE}")] == ["10.5.20.1/24"]
+        dhcp = router(f"/ip/dhcp-server?interface={SPARE}")
+        assert len(dhcp) == 1 and router(f"/ip/pool?name={dhcp[0]['address-pool']}"), dhcp
+        # The servers already there, their server profiles, login pages, walled garden and users read back unchanged.
+        tree = hotspot_tree(address, password)
+        assert [row for row in tree["servers"] if row["name"] != ALONGSIDE] == tree_before["servers"]
+        assert [row for row in tree["server_profiles"] if row["name"] != ALONGSIDE] == tree_before["server_profiles"]
+        assert (tree["walled_garden"], tree["login_pages"]) == (tree_before["walled_garden"], tree_before["login_pages"])
+        assert existing.other() == other_before and existing.users() == users_before
+        assert router_backups(address, password) == backups_before, "Add alongside saved another backup"
+        items = checklist(page)
+        assert unmet(items) == [(ALONGSIDE, "device-seen")], items
+        assert sorted(key[1] for key in items if key[0] == ALONGSIDE) == [
+            "device-seen", "login-method", "login-page", "server-enabled", "server-network"], items
+        report.snapshot("add-alongside-creates-and-adopts-a-server-and-leaves-the-others", address, password, opener,
+                        server=created[0], server_profile=profile, dhcp_server=dhcp[0])
+
+        # A Device on the server that is not Adopted still gets the old login page.
+        old_ip = vlan_device(client, OLD_DEVICE, "lan1", _hotspot_module.OTHER_VLAN, f"{_hotspot_module.OTHER_SUBNET}.1",
+                             static=f"{_hotspot_module.OTHER_SUBNET}.50/24")
+        old_page = fetch_until(client, old_ip, "http://1.1.1.1/", "opnw-existing-login-page")
+        assert PORTAL_URL not in old_page, old_page
+
+        # A Device joining the new server gets an address, is sent to the Portal and gets online with a Voucher.
+        client(f"/interface/ethernet/{lan2['.id']}", "PATCH", {"disabled": "no"})
+        new_ip = vlan_device(client, NEW_DEVICE, "lan2", SPARE_VLAN, "10.5.20.1")
+        assert ipaddress.ip_address(new_ip) in ipaddress.ip_network(ALONGSIDE_RANGE), new_ip
+        redirect_page = fetch_until(client, new_ip, "http://1.1.1.1/", f"{PORTAL_URL}/portal")
+        portal_state(pause_device_fetch(client_address, password, new_ip, "/portal/api/state"))
+        response = generate_vouchers(opener, {"seconds": "600", "count": "1"})
+        assert response.status == 200
+        code = voucher_codes(opener, response)[0]
+        state = portal_state(pause_device_fetch(client_address, password, new_ip, "/portal/api/redeem", {"code": code}))
+        assert_message(state, "success", "online")
+        target, internet = device_internet(client_address, password, new_ip)
+        assert PORTAL_URL.removeprefix("http://") + "/portal" not in internet
+        assert unmet(checklist(request(opener, "/admin").read().decode())) == []
+        report.snapshot("add-alongside-old-server-keeps-its-login-page-and-new-server-sends-a-device-online",
+                        address, password, opener, old_device=old_ip, old_login_page=old_page,
+                        new_device=new_ip, redirect_html=redirect_page, internet_target=target)
+
+        # Checklist item 5: a missing DHCP server and pool, then a missing address, are reported and created by the fix.
+        def missing(what, rows):
+            for path, query in rows:
+                for row in router(f"{path}?{query}"):
+                    router(f"{path}/{row['.id']}", "DELETE")
+            items = checklist(request(opener, "/admin").read().decode())
+            assert unmet(items) == [(ALONGSIDE, "server-network")], items
+            item = items[(ALONGSIDE, "server-network")]
+            assert what in item["reason"] and item["fix"], item
+            response = request(opener, "/admin/router/fix", "POST", {"check": "server-network", "server": ALONGSIDE}, timeout=15)
+            page = response.read().decode()
+            assert response.status == 200 and unmet(checklist(page)) == [], page
+            return item
+        pool = dhcp[0]["address-pool"]
+        no_dhcp = missing("no DHCP server", (("/ip/dhcp-server/lease", f"server={ALONGSIDE}"),
+                                             ("/ip/dhcp-server", f"interface={SPARE}"), ("/ip/pool", f"name={pool}")))
+        assert router(f"/ip/dhcp-server?interface={SPARE}") and router(f"/ip/pool?name={pool}")
+        no_address = missing("no address", (("/ip/address", f"interface={SPARE}"),))
+        assert [row["address"] for row in router(f"/ip/address?interface={SPARE}")] == ["10.5.20.1/24"]
+        report.snapshot("add-alongside-server-network-reported-and-created-by-its-fix", address, password, opener,
+                        missing_dhcp=no_dhcp, missing_address=no_address)
+    finally:
+        report.capture_lab_failure()
+        remove_alongside(address, password, client_address)
+        existing.teardown_other()
+        client(f"/interface/ethernet/{lan2['.id']}", "PATCH", {"disabled": lan2["disabled"]})
+
+
 def onboarding(controller, args, data_dir, opener, report, address, password, client_address, existing, other_before):
     """Use existing on someone else's HotSpot, after the shared onboarding Adopted hs1 (see use_existing)."""
     assert existing.other() == other_before, "Controller boot changed the server that was not ticked"
@@ -5795,6 +5995,8 @@ def onboarding(controller, args, data_dir, opener, report, address, password, cl
                     adopted=state["router"]["adopted_hotspot_servers"], internet_target=target)
 
     drift(opener, report, address, password)
+    # Before the step below, which needs no HotSpot server: Add alongside removes its server when done.
+    add_alongside(opener, report, address, password, client_address, existing)
 
     # Last: a re-created HotSpot server takes a while before a Device fetch through it works.
     def no_use_existing():
@@ -6202,7 +6404,7 @@ def assert_arm_install(vm, report: Report) -> None:
 # Partial scenarios for --only: each runs onboarding, then just that scenario, and
 # writes `<name>-only.json` with scenario `<name>-only`. `boot` is the ARMv7 guest boot check.
 ONLY_SCENARIOS = {
-    "onboarding": "Router setup from someone else's HotSpot: Use existing, a Device online, the unticked server and a ledger from before Router setup",
+    "onboarding": "Router setup from someone else's HotSpot: Use existing, a Device online, the unticked server, a ledger from before Router setup and Add alongside",
     "vouchers": "Voucher batch generation, pricing snapshots, CSV and redemption",
     "pairing": "flash pairing",
     "vlan": "VLAN auto-select",

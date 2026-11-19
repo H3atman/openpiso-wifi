@@ -3,8 +3,8 @@
 setup() turns the lab's HotSpot server hs1 into another system's server (its own login page in the
 default directory, a login method the Controller cannot use, users holding time, no Controller
 walled garden, HotSpot profiles or login page) and adds a second server, OTHER, that the Operator does not Adopt.
-It never changes VM definitions. teardown_other() removes the second server; teardown() also
-removes the users. Neither restores hs1: every run Adopts it again.
+It never changes VM definitions. teardown_other() removes the second server and setup_other() adds
+it again; teardown() also removes the users. Neither restores hs1: every run Adopts it again.
 """
 
 SERVER = "hs1"
@@ -44,6 +44,10 @@ class ExistingHotspotLab:
         for row in sorted(self.router("/file?.proplist=.id,name"), key=lambda row: -len(row["name"])):
             if row["name"].startswith((CONTROLLER_LOGIN_DIRECTORY + "/", "openpiso-")) or row["name"] == CONTROLLER_LOGIN_DIRECTORY:
                 self.router(f"/file/{row['.id']}", "DELETE")
+        self.setup_other()
+
+    def setup_other(self):
+        """Add the second server, OTHER, that the Operator does not Adopt."""
         self.router("/interface/vlan", "PUT", {"name": OTHER, "interface": "ether2", "vlan-id": OTHER_VLAN})
         self.router("/ip/address", "PUT", {"address": f"{OTHER_SUBNET}.1/24", "interface": OTHER, "comment": OTHER})
         self.router("/ip/pool", "PUT", {"name": OTHER, "ranges": f"{OTHER_SUBNET}.100-{OTHER_SUBNET}.200"})

@@ -1,0 +1,400 @@
+package routeros
+
+import (
+	"context"
+	"encoding/binary"
+	"fmt"
+	"net/http"
+	"net/netip"
+	"net/url"
+	"slices"
+	"strings"
+)
+
+// Creating a HotSpot server (ADR 0011): Add alongside, and later a new VLAN and
+// Fresh start, place a server, then CreateHotspotServer builds its network and
+// the server itself. Every step adds only what is missing, so a step that fails
+// midway is finished by running it again.
+
+// Refusal is an error returned before any Router write, because the request
+// itself cannot work; its message is the reason shown to the Operator.
+type Refusal string
+
+func (r Refusal) Error() string { return string(r) }
+
+// Placement is where a new HotSpot server goes: Interface, an interface with
+// no HotSpot server on it.
+type Placement struct {
+	Interface string
+}
+
+// privateRanges are the IPv4 private address blocks (RFC 1918).
+var privateRanges = []netip.Prefix{
+	netip.MustParsePrefix("10.0.0.0/8"),
+	netip.MustParsePrefix("172.16.0.0/12"),
+	netip.MustParsePrefix("192.168.0.0/16"),
+}
+
+// FreeInterfaces lists, sorted, the interfaces a new HotSpot server can go on:
+// those with no HotSpot server, leaving out bridge ports, dynamic interfaces,
+// the loopback and the interface the Controller reaches the Router through.
+func (c *Client) FreeInterfaces(ctx context.Context) ([]string, error) {
+	interfaces, err := c.list(ctx, "/interface")
+	if err != nil {
+		return nil, err
+	}
+	servers, err := c.ListHotspotServers(ctx)
+	if err != nil {
+		return nil, err
+	}
+	addresses, err := c.list(ctx, "/ip/address")
+	if err != nil {
+		return nil, err
+	}
+	management := ""
+	for _, address := range addresses {
+		if strings.HasPrefix(address["address"], c.baseURL.Hostname()+"/") {
+			management = address["interface"]
+		}
+	}
+	var free []string
+	for _, row := range interfaces {
+		name := row["name"]
+		if row["dynamic"] == "true" || row["slave"] == "true" || row["type"] == "loopback" || name == management ||
+			slices.ContainsFunc(servers, func(server HotspotServer) bool { return server.Interface == name }) {
+			continue
+		}
+		free = append(free, name)
+	}
+	slices.Sort(free)
+	return free, nil
+}
+
+// SuggestRange is the next free private range the size of the first HotSpot
+// server's address range (a /24 when there is none), overlapping no address or
+// route on the Router.
+func (c *Client) SuggestRange(ctx context.Context) (netip.Prefix, error) {
+	taken, err := c.takenRanges(ctx)
+	if err != nil {
+		return netip.Prefix{}, err
+	}
+	base := netip.MustParsePrefix("10.0.0.0/24")
+	servers, err := c.ListHotspotServers(ctx)
+	if err != nil {
+		return netip.Prefix{}, err
+	}
+	if len(servers) > 0 {
+		if prefix, ok, err := c.interfaceRange(ctx, servers[0].Interface); err != nil {
+			return netip.Prefix{}, err
+		} else if ok && prefix.Bits() <= 30 && private(prefix) {
+			base = prefix
+		}
+	}
+	// Walk the private block holding base in steps of its size, from base on.
+	block := privateRanges[slices.IndexFunc(privateRanges, func(block netip.Prefix) bool { return block.Contains(base.Addr()) })]
+	start, size := uint32of(block.Addr()), uint32(1)<<(32-base.Bits())
+	count := uint32(1) << (base.Bits() - block.Bits())
+	offset := (uint32of(base.Addr()) - start) / size
+	for step := uint32(0); step < count; step++ {
+		candidate := netip.PrefixFrom(addrOf(start+(offset+step)%count*size), base.Bits())
+		if !slices.ContainsFunc(taken, candidate.Overlaps) {
+			return candidate, nil
+		}
+	}
+	return netip.Prefix{}, fmt.Errorf("no free /%d range is left in %s", base.Bits(), block)
+}
+
+// CheckRange refuses network for a HotSpot server on iface before any write: it
+// must be a private IPv4 range big enough for Devices that overlaps no address
+// or route on the Router, other than iface's own address on that same range.
+func (c *Client) CheckRange(ctx context.Context, iface string, network netip.Prefix) error {
+	if !network.Addr().Is4() || network.Bits() > 30 {
+		return Refusal(fmt.Sprintf("%s is not an IPv4 range of at least 4 addresses", network))
+	}
+	if network != network.Masked() {
+		return Refusal(fmt.Sprintf("%s is not a range start; did you mean %s?", network, network.Masked()))
+	}
+	if !private(network) {
+		return Refusal(fmt.Sprintf("%s is not a private range; use one inside 10.0.0.0/8, 172.16.0.0/12 or 192.168.0.0/16", network))
+	}
+	addresses, err := c.list(ctx, "/ip/address")
+	if err != nil {
+		return err
+	}
+	for _, row := range addresses {
+		prefix, err := netip.ParsePrefix(row["address"])
+		switch {
+		case err != nil || (prefix.Masked() == network && row["interface"] == iface): // reused as it is
+		case row["interface"] == iface:
+			return Refusal(fmt.Sprintf("interface %s already has address %s; use its range %s", iface, row["address"], prefix.Masked()))
+		case prefix.Overlaps(network):
+			return Refusal(fmt.Sprintf("%s overlaps address %s on %s", network, row["address"], row["interface"]))
+		}
+	}
+	routes, err := c.list(ctx, "/ip/route")
+	if err != nil {
+		return err
+	}
+	for _, row := range routes {
+		if prefix, err := netip.ParsePrefix(row["dst-address"]); err == nil && prefix.Bits() > 0 && prefix.Overlaps(network) &&
+			!(prefix == network && row["gateway"] == iface) {
+			return Refusal(fmt.Sprintf("%s overlaps route %s via %s", network, row["dst-address"], row["gateway"]))
+		}
+	}
+	return nil
+}
+
+// CreateHotspotServer creates a HotSpot server at placement on network and
+// returns its name, openpiso-<interface>: the interface's address, pool, DHCP
+// server and DHCP network where missing, a server profile that logs in by
+// http-pap from the Controller's login page directory, and the server. It
+// refuses an interface that is not free or a range CheckRange refuses before
+// any write. Adopting the server writes its login page.
+func (c *Client) CreateHotspotServer(ctx context.Context, placement Placement, network netip.Prefix) (string, error) {
+	free, err := c.FreeInterfaces(ctx)
+	if err != nil {
+		return "", err
+	}
+	if !slices.Contains(free, placement.Interface) {
+		return "", Refusal(fmt.Sprintf("interface %s is missing, already has a HotSpot server or carries the Controller's connection to the Router", placement.Interface))
+	}
+	if err := c.CheckRange(ctx, placement.Interface, network); err != nil {
+		return "", err
+	}
+	name := "openpiso-" + placement.Interface
+	gateway, pool, err := c.ensureNetwork(ctx, placement.Interface, name, network)
+	if err != nil {
+		return "", err
+	}
+	if err := c.ensureNamed(ctx, "/ip/hotspot/profile", name, map[string]string{
+		"hotspot-address": gateway.String(), "login-by": "http-pap", "html-directory": LoginDirectory,
+	}); err != nil {
+		return "", fmt.Errorf("create HotSpot server profile %s: %w", name, err)
+	}
+	if err := c.ensureNamed(ctx, "/ip/hotspot", name, map[string]string{
+		"interface": placement.Interface, "profile": name, "address-pool": pool, "disabled": "no",
+	}); err != nil {
+		return "", fmt.Errorf("create HotSpot server %s: %w", name, err)
+	}
+	return name, nil
+}
+
+// ensureNetwork gives iface what Devices need to join it, adding only what is
+// missing and never changing what is there: an address on network (its first
+// host), a DHCP server named name with a pool of the other hosts, and a DHCP
+// network. It returns the interface's gateway address and the DHCP server's pool.
+func (c *Client) ensureNetwork(ctx context.Context, iface, name string, network netip.Prefix) (netip.Addr, string, error) {
+	gateway := network.Addr().Next()
+	addresses, err := c.list(ctx, "/ip/address?interface="+url.QueryEscape(iface))
+	if err != nil {
+		return netip.Addr{}, "", err
+	}
+	if len(addresses) > 0 {
+		prefix, err := netip.ParsePrefix(addresses[0]["address"])
+		if err != nil {
+			return netip.Addr{}, "", fmt.Errorf("read address of %s: %w", iface, err)
+		}
+		gateway, network = prefix.Addr(), prefix.Masked()
+	} else if err := c.request(ctx, http.MethodPut, "/ip/address", map[string]string{
+		"address": netip.PrefixFrom(gateway, network.Bits()).String(), "interface": iface, "comment": name,
+	}, nil); err != nil {
+		return netip.Addr{}, "", fmt.Errorf("add address on %s: %w", iface, err)
+	}
+
+	servers, err := c.list(ctx, "/ip/dhcp-server?interface="+url.QueryEscape(iface))
+	if err != nil {
+		return netip.Addr{}, "", err
+	}
+	pool := name
+	if len(servers) > 0 && servers[0]["address-pool"] != "" && servers[0]["address-pool"] != "static-only" {
+		pool = servers[0]["address-pool"]
+	}
+	pools, err := c.list(ctx, "/ip/pool?name="+url.QueryEscape(pool))
+	if err != nil {
+		return netip.Addr{}, "", err
+	}
+	if len(pools) == 0 {
+		if err := c.request(ctx, http.MethodPut, "/ip/pool", map[string]string{"name": pool, "ranges": poolRanges(network, gateway)}, nil); err != nil {
+			return netip.Addr{}, "", fmt.Errorf("add address pool %s: %w", pool, err)
+		}
+	}
+	if len(servers) == 0 {
+		if err := c.request(ctx, http.MethodPut, "/ip/dhcp-server", map[string]string{
+			"name": name, "interface": iface, "address-pool": pool, "disabled": "no",
+		}, nil); err != nil {
+			return netip.Addr{}, "", fmt.Errorf("add DHCP server on %s: %w", iface, err)
+		}
+	}
+
+	if found, err := c.dhcpNetwork(ctx, network); err != nil {
+		return netip.Addr{}, "", err
+	} else if !found {
+		if err := c.request(ctx, http.MethodPut, "/ip/dhcp-server/network", map[string]string{
+			"address": network.String(), "gateway": gateway.String(), "dns-server": gateway.String(), "comment": name,
+		}, nil); err != nil {
+			return netip.Addr{}, "", fmt.Errorf("add DHCP network %s: %w", network, err)
+		}
+	}
+	return gateway, pool, nil
+}
+
+// serverNetwork checks that server's interface has an address, a DHCP server
+// with its pool, and a DHCP network for the address. Its fix creates the
+// missing pieces on the range the server already uses, or a suggested one.
+func (c *Client) serverNetwork(server HotspotServer) Check {
+	iface := server.Interface
+	return Check{
+		Name:     "server-network",
+		Server:   server.Name,
+		Title:    "The interface has an address, a DHCP server and a pool",
+		FixLabel: "Create what is missing",
+		Verify: func(ctx context.Context) (Verdict, error) {
+			network, ok, err := c.interfaceRange(ctx, iface)
+			if err != nil {
+				return Verdict{}, err
+			}
+			if !ok {
+				return Verdict{Reason: "Interface " + iface + " has no address"}, nil
+			}
+			servers, err := c.list(ctx, "/ip/dhcp-server?interface="+url.QueryEscape(iface))
+			if err != nil {
+				return Verdict{}, err
+			}
+			if len(servers) == 0 {
+				return Verdict{Reason: "Interface " + iface + " has no DHCP server"}, nil
+			}
+			if servers[0]["disabled"] == "true" {
+				return Verdict{Reason: "DHCP server " + servers[0]["name"] + " is disabled",
+					Manual: "On the Router, enable DHCP server " + servers[0]["name"] + "."}, nil
+			}
+			pool := servers[0]["address-pool"]
+			if pool == "" || pool == "static-only" {
+				return Verdict{Reason: "DHCP server " + servers[0]["name"] + " gives only static leases",
+					Manual: "On the Router, give DHCP server " + servers[0]["name"] + " an address pool on " + network.String() + "."}, nil
+			}
+			pools, err := c.list(ctx, "/ip/pool?name="+url.QueryEscape(pool))
+			if err != nil {
+				return Verdict{}, err
+			}
+			if len(pools) == 0 {
+				return Verdict{Reason: "DHCP server " + servers[0]["name"] + " has no address pool"}, nil
+			}
+			found, err := c.dhcpNetwork(ctx, network)
+			if err != nil {
+				return Verdict{}, err
+			}
+			if !found {
+				return Verdict{Reason: "No DHCP network gives Devices on " + network.String() + " a gateway"}, nil
+			}
+			return met, nil
+		},
+		Fix: func(ctx context.Context) error {
+			network, err := c.serverRange(ctx, server)
+			if err != nil {
+				return err
+			}
+			if err := c.CheckRange(ctx, iface, network); err != nil {
+				return err
+			}
+			_, _, err = c.ensureNetwork(ctx, iface, "openpiso-"+iface, network)
+			return err
+		},
+	}
+}
+
+// serverRange is the range server uses: its interface's address range, else
+// the DHCP network holding its server profile's hotspot-address, else a
+// suggested range.
+func (c *Client) serverRange(ctx context.Context, server HotspotServer) (netip.Prefix, error) {
+	if network, ok, err := c.interfaceRange(ctx, server.Interface); err != nil || ok {
+		return network, err
+	}
+	profiles, err := c.list(ctx, "/ip/hotspot/profile?name="+url.QueryEscape(server.Profile))
+	if err != nil {
+		return netip.Prefix{}, err
+	}
+	if len(profiles) > 0 {
+		if address, err := netip.ParseAddr(profiles[0]["hotspot-address"]); err == nil {
+			networks, err := c.list(ctx, "/ip/dhcp-server/network")
+			if err != nil {
+				return netip.Prefix{}, err
+			}
+			for _, row := range networks {
+				if prefix, err := netip.ParsePrefix(row["address"]); err == nil && prefix.Contains(address) {
+					return prefix.Masked(), nil
+				}
+			}
+		}
+	}
+	return c.SuggestRange(ctx)
+}
+
+// interfaceRange is the range of iface's first address, and whether it has one.
+func (c *Client) interfaceRange(ctx context.Context, iface string) (netip.Prefix, bool, error) {
+	addresses, err := c.list(ctx, "/ip/address?interface="+url.QueryEscape(iface))
+	if err != nil || len(addresses) == 0 {
+		return netip.Prefix{}, false, err
+	}
+	prefix, err := netip.ParsePrefix(addresses[0]["address"])
+	if err != nil {
+		return netip.Prefix{}, false, fmt.Errorf("read address of %s: %w", iface, err)
+	}
+	return prefix.Masked(), true, nil
+}
+
+// dhcpNetwork reports whether a DHCP network covers network.
+func (c *Client) dhcpNetwork(ctx context.Context, network netip.Prefix) (bool, error) {
+	rows, err := c.list(ctx, "/ip/dhcp-server/network")
+	if err != nil {
+		return false, err
+	}
+	return slices.ContainsFunc(rows, func(row map[string]string) bool {
+		prefix, err := netip.ParsePrefix(row["address"])
+		return err == nil && prefix.Bits() <= network.Bits() && prefix.Contains(network.Addr())
+	}), nil
+}
+
+// takenRanges are the ranges of every address and route on the Router, but the
+// default route.
+func (c *Client) takenRanges(ctx context.Context) ([]netip.Prefix, error) {
+	var taken []netip.Prefix
+	for _, source := range []struct{ path, field string }{{"/ip/address", "address"}, {"/ip/route", "dst-address"}} {
+		rows, err := c.list(ctx, source.path)
+		if err != nil {
+			return nil, err
+		}
+		for _, row := range rows {
+			if prefix, err := netip.ParsePrefix(row[source.field]); err == nil && prefix.Bits() > 0 {
+				taken = append(taken, prefix.Masked())
+			}
+		}
+	}
+	return taken, nil
+}
+
+func uint32of(address netip.Addr) uint32 { return binary.BigEndian.Uint32(address.AsSlice()) }
+
+func addrOf(value uint32) netip.Addr {
+	return netip.AddrFrom4([4]byte(binary.BigEndian.AppendUint32(nil, value)))
+}
+
+// private reports whether network lies wholly inside one private block.
+func private(network netip.Prefix) bool {
+	return slices.ContainsFunc(privateRanges, func(block netip.Prefix) bool {
+		return block.Bits() <= network.Bits() && block.Contains(network.Addr())
+	})
+}
+
+// poolRanges are network's hosts but gateway, in RouterOS pool syntax.
+func poolRanges(network netip.Prefix, gateway netip.Addr) string {
+	first := network.Masked().Addr().Next()
+	last := addrOf(uint32of(network.Masked().Addr()) + uint32(1)<<(32-network.Bits()) - 2)
+	var ranges []string
+	if gateway.Compare(first) > 0 {
+		ranges = append(ranges, first.String()+"-"+gateway.Prev().String())
+	}
+	if gateway.Compare(last) < 0 {
+		ranges = append(ranges, gateway.Next().String()+"-"+last.String())
+	}
+	return strings.Join(ranges, ",")
+}

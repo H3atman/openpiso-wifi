@@ -1,4 +1,4 @@
-{{/* Router setup: connect a Router, the checklist of the Router and each Adopted server, then Use existing Adopts the ticked HotSpot servers. */}}
+{{/* Router setup: connect a Router, the checklist of the Router and each Adopted server, then Use existing Adopts the ticked HotSpot servers and Add alongside creates one. */}}
 {{define "content"}}
 {{if .Connected}}
 <section class="card narrow">
@@ -24,6 +24,19 @@
       {{end}}<div><button class="btn" type="submit">Review changes</button></div>
     </form>
     {{else}}<p class="muted-fg">Every HotSpot server on the Router is Adopted.</p>{{end}}
+  </div>
+</section>
+<section class="card narrow">
+  <div class="card-head"><div><h3>Add alongside</h3><p class="muted-fg">Create a new HotSpot server on an interface that has none, and Adopt it. The HotSpot servers already on the Router are not changed.</p></div></div>
+  <div class="card-body">
+    {{with .AddAlongside}}{{if .Interfaces}}
+    <form class="form" method="post" action="/admin/router/add-alongside">
+      <label class="field">Interface <select name="interface" required>{{range .Interfaces}}<option value="{{.}}">{{.}}</option>{{end}}</select></label>
+      <label class="field">Address range <input name="range" value="{{.Range}}" required></label>
+      <p class="xs muted-fg">Suggested: the next private range of the same size that overlaps nothing on the Router. The Controller adds the address, an address pool, a DHCP server, a server profile and the HotSpot server.</p>
+      <div><button class="btn" type="submit">Create and Adopt</button></div>
+    </form>
+    {{else}}<p class="muted-fg add-alongside-none">No interface is free: every interface has a HotSpot server, is a bridge port or carries the Controller's connection to the Router. Add a VLAN or free a port first.</p>{{end}}{{end}}
   </div>
 </section>
 {{end}}

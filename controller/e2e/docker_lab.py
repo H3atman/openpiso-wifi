@@ -375,6 +375,7 @@ class DockerLab:
 
     router_url = f"https://{ROUTER_WAN}"
     router_password = ROUTER_PASSWORD
+    controller_data = "/data"  # the Controller's ledger directory in its container; a fresh ledger goes under it
     browser_limits = ["--memory", f"{BROWSER_MEMORY >> 20}m", "--memory-swap", f"{BROWSER_MEMORY >> 20}m"]
 
     def __init__(self, run, binary: Path, keep: bool):
@@ -509,9 +510,54 @@ class DockerLab:
         """Start the Controller in its container (run.Controller calls this). Its data is the container's
         /data, so it survives restarts; the WAN gateway the harness arrives from is its admin network."""
         env = {"OPENPISO_ADMIN_PASSWORD": self.run.ADMIN_PASSWORD} if initialize else {}
-        script = ('exec openpiso -listen 0.0.0.0:18080 -data /data -portal-url "$1" '
+        script = ('mkdir -p "$2" && exec openpiso -listen 0.0.0.0:18080 -data "$2" -portal-url "$1" '
                   '-admin-network "$(cat /run/admin-network)"')
-        return ContainerProcess(self.controller, ["sh", "-c", script, "sh", PORTAL_URL], env)
+        return ContainerProcess(self.controller, ["sh", "-c", script, "sh", PORTAL_URL, self.controller_data], env)
+
+    def ledger(self, statement: str, *params) -> None:
+        """Run one SQL statement on the ledger in controller_data (the lab image's Python has sqlite3)."""
+        script = ("import json, sqlite3, sys; db = sqlite3.connect(sys.argv[1]); "
+                  "db.execute(sys.argv[2], json.loads(sys.argv[3])); db.commit()")
+        sh("docker", "exec", self.controller, "python3", "-I", "-c", script, f"{self.controller_data}/openpiso.db",
+           statement, json.dumps(params))
+
+    def controller_return_route(self, up: bool) -> None:
+        """Take away (or give back) the Controller's route to the HotSpot networks via the Router: its replies
+        to a HotSpot address then have no way back, as with a Router that is not the Controller's gateway."""
+        sh("docker", "exec", self.controller, "ip", "route", "replace" if up else "del", "10.5.0.0/16", "via", ROUTER_WAN)
+
+    def remove_vlan_hotspots(self) -> None:
+        """Take the lab's VLAN 10 and 20 HotSpots off the Router, so hs1 is its only HotSpot server, as
+        --only onboarding expects (lab/chr/hotspot_lab.py then adds the server the Operator does not Adopt)."""
+        for vlan in VLAN_DEVICE_MACS:
+            name = f"opnw-vlan{vlan}"
+            for path, query in (("/ip/hotspot", f"name={name}"), ("/ip/hotspot/profile", f"name={name}"),
+                                ("/ip/dhcp-server/lease", f"server={name}"), ("/ip/dhcp-server", f"name={name}"),
+                                ("/ip/dhcp-server/network", f"address=10.5.{vlan}.0%2F24"), ("/ip/pool", f"name={name}"),
+                                ("/ip/address", f"interface={name}"), ("/interface/vlan", f"name={name}")):
+                for row in self._rest(f"{path}?{query}"):
+                    self._rest(f"{path}/{row['.id']}", "DELETE")
+
+    def vlan_device(self, suffix: str, mac: str, vlan: int, static: str = "") -> str:
+        """A Device on VLAN vlan of the LAN, with a lease, or with static "address/length gateway"; returns
+        its address. Its only route is out that VLAN. Remove it with remove_devices."""
+        device = self.lab.device(suffix, mac)
+        interface = f"eth0.{vlan}"
+        device_exec(device, f"ip link add link eth0 name {interface} type vlan id {vlan} && ip link set {interface} up")
+        if static:
+            address, gateway = static.split()
+            device_exec(device, f"ip addr add {address} dev {interface} && ip route add default via {gateway}")
+            self._lan[device] = address.split("/")[0]
+        else:
+            self._lan[device] = device_lease(device, interface)
+        return self._lan[device]
+
+    def remove_devices(self, *suffixes: str) -> None:
+        names = [f"{self.lab.name}-{suffix}" for suffix in suffixes]
+        if gone := [name for name in names if name in self.lab.containers()]:
+            sh("docker", "rm", "-f", "-v", *gone)
+        for name in names:
+            self._lan.pop(name, None)
 
     def new_router_certificate(self) -> None:
         """Give the Router a fresh TLS certificate and bootstrap admin."""

@@ -64,6 +64,7 @@ func Open(path string) (*Ledger, error) {
 		timeCreditProfileSchema,
 		portalSchema,
 		voucherTemplateSchema,
+		portalArrivalSchema,
 	} {
 		if _, err := db.Exec(statement); err != nil {
 			db.Close()
@@ -107,6 +108,10 @@ func Open(path string) (*Ledger, error) {
 	if err := store.backfillResumeCodes(); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("initialize Resume Codes: %w", err)
+	}
+	if err := store.initializeAdoptedServers(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("initialize Adopted HotSpot servers: %w", err)
 	}
 	return store, nil
 }

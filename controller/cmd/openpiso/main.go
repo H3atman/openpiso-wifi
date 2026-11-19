@@ -68,17 +68,24 @@ func main() {
 		})
 		if err == nil {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			var settings ledger.PauseSettings
-			settings, err = store.PauseSettings()
+			err = adoptAllIfPending(ctx, store, client)
+			var adopted []string
 			if err == nil {
-				err = client.EnsureBaseline(ctx, *portalURL, settings.IdleSeconds)
+				adopted, err = store.AdoptedHotspotServers()
+			}
+			var settings ledger.PauseSettings
+			if err == nil {
+				settings, err = store.PauseSettings()
+			}
+			if err == nil {
+				err = client.EnsureBaseline(ctx, *portalURL, settings.IdleSeconds, adopted)
 			}
 			var use ledger.ProfileUse
-			if err == nil {
+			if err == nil && len(adopted) > 0 {
 				use, err = store.HotspotProfileUse()
-			}
-			if err == nil {
-				err = client.EnsurePauseSettings(ctx, settings.IdleEnabled, settings.IdleSeconds, use.TimeCredits, use.Profiles)
+				if err == nil {
+					err = client.EnsurePauseSettings(ctx, settings.IdleEnabled, settings.IdleSeconds, use.TimeCredits, use.Profiles)
+				}
 			}
 			client.Close()
 			cancel()
@@ -104,4 +111,18 @@ func main() {
 	if err := server.ListenAndServe(); err != nil {
 		log.Fatal(fmt.Errorf("serve Controller: %w", err))
 	}
+}
+
+// adoptAllIfPending Adopts every HotSpot server on the Router when the ledger
+// predates Router setup, since that Controller managed them all (ADR 0011).
+func adoptAllIfPending(ctx context.Context, store *ledger.Ledger, client *routeros.Client) error {
+	pending, err := store.AdoptAllPending()
+	if err != nil || !pending {
+		return err
+	}
+	servers, err := client.HotspotServers(ctx)
+	if err != nil {
+		return fmt.Errorf("list HotSpot servers: %w", err)
+	}
+	return store.AdoptHotspotServers(servers)
 }

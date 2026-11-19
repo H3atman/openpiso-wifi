@@ -24,7 +24,7 @@ const portalCSP = "default-src 'self'; form-action 'self'; frame-ancestors 'none
 
 // sharedTemplates are parsed into every page set: the layout and the partials
 // more than one page renders.
-var sharedTemplates = []string{"layout.html", "tier_editor.html"}
+var sharedTemplates = []string{"layout.html", "tier_editor.html", "checklist.html"}
 
 // parsePages builds one template set per page file: sharedTemplates plus <page>.html.
 // Each page file defines "content" (and any named fragments); sets are separate so
@@ -182,7 +182,7 @@ func platformNav() []navItem {
 			{Label: "Validity", Href: "/admin/validity"},
 			{Label: "Portal", Href: "/admin/portal"},
 			{Label: "Voucher template", Href: "/admin/voucher-template"},
-			{Label: "Router", Href: "/admin"},
+			{Label: "Router setup", Href: "/admin"},
 		}},
 	}
 }

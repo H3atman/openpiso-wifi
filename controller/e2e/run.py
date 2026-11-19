@@ -70,17 +70,6 @@ _docker_spec.loader.exec_module(_docker_module)
 LABS = {"libvirt": _libvirt_module.LibvirtLab, "docker": _docker_module.DockerLab}
 
 
-def ported(lab, report, ticket: int, *names: str) -> bool:
-    """Whether this lab runs ticket's scenarios. If not, names them as skipped in the report and the log.
-    Remove each call once its ticket ports the scenarios."""
-    if ticket not in lab.not_ported:
-        return True
-    report.data.setdefault("not_ported", {}).setdefault(f"#{ticket}", []).extend(names)
-    for name in names:
-        print(f"SKIP {name}: not ported to the Docker lab yet (#{ticket})", flush=True)
-    return False
-
-
 def assert_refused(error, code: str) -> None:
     """A Portal refusal carries the Portal's message. Only labs whose fetch keeps the reply (DockerLab)
     can check it; RouterOS /tool/fetch drops the body, so there the status is all there is."""
@@ -5436,10 +5425,7 @@ def scenario(args, report: Report, lab) -> None:
                 coin_credit_after_expiry(opener, report, address, password, lab, device_ip, coin_vendo)
                 voucher_while_tapped_paused(opener, report, address, password, lab, device_ip)
                 assert request(opener, "/admin/vendos/unpair", "POST", {"id": paired_coins["id"]}).status == 204
-                if ported(lab, report, 33, "sales-report-search-ip-mac-user-literal-totals-navigation",
-                          "sales-report-rows-late-stray-open-vouchers-pagination-auth",
-                          "sales-report-vendo-filter-unpaired-history", "sales-report-csv-export"):
-                    sales_report(opener, report, address, password, lab)
+                sales_report(opener, report, address, password, lab)
                 custom_portal(opener, report, address, password, lab, device_ip)
                 _browser_module.scenario(sys.modules[__name__], opener, address, password, lab, report, restart_browser_controller)
                 _flash_module.scenario(sys.modules[__name__], opener, address, password, lab, report)
@@ -5500,8 +5486,6 @@ ONLY_SCENARIOS = {
     "boot": "with --armv7: boot the ARM guest through cloud-init and verify SSH, without CHR",
     "update": "with --armv7, without CHR: install a throwaway-key v0.1.0, then update, roll back and refuse releases (see update_vm.py)",
 }
-# --only scenarios the Docker lab has not ported yet, by the ticket that ports them.
-ONLY_TICKETS = {"sales": 33, "vendo-list": 33, "shop-defaults": 33}
 
 
 def main() -> None:
@@ -5510,8 +5494,7 @@ def main() -> None:
                         help="run onboarding, then one scenario: " + "; ".join(f"{name}: {what}" for name, what in ONLY_SCENARIOS.items()))
     parser.add_argument("--lab", choices=LABS, default="libvirt",
                         help="which lab runs the Router, Devices and Vendos (default libvirt). docker: a throwaway "
-                             "Docker lab per run (stock CHR, Controller, Devices), no lab lock; runs the Device "
-                             "journeys and skips scenarios not ported to it yet")
+                             "Docker lab per run (stock CHR, Controller, Devices), no lab lock")
     parser.add_argument("--keep", action="store_true", help="with --lab docker: leave the lab running and print how to reach and remove it")
     parser.add_argument("--build", action="store_true", help="build the Controller while holding the lab lock")
     parser.add_argument("--binary", help="Controller binary under test; --only update builds its own")
@@ -5538,10 +5521,6 @@ def main() -> None:
             parser.error("--armv7 runs on the libvirt lab only")
         if args.write_vlan_hosts:
             parser.error("--write-vlan-hosts refreshes research recorded on the libvirt lab only")
-        if args.only in ONLY_TICKETS:
-            ticket = ONLY_TICKETS[args.only]
-            print(f"SKIP --only {args.only}: not ported to the Docker lab yet (#{ticket})", flush=True)
-            return
         run(args)  # each Docker lab is its own; the shared CHR lab's lock does not apply
         return
     with _safety_module.lab_lock(args.lock_timeout):

@@ -36,13 +36,12 @@ These are not tested yet, but should work as the Controller:
 
 ## Your Router before you start
 
-This Guide starts from a MikroTik that already sells WiFi through a working **HotSpot server** (the RouterOS feature that holds customers at a login page until they may go online). It does not set up the HotSpot itself. Check each item below; the links go to MikroTik's own documentation.
+Your MikroTik does not need a **HotSpot server** yet (a HotSpot server is one captive network on the Router: the interface customers join, with its own login page and address range). When you connect the Router, you choose to use a HotSpot server you already have, add a new one next to it, or start fresh; the Controller can create the server for you. Check each item below; the links go to MikroTik's own documentation.
 
 - [ ] **RouterOS v7.** In WebFig or Winbox, **System › Resources** shows the version. It must start with `7.`. To upgrade, see [Upgrading and installation](https://help.mikrotik.com/docs/spaces/ROS/pages/328142/Upgrading+and+installation).
-- [ ] **A working HotSpot server**, with its network and DHCP server, that customers' phones already join. See [HotSpot – Captive portal](https://help.mikrotik.com/docs/spaces/ROS/pages/56459266/HotSpot+-+Captive+portal).
 - [ ] **`www-ssl` turned on, with a certificate.** `www-ssl` is the Router's HTTPS service; the Controller manages the Router through it. The certificate must name the address the Controller uses to reach the Router, for example `192.168.10.1`. See [Services](https://help.mikrotik.com/docs/spaces/ROS/pages/103841820/Services) and [Certificates](https://help.mikrotik.com/docs/spaces/ROS/pages/2555969/Certificates). If you have none yet, the commands below make one.
 - [ ] **The Router admin username and password**, for a user with full rights. You type them once, when you connect the Router.
-- [ ] **The board on your MikroTik's LAN**, where the Router can reach it and it can reach the Router. Customers' traffic to the board must keep the customer's own address: if your NAT masquerade rule has no out-interface, give it your internet port, so it does not change traffic going to the board.
+- [ ] **The board on your MikroTik's LAN**, where the Router can reach it and it can reach the Router. Customers' traffic to the board must keep the customer's own address. The Controller adds a rule for this to each HotSpot server it manages, so you do not change your NAT masquerade rule. The board must also have a way back to the customers' address range: a board that uses the Router as its gateway has one.
 
 ### Make a certificate for `www-ssl`
 
@@ -64,14 +63,21 @@ Signing can take a few seconds each. The Controller accepts this certificate bec
 
 ## What the Controller changes on your Router
 
-When you connect the Router, the Controller sets up the Router for you. You do not type any of this; it is listed so you know what to expect:
+The Controller changes only the HotSpot servers you **Adopt** (put under its management). Any other HotSpot server, and its login page, is left as it is. You do not type any of this; it is listed so you know what to expect.
 
+When you connect the Router:
+
+- It saves a backup of the Router, named `openpiso-` followed by the date and time, using your admin login. Restoring it puts the Router back as it was.
 - It adds a Router user and group named `openpiso-controller`, with a random password, and uses only that user from then on. Your admin password is not saved.
-- It adds two HotSpot user profiles, `openpiso-no-idle` and `openpiso-idle`.
-- It sets every HotSpot server profile in use to log customers in by `http-pap` only, with the `hotspot` HTML directory.
-- It adds one walled-garden rule, `openpiso-controller`, so customers who have not paid can still open the Portal.
-- It replaces the HotSpot's `hotspot/login.html` with a page that sends customers to the Portal.
 
-If you had your own HotSpot login page, it is replaced. The Controller checks these settings every time it starts and puts back any that were changed.
+It changes no HotSpot server when you connect. Once you Adopt one:
+
+- It adds two HotSpot user profiles, `openpiso-no-idle` and `openpiso-idle`.
+- It adds one walled-garden rule, `openpiso-controller`, so customers who have not paid can still open the Portal.
+- It sets each Adopted server's server profile to log customers in by `http-pap` only, with the Controller's own `openpiso` login page folder. That folder holds a page that sends customers to the Portal. The Router's own `hotspot` folder is not changed.
+- It adds a NAT rule named `openpiso-controller-` followed by the server's name, above your other NAT rules, so customers keep their own address on the way to the board. It adds this when it creates the server, or when you select its button on the checklist.
+- If the Controller creates the server for you, it also adds the server's address, address pool, DHCP server and, on a new VLAN, the VLAN interface.
+
+Every time it starts, the Controller puts back the two user profiles, the walled-garden rule, and each Adopted server's login method and login page if they were changed. The rest is shown on the Router setup checklist, with a button where the Controller can fix it.
 
 Next: [Install the Controller](install-the-controller.md).

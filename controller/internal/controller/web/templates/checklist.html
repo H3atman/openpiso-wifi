@@ -4,4 +4,6 @@
 <h4>{{if .Server}}HotSpot server {{.Server}}{{else}}Router{{end}}</h4>
 <ul class="checklist">{{range .Items}}
   <li class="check" data-check="{{.Name}}" data-server="{{.Server}}" data-met="{{.Met}}"><span class="badge"><span class="dot {{if .Met}}good{{else}}warn{{end}}"></span>{{if .Met}}Met{{else}}Not met{{end}}</span> {{.Title}}{{if not .Met}}<br><span class="check-reason">{{.Reason}}</span>{{if .Manual}}<p class="check-manual">{{.Manual}}</p>{{end}}{{if .Fixable}}<form method="post" action="/admin/router/fix"><input type="hidden" name="check" value="{{.Name}}"><input type="hidden" name="server" value="{{.Server}}"><button class="btn sm" type="submit">{{.FixLabel}}</button></form>{{end}}{{end}}</li>{{end}}
-</ul>{{end}}{{end}}
+</ul>{{if .Missing}}
+<p class="check-manual">HotSpot server {{.Server}} is no longer on the Router. If you removed it on purpose, forget it: the Controller stops managing it, and nothing on the Router changes.</p>
+<form class="forget-server" method="post" action="/admin/router/forget"><input type="hidden" name="server" value="{{.Server}}"><button class="btn sm" type="submit">Forget this server</button></form>{{end}}{{end}}{{end}}

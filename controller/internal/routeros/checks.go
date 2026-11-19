@@ -270,7 +270,7 @@ func (c *Client) serverEnabled(name string) Check {
 			}
 			if len(servers) == 0 {
 				return Verdict{Reason: "HotSpot server " + name + " is missing on the Router",
-					Manual: "Create HotSpot server " + name + " on the Router again, or restore the Router backup."}, nil
+					Manual: "Create HotSpot server " + name + " on the Router again or restore the Router backup; if you removed it on purpose, forget it."}, nil
 			}
 			if servers[0]["disabled"] == "true" {
 				return Verdict{Reason: "HotSpot server " + name + " is disabled"}, nil

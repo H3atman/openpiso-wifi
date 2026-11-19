@@ -6,8 +6,9 @@ authoritative doc for each. It does not redefine terms ([`GLOSSARY.md`](GLOSSARY
 re-argue decisions ([`docs/adr/`](docs/adr/)), restate evidence
 ([`docs/research/`](docs/research/)), or list acceptance criteria
 ([the issues](https://github.com/H3atman/openpiso-wifi/issues)). Capitalized terms
-(Controller, Router, Device, Time Credit, Voucher, Coin Window, Pause, Idle Pause,
-Pause Limit, Validity, Resume Code, Rebind, Top-up, Vendo, Release, Release key)
+(Controller, Router, HotSpot server, Adopt, Device, Time Credit, Voucher, Coin
+Window, Pause, Idle Pause, Pause Limit, Validity, Resume Code, Rebind, Top-up,
+Vendo, Release, Release key)
 are the glossary's;
 use them verbatim in code, commits, and prompts.
 
@@ -58,10 +59,15 @@ The update helper is the only outbound internet dependency: it reaches
 itself still talks only to the Router, its Vendos, and the Devices it serves.
 
 The Controller reaches the Router only through a **Router client** seam (all
-RouterOS REST calls: baseline provision/verify, Time Credit user/profile setup,
-active-session login/removal, used-time reads, Vendo rules, version check). The
-Router's `login.html` does nothing but redirect to the Controller portal with
-the Device MAC and IP.
+RouterOS REST calls: the connect backup, the Router setup checks, each a verify
+with an optional fix, HotSpot server creation, the Fresh start wipe, Time Credit
+user/profile setup, active-session login/removal, used-time reads, Vendo rules).
+The Controller manages only the HotSpot servers the Operator Adopts
+([ADR 0011](docs/adr/0011-controller-manages-only-adopted-hotspot-servers.md)):
+each Adopted server's server profile points at the Controller's own login page
+directory, `openpiso`, whose `login.html` does nothing but redirect to the
+Controller portal with the Device MAC and IP. Servers it has not Adopted, and
+the Router's own `hotspot` directory, are never changed.
 
 ## Identity: Time Credit vs Device (the crux)
 
@@ -105,6 +111,25 @@ RADIUS/PPPoE is deferred behind an `Aaa` seam (not in the MVP).
 Each flow: trigger → Router action → ledger effect. Acceptance criteria are in
 the linked issue.
 
+- **Router setup** ([ADR 0011](docs/adr/0011-controller-manages-only-adopted-hotspot-servers.md)):
+  connect pins the Router certificate, then, with the admin login once, saves a
+  Router backup and creates the limited `openpiso-controller` user; it changes
+  no HotSpot server → the Operator picks a start: **Fresh start** (only with no
+  Time Credits and no Vendos paired or waiting to pair, while the connect backup
+  is still on the Router) deletes the HotSpot tree, keeps everything outside it,
+  and creates one server; **Use existing** Adopts ticked servers; **Add
+  alongside** creates a server on a new VLAN (ID suggested from 2) or a free
+  interface, never on a bridge with VLAN filtering on → the ledger records the
+  Adopted set, and the baseline repairs only the Router's shared objects and the
+  Adopted servers. Each start ends at one checklist read live from the Router,
+  per Adopted server: enabled, network, login method exactly `http-pap`, login
+  page, then a Controller NAT exemption (`openpiso-controller-<server>`) above
+  every other source NAT rule plus a Router ping to the Controller from the
+  server's address, and a Device seen at the Portal. Fixes only add or enable
+  Controller-owned objects; anything else is a manual step. An Adopted server
+  missing on the Router can be forgotten: the ledger drops it and its Portal
+  arrivals, and nothing is written to the Router. Next steps then lists the
+  Shop pages left to visit, read from the ledger; none of them blocks anything.
 - **Voucher online** ([#7](https://github.com/H3atman/openpiso-wifi/issues/7)):
   portal accepts a single-use code → atomically mark it used and credit its time
   to the cookie-identified Time Credit (or create one) → set `limit-uptime`,
@@ -226,7 +251,7 @@ Two reverse-engineered systems inform the design without being a base:
 ## Build order
 
 Walking skeleton first ([#6](https://github.com/H3atman/openpiso-wifi/issues/6)):
-Go binary + SQLite ledger + Router onboarding/baseline + CHR E2E harness. Then
+Go binary + SQLite ledger + Router connect/baseline + CHR E2E harness. Then
 the dependency chain: Voucher (#7) → Pause (#8) → Top-up (#9), with Rebind (#10),
 Reconciler (#11), Validity (#12), admin (#13) off those; Vendo pairing (#15) and
 Coin Window (#16) land last. The armv7/256 MB run + install script (#14) gates on

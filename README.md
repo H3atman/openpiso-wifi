@@ -11,7 +11,7 @@ OpenPiso WiFi turns a small Linux board into the **Controller** for your **Shop*
 ## What you need
 
 - A small Linux board for the Controller: an Orange Pi Zero on Armbian (tested), a Raspberry Pi on Raspberry Pi OS Lite, or any arm64 or amd64 computer that runs Linux with systemd.
-- A MikroTik on RouterOS v7 (tested) that already has a working HotSpot server, with `www-ssl` turned on and a certificate.
+- A MikroTik on RouterOS v7 (tested) with `www-ssl` turned on and a certificate. It needs no HotSpot server yet: the Controller can use one you have, add one alongside it, or start fresh.
 - A Windows PC on the same network, to set up the board.
 
 The full list is in [What you need](docs/guide/what-you-need.md).
@@ -33,7 +33,7 @@ The full list is in [What you need](docs/guide/what-you-need.md).
    ```
 
 3. **Log in.** On your PC, open `http://192.168.10.2/admin/login` and log in with the admin password.
-4. **Connect the Router.** Give the Controller your MikroTik's address and admin login, and confirm its certificate. See [Connect the Router](docs/guide/connect-the-router.md).
+4. **Connect the Router.** Give the Controller your MikroTik's address and admin login, confirm its certificate, and choose the HotSpot server it manages. See [Connect the Router](docs/guide/connect-the-router.md).
 5. **Sell your first Voucher.** Generate Vouchers, print them, and redeem one on a phone. See [Sell your first Voucher](docs/guide/sell-your-first-voucher.md).
 
 The [Guide](docs/guide/what-you-need.md) explains each step in full, starting with [Install the Controller](docs/guide/install-the-controller.md) for steps 1 to 3. It is also on the Website at [h3atman.github.io/openpiso-wifi](https://h3atman.github.io/openpiso-wifi/).

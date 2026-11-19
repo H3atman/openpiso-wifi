@@ -5517,8 +5517,6 @@ def main() -> None:
     if args.keep and args.lab != "docker":
         parser.error("--keep works on the Docker lab only")
     if args.lab == "docker":
-        if args.armv7:
-            parser.error("--armv7 runs on the libvirt lab only: add --lab libvirt")
         if args.write_vlan_hosts:
             parser.error("--write-vlan-hosts refreshes research recorded on the libvirt lab only: add --lab libvirt")
         run(args)  # each Docker lab is its own; the shared CHR lab's lock does not apply
@@ -5558,37 +5556,64 @@ def run(args: argparse.Namespace) -> None:
     report = Report(args.binary, args.report)
     if not no_lab:
         report.lab_snapshot = lab.snapshot
+    if docker or not no_lab:  # a Docker boot or update check has a DockerLab it never runs
         report.router_password = lab.router_password
     if partial_mode:
         report.data["scenario"] = partial_mode
+
+    def arm_headroom():
+        peak = ARM_VM.peak_rss_kib()
+        report.data["execution"]["peak_controller_rss_kib"] = peak
+        report.data["execution"]["rss_target_kib"] = 64 * 1024
+        assert 0 < peak < 64 * 1024, f"Controller peak RSS {peak} KiB; target <65536 KiB"
+
     try:
         if args.armv7:
             spec = importlib.util.spec_from_file_location("arm_vm", Path(__file__).with_name("arm_vm.py"))
             module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(module)
-            ARM_VM = module.ArmVM(Path(args.binary), args.arm_boot_timeout, args.report.with_suffix(".serial.log"))
-            ARM_VM.boot()
-            BASE_URL = PORTAL_URL = f"http://{ARM_VM.address}:18080"
+            serial = args.report.with_suffix(".serial.log")
+            if docker:
+                ARM_VM = module.ArmContainer(Path(args.binary), args.arm_boot_timeout, serial, _docker_module)
+            else:
+                ARM_VM = module.ArmVM(Path(args.binary), args.arm_boot_timeout, serial)
+            if docker and not no_lab:
+                lab.arm = ARM_VM  # the lab boots it on its WAN, in the Controller's place
+            else:
+                ARM_VM.boot()
+                BASE_URL = PORTAL_URL = ARM_VM.base_url
             if boot_only:
                 evidence = ARM_VM.boot_evidence()
                 assert evidence["machine"] == "armv7l", evidence
                 assert 0 < evidence["memory_total_kib"] <= 256 * 1024, evidence
                 assert evidence["swap_total_kib"] == 0, evidence
                 report.data["execution"] = evidence
+                if docker:
+                    report.data["test_seam"] = "ARMv7 guest under QEMU (TCG) in a Docker container, over SSH"
             elif update_only:
                 releases.run(ARM_VM, report, ADMIN_PASSWORD)
-            else:
+            elif not docker:
                 ARM_VM.route_customer_network(lab.router_address)
                 ARM_VM.install(ADMIN_PASSWORD)
                 assert_arm_install(ARM_VM, report)
+            if docker and no_lab:
+                report.data["execution"].update(ARM_VM.container_memory())
         if not no_lab:
             with lab.running(report):
+                if docker and ARM_VM is not None:
+                    ARM_VM.install(ADMIN_PASSWORD)
+                    assert_arm_install(ARM_VM, report)
+                    # The installed daily update check fires at a random time up to an hour after install
+                    # and, offline here, still writes status.json, which gives the Dashboard an update
+                    # notice its scenario rules out. Hold it for this run; the update check covers it.
+                    ARM_VM.ssh("sudo systemctl stop openpiso-update-check.timer; "
+                               "sudo test ! -e /var/lib/openpiso-update/status.json")
                 scenario(args, report, lab)
-        if ARM_VM is not None and not no_lab:
-            peak = ARM_VM.peak_rss_kib()
-            report.data["execution"]["peak_controller_rss_kib"] = peak
-            report.data["execution"]["rss_target_kib"] = 64 * 1024
-            assert 0 < peak < 64 * 1024, f"Controller peak RSS {peak} KiB; target <65536 KiB"
+                if docker and ARM_VM is not None:  # the guest goes with the lab
+                    arm_headroom()
+                    report.data["execution"].update(ARM_VM.container_memory())
+        if ARM_VM is not None and not no_lab and not docker:
+            arm_headroom()
     except Exception as error:
         report.capture_lab_failure()
         if ARM_VM is not None:

@@ -1,0 +1,48 @@
+{
+  "format_version": 1,
+  "scenario": "armv7-update",
+  "started_at": "2026-11-19T12:07:31.081790+00:00",
+  "git_commit": "f7e6f0c1c529b617da75d8bd8a140d6656eb2674",
+  "git_tree": "1ba104dc708dcc9588d9e7a41ead5da77f34e69a",
+  "git_dirty": true,
+  "binary_size_bytes": 22001881,
+  "binary_sha256": "7731914637ea733862a80a5e8e728a47b05ae41724ce44e497799eb4b7861fc4",
+  "test_seam": "install.sh and the update units in an ARMv7 guest; admin HTTP; release tree over an SSH reverse tunnel",
+  "result": "pass",
+  "execution": {
+    "architecture": "linux/arm/v7",
+    "vm_memory_mib": 256,
+    "boot_timeout_seconds": 900,
+    "image_url": "https://cloud-images.ubuntu.com/releases/bionic/release-20230607/ubuntu-18.04-server-cloudimg-armhf.img",
+    "image_sha256": "d3da9dfdd69857fd35cbfa562be84d013dfd024a72de55a8c6911268f76375c3",
+    "boot_artifacts": {
+      "https://cloud-images.ubuntu.com/releases/bionic/release-20230607/ubuntu-18.04-server-cloudimg-armhf.img": "d3da9dfdd69857fd35cbfa562be84d013dfd024a72de55a8c6911268f76375c3",
+      "https://cloud-images.ubuntu.com/releases/bionic/release-20230607/unpacked/ubuntu-18.04-server-cloudimg-armhf-vmlinuz-lpae": "44678e6f87bc764eb29c022b8b59bb8cb42333232a7e2d3027053bc328d5aba8",
+      "https://cloud-images.ubuntu.com/releases/bionic/release-20230607/unpacked/ubuntu-18.04-server-cloudimg-armhf-initrd-generic-lpae": "4076869995177d12acb9dbae444c8e891857cf24e842a283d499fd2f0499957c"
+    },
+    "container_memory_cap_mib": 512,
+    "boot_seconds": 428.361,
+    "guest_address": "10.77.7.1",
+    "machine": "armv7l",
+    "memory_total_kib": 238140,
+    "swap_total_kib": 0,
+    "service_user": "openpiso",
+    "logs_persistent_capped": true,
+    "binary_size_bytes": 22001881,
+    "qemu_peak_rss_mib": 433.3,
+    "container_oom_kills": 0
+  },
+  "finished_at": "2026-11-19T12:37:16.810996+00:00",
+  "steps": [
+    "installed-v0.1.0-timer-and-path-unit-active",
+    "check-records-unreachable-release-and-exits-0",
+    "check-refuses-manifest-signed-by-another-key",
+    "update-button-installs-v0.2.0-and-keeps-ledger",
+    "not-newer-release-not-offered-and-update-refused",
+    "unservable-release-rolled-back-with-ledger",
+    "tampered-asset-refused-without-stopping",
+    "mislabelled-release-refused-without-stopping",
+    "symlinked-request-only-unlinked",
+    "reinstall-keeps-units-and-update-state"
+  ]
+}

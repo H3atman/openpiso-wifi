@@ -52,6 +52,9 @@ REAL_INTERNET = "9.9.9.9"  # a public address the stand-in does not answer
 ROUTER_MEMORY = 320 << 20
 OTHER_MEMORY = 128 << 20
 BROWSER_MEMORY = 1 << 30
+# The ARMv7 guest's 256 MiB, TCG's 64 MiB translation cache and QEMU (about 435 MiB resident, measured),
+# plus room for the guest disk's page cache.
+ARM_MEMORY = 512 << 20
 DEVICE_MACS = {1: "02:00:00:00:0C:01", 2: "02:00:00:00:0C:02"}  # Device 1 is lab/chr/e2e_lab.py's DEVICE_MAC
 OWN_DEVICE_MAC = "02:00:00:00:0C:31"
 VLAN_DEVICE_MAC = "02:00:00:00:0C:11"
@@ -112,12 +115,15 @@ class Lab:
         self.name = "opnwlab-" + secrets.token_hex(3)
         self.image = image
         self.env = {"LAB": self.name, "LAB_IMAGE": image, "CHR_IMAGE": str(chr_image), "CONTROLLER_BINARY": str(binary)}
+        self.services = ("router", "controller", "internet")
 
     def compose(self, *args: str) -> str:
         return sh("docker", "compose", "-f", str(LAB_DIR / "compose.yml"), *args, env={**os.environ, **self.env})
 
-    def up(self) -> None:
-        self.compose("up", "-d")
+    def up(self, *services: str) -> None:
+        """Start the compose project: every service, or only these."""
+        self.services = services or self.services
+        self.compose("up", "-d", *services)
 
     def port(self, service: str, port: int) -> str:
         return self.compose("port", service, str(port)).strip()
@@ -143,7 +149,7 @@ class Lab:
 
     def logs(self) -> dict:
         return {service: self.compose("logs", "--no-color", "--tail", "40", service)[-4000:]
-                for service in ("router", "controller", "internet")}
+                for service in self.services}
 
     def remove_command(self) -> str:
         return (f"docker rm -f -v {' '.join(self.containers())} && "
@@ -305,14 +311,15 @@ def sealed_from_internet(lab: Lab, device: str) -> dict:
 
 def memory_caps(lab: Lab) -> dict:
     """Every lab container has a hard memory cap (no swap beyond it): the Router 320 MB, browsers 1 GB,
-    the rest 128 MB."""
+    the ARMv7 guest 512 MB, the rest 128 MB."""
     return {container: memory_cap(container) for container in lab.containers()}
 
 
 def memory_cap(container: str) -> str:
     memory, swap = sh("docker", "inspect", "-f", "{{.HostConfig.Memory}} {{.HostConfig.MemorySwap}}",
                       container).split()
-    want = ROUTER_MEMORY if "-router-" in container else BROWSER_MEMORY if "-browser-" in container else OTHER_MEMORY
+    want = (ROUTER_MEMORY if "-router-" in container else BROWSER_MEMORY if "-browser-" in container
+            else ARM_MEMORY if container.endswith("-armv7") else OTHER_MEMORY)
     assert int(memory) == int(swap) == want, (container, memory, swap)
     return f"{want >> 20} MB"
 
@@ -358,6 +365,7 @@ class DockerLab:
         self.binary = binary.resolve()
         self.keep = keep
         self.lab = None
+        self.arm = None  # run.py's ArmContainer for --armv7: it takes the Controller's place on the WAN
         self._ip = {}  # Device container -> its leased address, while it is on the WiFi
         self._lan = {}  # Vendo board and VLAN Device container -> its leased address
         self._vendo_senders = {}  # Vendo ID -> the container it made first contact from
@@ -387,7 +395,11 @@ class DockerLab:
                               "image": self.lab.image}
         try:
             try:
-                self.lab.up()
+                if self.arm is None:
+                    self.lab.up()
+                else:  # the ARMv7 guest is the Controller, at its address on the WAN
+                    self.lab.up("router", "internet")
+                    self.arm.boot(self.lab.name)
                 self._setup(report)
                 yield
             except BaseException:
@@ -401,6 +413,9 @@ class DockerLab:
             for signum in SIGNALS:
                 signal.signal(signum, signal.SIG_IGN)  # a second signal must not cut the removal short
             report.data["lab"]["run_seconds"] = round(time.monotonic() - started, 1)
+            if self.arm is not None and self.arm.created:
+                with contextlib.suppress(AssertionError, ValueError):
+                    self.arm.container_memory()  # for the failure evidence: the guest goes with the lab
             if self.keep:
                 self._print_kept()
             else:
@@ -415,10 +430,13 @@ class DockerLab:
 
     def _setup(self, report) -> None:
         self.attach(self.lab)
-        self.controller = f"{self.lab.name}-controller-1"
-        self.run.BASE_URL = "http://" + self.lab.port("controller", 18080)
+        if self.arm is None:
+            self.controller = f"{self.lab.name}-controller-1"
+            self.run.BASE_URL = "http://" + self.lab.port("controller", 18080)
+            self.run.CONTROLLER_HOST = self
+        else:
+            self.run.BASE_URL = self.arm.base_url  # run.Controller starts and stops it over SSH
         self.run.PORTAL_URL = PORTAL_URL
-        self.run.CONTROLLER_HOST = self
         self.run.SimulatedVendo = container_vendo(self.run.SimulatedVendo, self._vendo_senders)
         self.run._browser_module.LAN = self
         report.data["lab"].update(self.set_up_router())
@@ -672,10 +690,14 @@ class DockerLab:
     def _print_kept(self) -> None:
         lines = [f"Lab {self.lab.name} left running (--keep)."]
         try:
-            lines += [f"  Router REST:  http://{self.lab.port('router', 8080)}/rest and https://{self.lab.port('router', 8443)}/rest "
-                      f"(admin / {ROUTER_PASSWORD}, or admin with no password if setup did not get that far)",
-                      f"  Controller:   http://{self.lab.port('controller', 18080)}/admin (password {self.run.ADMIN_PASSWORD}); "
-                      f"stopped at the end of a run, start it with docker exec {self.controller} openpiso ..."]
+            lines.append(f"  Router REST:  http://{self.lab.port('router', 8080)}/rest and https://{self.lab.port('router', 8443)}/rest "
+                         f"(admin / {ROUTER_PASSWORD}, or admin with no password if setup did not get that far)")
+            if self.arm is None:
+                lines.append(f"  Controller:   http://{self.lab.port('controller', 18080)}/admin (password {self.run.ADMIN_PASSWORD}); "
+                             f"stopped at the end of a run, start it with docker exec {self.controller} openpiso ...")
+            else:  # its SSH key goes with the run
+                lines.append(f"  Controller:   {self.arm.base_url}/admin (password {self.run.ADMIN_PASSWORD}) in the ARMv7 guest; "
+                             f"its serial console is docker logs {self.arm.name}")
         except AssertionError as error:
             lines.append(f"  Published ports unavailable: {error}")
         lines += [f"  Container:    docker exec -it {name} sh" for name in self.lab.containers()]

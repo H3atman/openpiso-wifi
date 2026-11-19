@@ -42,10 +42,12 @@ SameSite=Strict. Browser cross-origin POSTs are refused. Explicit actions use PO
 `/admin/state` is an authenticated, explicitly whitelisted readback; passwords and
 Router API secrets are write-only.
 
-## Router onboarding
+## Router setup
 
-The Router needs RouterOS v7, an existing HotSpot server/LAN/DHCP configuration,
-and `www-ssl` enabled with a certificate whose IP/DNS SAN matches its HTTPS
+Router setup (**Settings › Router setup**, `/admin`) connects a Router, then
+Adopts the HotSpot servers the Controller manages
+([ADR 0011](../docs/adr/0011-controller-manages-only-adopted-hotspot-servers.md)).
+The Router needs RouterOS v7 and `www-ssl` enabled with a certificate whose IP/DNS SAN matches its HTTPS
 address. The Controller does not guess which interface to convert into a
 customer LAN. Supply an HTTPS origin, the Router admin username, and password.
 
@@ -59,11 +61,17 @@ customer LAN. Supply an HTTPS origin, the Router admin username, and password.
    request verifies the TLS chain, hostname, validity period, and exact pinned
    leaf; redirects are refused. Certificate replacement fails closed until an
    operator explicitly confirms the new certificate.
-4. Onboarding verifies v7, creates `openpiso-controller` with a random API secret
-   in its own `read,write,test,api,rest-api` group, verifies it works, and uses it
-   to apply the baseline. No Router admin credentials are written to the ledger
+4. Connecting verifies v7, saves a Router backup `openpiso-YYYYMMDD-HHMMSS.backup`
+   with the admin login (the limited user cannot), creates `openpiso-controller`
+   with a random API secret in its own `read,write,test,api,rest-api` group and
+   verifies it works. It changes no HotSpot server. No Router admin credentials are written to the ledger
    or returned in a page. They exist only in the in-memory pending confirmation
    and are discarded after successful onboarding/restart.
+5. **Use existing** lists the HotSpot servers not yet Adopted, ticked. The review
+   page names the two changes, then **Adopt** records the servers in the ledger
+   and applies the baseline below. Servers left unticked, their server profiles
+   and `hotspot/login.html` are never changed. A server profile shared with an
+   unticked server is refused.
 
 RouterOS permissions are coarse: this group can read/write configuration, but
 cannot manage Router accounts/groups, reboot, or use SSH/FTP/console/Winbox.
@@ -75,14 +83,17 @@ Baseline resources:
 - `openpiso-no-idle` and `openpiso-idle` HotSpot user profiles, shared-users=1,
   no MAC cookies, keepalive-timeout=none; Idle Pause period defaults to 2m and
   follows the saved site setting on onboarding and boot.
-- Active HotSpot server profiles set to `login-by=http-pap` only and the
-  `hotspot` HTML directory.
+- Each Adopted server's server profile set to `login-by=http-pap` only and the
+  Controller's `openpiso` HTML directory.
 - One `openpiso-controller` walled-garden IP rule permitting TCP to the portal
   address and port. The walking skeleton requires an IP-literal portal origin.
-- `hotspot/login.html`, containing only a redirect/link to `/portal` with the
+- `openpiso/login.html`, containing only a redirect/link to `/portal` with the
   Device's escaped MAC and IP.
 
-Baseline verification runs on every boot with the limited credentials. Unchanged
+With nothing Adopted, boot only verifies RouterOS v7 and changes nothing; the
+Dashboard says Router setup is not finished. A ledger from before Router setup
+(a saved Router connection, no Adopted servers recorded) Adopts every server on
+the Router at its next boot. Baseline verification runs on every boot with the limited credentials. Unchanged
 resources are read, not rewritten; drift is repaired. A Router error does not
 prevent admin HTTP from starting: inspect `/admin/state` for the error and the
 still-pinned fingerprint. There is no automatic certificate trust reset.

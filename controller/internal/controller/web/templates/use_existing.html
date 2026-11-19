@@ -1,0 +1,19 @@
+{{/* Use existing: the review of what Adopting the ticked HotSpot servers changes. */}}
+{{define "content"}}
+<section class="card narrow">
+  <div class="card-head"><div><h3>Use existing</h3><p class="muted-fg">Adopting lets the Controller manage these HotSpot servers.</p></div></div>
+  <div class="card-body">
+    <ul>{{range .Servers}}<li>{{.Name}} <span class="xs muted-fg">on {{.Interface}}, server profile {{.Profile}}</span></li>{{end}}</ul>
+    <p>Two things change on each server profile:</p>
+    <ul>
+      <li>The login page: the server profile uses the Controller's login page directory, <code>{{.Directory}}</code>, which sends a Device to the Portal. The Router's own login page files are kept.</li>
+      <li>The login method: set to HTTP PAP only.</li>
+    </ul>
+    <p class="xs muted-fg">Other HotSpot servers, their server profiles and HotSpot users are not changed. The Router backup saved when the Controller connected restores the Router as it was.</p>
+    <form method="post" action="/admin/router/adopt">
+      {{range .Servers}}<input type="hidden" name="server" value="{{.Name}}">{{end}}
+      <button class="btn" type="submit">Adopt</button> <a class="btn ghost" href="/admin">Cancel</a>
+    </form>
+  </div>
+</section>
+{{end}}

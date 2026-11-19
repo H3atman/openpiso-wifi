@@ -108,6 +108,10 @@ func Open(path string) (*Ledger, error) {
 		db.Close()
 		return nil, fmt.Errorf("initialize Resume Codes: %w", err)
 	}
+	if err := store.initializeAdoptedServers(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("initialize Adopted HotSpot servers: %w", err)
+	}
 	return store, nil
 }
 

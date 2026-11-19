@@ -1,6 +1,31 @@
+{{/* Router setup: connect a Router, then Use existing Adopts the ticked HotSpot servers. */}}
 {{define "content"}}
+{{if .Connected}}
 <section class="card narrow">
-  <div class="card-head"><div><h3>Router onboarding</h3><p class="muted-fg">Connect this Controller to a RouterOS v7 Router.</p></div></div>
+  <div class="card-head"><div><h3>Router</h3><p class="muted-fg">{{.Address}}{{if .Version}} · RouterOS {{.Version}}{{end}}</p></div></div>
+  <div class="card-body">
+    {{if .Error}}<p class="field-error" role="alert">Router unavailable: {{.Error}}</p>{{end}}
+    {{if .Adopted}}<p>Adopted HotSpot servers:</p><ul>{{range .Adopted}}<li>{{.}}</li>{{end}}</ul>
+    {{else}}<p class="muted-fg">No HotSpot server is Adopted yet. The Controller changes only the servers you Adopt.</p>{{end}}
+  </div>
+</section>
+{{if not .Error}}
+<section class="card narrow">
+  <div class="card-head"><div><h3>Use existing</h3><p class="muted-fg">Adopt HotSpot servers already on the Router. The next page names what changes.</p></div></div>
+  <div class="card-body">
+    {{if eq .Servers 0}}<p class="muted-fg">The Router has no HotSpot server yet.</p>
+    {{else if .Available}}
+    <form class="form" method="get" action="/admin/router/use-existing">
+      {{range .Available}}<label><input type="checkbox" name="server" value="{{.Name}}" checked> {{.Name}} <span class="xs muted-fg">on {{.Interface}}, server profile {{.Profile}}</span></label>
+      {{end}}<div><button class="btn" type="submit">Review changes</button></div>
+    </form>
+    {{else}}<p class="muted-fg">Every HotSpot server on the Router is Adopted.</p>{{end}}
+  </div>
+</section>
+{{end}}
+{{end}}
+<section class="card narrow">
+  <div class="card-head"><div><h3>{{if .Connected}}Connect again{{else}}Connect a Router{{end}}</h3><p class="muted-fg">Connect this Controller to a RouterOS v7 Router. Connecting saves a Router backup and changes no HotSpot server.</p></div></div>
   <div class="card-body">
     <form class="form" method="post" action="/admin/router/probe">
       <label class="field">Router address <input name="address" type="url" placeholder="https://192.0.2.1" required></label>

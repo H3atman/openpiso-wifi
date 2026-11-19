@@ -29,29 +29,33 @@ type Verdict struct {
 
 var met = Verdict{Met: true}
 
-// EnsureBaseline repairs every check on the Router and on each of its HotSpot
-// servers. It runs at onboarding and on every Controller boot.
-func (c *Client) EnsureBaseline(ctx context.Context, portalURL string, idlePeriod ...int) error {
-	idleSeconds := 120
-	if len(idlePeriod) > 0 {
-		idleSeconds = idlePeriod[0]
-	}
+// EnsureBaseline repairs every check on the Router and on each Adopted HotSpot
+// server in adopted. It runs when servers are Adopted and on every Controller
+// boot. With nothing Adopted it only verifies the Router and changes nothing.
+func (c *Client) EnsureBaseline(ctx context.Context, portalURL string, idleSeconds int, adopted []string) error {
 	checks, err := c.routerChecks(portalURL, idleSeconds)
 	if err != nil {
 		return err
 	}
+	if len(adopted) == 0 {
+		checks = checks[:1] // routeros-v7, which has no fix
+	}
 	if err := repair(ctx, checks); err != nil {
 		return err
 	}
-	hotspots, err := c.list(ctx, "/ip/hotspot")
+	if len(adopted) == 0 {
+		return nil
+	}
+	servers, err := c.ListHotspotServers(ctx)
 	if err != nil {
 		return fmt.Errorf("list HotSpot servers: %w", err)
 	}
-	for _, hotspot := range hotspots {
-		if hotspot["profile"] == "" {
-			continue
+	for _, name := range adopted {
+		index := slices.IndexFunc(servers, func(server HotspotServer) bool { return server.Name == name })
+		if index < 0 {
+			return fmt.Errorf("Adopted HotSpot server %s is missing on the Router", name)
 		}
-		if err := repair(ctx, c.serverChecks(hotspot["name"], hotspot["profile"], portalURL)); err != nil {
+		if err := repair(ctx, c.serverChecks(name, servers[index].Profile, portalURL)); err != nil {
 			return err
 		}
 	}
@@ -105,7 +109,7 @@ func (c *Client) routerChecks(portalURL string, idleSeconds int) ([]Check, error
 		{
 			Name: "routeros-v7",
 			Verify: func(ctx context.Context) (Verdict, error) {
-				version, err := c.readVersion(ctx)
+				version, err := c.Version(ctx)
 				if err != nil {
 					return Verdict{}, err
 				}
@@ -132,19 +136,6 @@ func (c *Client) routerChecks(portalURL string, idleSeconds int) ([]Check, error
 			},
 		},
 		{
-			Name: "hotspot-server",
-			Verify: func(ctx context.Context) (Verdict, error) {
-				hotspots, err := c.list(ctx, "/ip/hotspot")
-				if err != nil {
-					return Verdict{}, fmt.Errorf("list HotSpot servers: %w", err)
-				}
-				if !slices.ContainsFunc(hotspots, func(hotspot map[string]string) bool { return hotspot["profile"] != "" }) {
-					return Verdict{Reason: "Router has no HotSpot server to configure"}, nil
-				}
-				return met, nil
-			},
-		},
-		{
 			Name: "walled-garden",
 			Verify: func(ctx context.Context) (Verdict, error) {
 				return c.verdict(ctx, "/ip/hotspot/walled-garden/ip?comment=openpiso-controller", "Controller walled garden entry", walledGarden())
@@ -159,6 +150,11 @@ func (c *Client) routerChecks(portalURL string, idleSeconds int) ([]Check, error
 	}, nil
 }
 
+// LoginDirectory is the login page directory the Controller owns. Every Adopted
+// server's server profile points at it, so the Router's default login page
+// directory, hotspot, is never written.
+const LoginDirectory = "openpiso"
+
 // serverChecks are the checks on HotSpot server name, whose server profile is
 // profile. Servers that share a server profile share what these checks fix.
 func (c *Client) serverChecks(name, profile, portalURL string) []Check {
@@ -169,7 +165,7 @@ func (c *Client) serverChecks(name, profile, portalURL string) []Check {
 		}
 		return nil
 	}
-	const directory = "hotspot"
+	const directory = LoginDirectory
 	loginFile := directory + "/login.html"
 	loginHTML := loginRedirectHTML(portalURL)
 

@@ -182,7 +182,7 @@ func platformNav() []navItem {
 			{Label: "Validity", Href: "/admin/validity"},
 			{Label: "Portal", Href: "/admin/portal"},
 			{Label: "Voucher template", Href: "/admin/voucher-template"},
-			{Label: "Router", Href: "/admin"},
+			{Label: "Router setup", Href: "/admin"},
 		}},
 	}
 }

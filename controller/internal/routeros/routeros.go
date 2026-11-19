@@ -12,7 +12,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"html"
 	"io"
 	"net"
 	"net/http"
@@ -240,6 +239,16 @@ func (c *Client) ensureNamed(ctx context.Context, path, name string, values map[
 }
 
 func (c *Client) updateChanged(ctx context.Context, path string, current, desired map[string]string) error {
+	changes := changedFields(current, desired)
+	if len(changes) == 0 {
+		return nil
+	}
+	return c.request(ctx, http.MethodPatch, path+"/"+current[".id"], changes, nil)
+}
+
+// changedFields returns the desired fields current does not already hold,
+// reading RouterOS's own spellings of booleans, durations and policies as equal.
+func changedFields(current, desired map[string]string) map[string]string {
 	changes := make(map[string]string)
 	for key, value := range desired {
 		actual := current[key]
@@ -267,18 +276,22 @@ func (c *Client) updateChanged(ctx context.Context, path string, current, desire
 			changes[key] = value
 		}
 	}
-	if len(changes) == 0 {
-		return nil
-	}
-	return c.request(ctx, http.MethodPatch, path+"/"+current[".id"], changes, nil)
+	return changes
 }
 
-func (c *Client) systemVersion(ctx context.Context) (string, error) {
+func (c *Client) readVersion(ctx context.Context) (string, error) {
 	var resource map[string]string
 	if err := c.request(ctx, http.MethodGet, "/system/resource", nil, &resource); err != nil {
 		return "", err
 	}
-	version := resource["version"]
+	return resource["version"], nil
+}
+
+func (c *Client) systemVersion(ctx context.Context) (string, error) {
+	version, err := c.readVersion(ctx)
+	if err != nil {
+		return "", err
+	}
 	if !strings.HasPrefix(version, "7.") {
 		return "", fmt.Errorf("RouterOS v7 is required; Router reports %q", version)
 	}
@@ -346,78 +359,6 @@ func Onboard(ctx context.Context, admin *Client, portalURL, existingSecret strin
 		Certificate: admin.certificate,
 		Version:     version,
 	}, nil
-}
-
-func (c *Client) EnsureBaseline(ctx context.Context, portalURL string, idlePeriod ...int) error {
-	if _, err := c.systemVersion(ctx); err != nil {
-		return err
-	}
-	idleSeconds := 120
-	if len(idlePeriod) > 0 {
-		idleSeconds = idlePeriod[0]
-	}
-	if err := c.ensureProfilePair(ctx, "", nil, idleSeconds); err != nil {
-		return err
-	}
-
-	hotspots, err := c.list(ctx, "/ip/hotspot")
-	if err != nil {
-		return fmt.Errorf("list HotSpot servers: %w", err)
-	}
-	seenProfiles := make(map[string]struct{})
-	for _, hotspot := range hotspots {
-		name := hotspot["profile"]
-		if name == "" {
-			continue
-		}
-		if _, seen := seenProfiles[name]; seen {
-			continue
-		}
-		seenProfiles[name] = struct{}{}
-		if err := c.ensureNamed(ctx, "/ip/hotspot/profile", name, map[string]string{
-			"login-by":       "http-pap",
-			"html-directory": "hotspot",
-		}); err != nil {
-			return fmt.Errorf("ensure HotSpot server profile %s: %w", name, err)
-		}
-	}
-	if len(seenProfiles) == 0 {
-		return errors.New("Router has no HotSpot server to configure")
-	}
-
-	portal, err := url.Parse(portalURL)
-	if err != nil || portal.Hostname() == "" || (portal.Scheme != "http" && portal.Scheme != "https") {
-		return errors.New("portal URL must be an HTTP or HTTPS origin")
-	}
-	port := portal.Port()
-	if port == "" {
-		if portal.Scheme == "https" {
-			port = "443"
-		} else {
-			port = "80"
-		}
-	}
-	if net.ParseIP(portal.Hostname()) == nil {
-		return errors.New("the walking skeleton requires an IP address in the portal URL")
-	}
-	if err := c.ensureByComment(ctx, "/ip/hotspot/walled-garden/ip", "openpiso-controller", map[string]string{
-		"action":      "accept",
-		"dst-address": portal.Hostname(),
-		"dst-port":    port,
-		"protocol":    "tcp",
-	}); err != nil {
-		return fmt.Errorf("ensure Controller walled garden: %w", err)
-	}
-
-	portalOrigin := html.EscapeString(strings.TrimRight(portalURL, "/"))
-	loginHTML := fmt.Sprintf(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>OpenPiso WiFi</title></head>
-<body><main><h1>OpenPiso WiFi</h1><p>Service temporarily unavailable. Please try again shortly.</p><p><a href="$(link-login-only)">Try again</a></p>
-<noscript><p>Enable JavaScript to continue when the Controller is available.</p></noscript></main>
-<script src="%s/portal/ready.js" data-portal="%s/portal?mac=$(mac-esc)&amp;ip=$(ip)" onload="location.replace(this.dataset.portal)"></script></body></html>`, portalOrigin, portalOrigin)
-	if err := c.ensureFile(ctx, "hotspot/login.html", loginHTML); err != nil {
-		return fmt.Errorf("ensure HotSpot login redirect: %w", err)
-	}
-	return nil
 }
 
 func (c *Client) ensureByComment(ctx context.Context, path, comment string, values map[string]string) error {

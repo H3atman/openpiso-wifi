@@ -77,19 +77,25 @@ func (c *Client) EnsureProfileCopies(ctx context.Context, profiles []string, idl
 // forced ones that keep one Device per Time Credit and the site Idle Pause.
 func (c *Client) ensureProfilePair(ctx context.Context, p string, copied map[string]string, idleSeconds int) error {
 	for _, idle := range []bool{false, true} {
-		values := map[string]string{"shared-users": "1", "idle-timeout": "none", "keepalive-timeout": "none", "add-mac-cookie": "no"}
-		if idle {
-			values["idle-timeout"] = strconv.Itoa(idleSeconds) + "s"
-		}
-		for field, value := range copied {
-			values[field] = value
-		}
 		name := ProfileName(p, idle)
-		if err := c.ensureNamed(ctx, "/ip/hotspot/user/profile", name, values); err != nil {
+		if err := c.ensureNamed(ctx, "/ip/hotspot/user/profile", name, profileValues(copied, idleSeconds, idle)); err != nil {
 			return fmt.Errorf("ensure HotSpot user profile %s: %w", name, err)
 		}
 	}
 	return nil
+}
+
+// profileValues are the fields of one profile in a pair: the copied fields
+// plus the forced ones.
+func profileValues(copied map[string]string, idleSeconds int, idle bool) map[string]string {
+	values := map[string]string{"shared-users": "1", "idle-timeout": "none", "keepalive-timeout": "none", "add-mac-cookie": "no"}
+	if idle {
+		values["idle-timeout"] = strconv.Itoa(idleSeconds) + "s"
+	}
+	for field, value := range copied {
+		values[field] = value
+	}
+	return values
 }
 
 // RemoveUnusedProfileCopies deletes copy profiles of HotSpot profiles no

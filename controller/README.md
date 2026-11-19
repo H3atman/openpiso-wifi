@@ -709,9 +709,12 @@ Use it only with exclusive access. It never operates on `piso-client`,
   without sudo or trusting browser identity. The network/NIC/NAT rule are removed
   on exit; it does not modify `default`, `hotspot-lan`, or `pisonet`. The
   `--only onboarding` scenario deletes that exemption, adds a masquerade for
-  `10.5.50.0/24` (comment `openpiso-e2e-masquerade`, removed on exit), lets the
+  `10.5.50.0/24` as the first NAT rule (comment `openpiso-e2e-masquerade`,
+  removed on exit), shows a Device's Voucher refused through it, lets the
   Controller's checklist fix add its own exemption, and briefly disables the
-  routing NIC to show a missing return route.
+  routing NIC to show a missing return route. RouterOS applies a NAT change to
+  new connections only seconds later, so the step waits until the rule counts a
+  Device fetch of `/portal/ready.js`.
 
 Every CHR run (full or partial, native or ARM) cleans `chr-client` immediately
 after it starts, before the VLAN prerequisite or any application scenario. It

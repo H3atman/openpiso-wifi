@@ -339,7 +339,7 @@ func (c *Client) portalReachable(server HotspotServer, host string) Check {
 			return -1, -1
 		}
 		return index, slices.IndexFunc(rules[:index], func(rule map[string]string) bool {
-			return rule["dynamic"] != "true" && rule["disabled"] != "true" && !strings.HasPrefix(rule["comment"], "openpiso-controller")
+			return rule["dynamic"] != "true" && rule["disabled"] != "true" && !strings.HasPrefix(rule["comment"], "openpiso-controller-")
 		})
 	}
 	const rules = "/ip/firewall/nat?chain=srcnat"

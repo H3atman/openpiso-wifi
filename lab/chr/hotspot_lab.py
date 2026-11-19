@@ -35,7 +35,8 @@ class ExistingHotspotLab:
         # A Router that never had a Controller: no walled garden entry, HotSpot profiles, login page or backups of ours.
         self._remove("/ip/hotspot/walled-garden/ip", "comment=openpiso-controller")
         for row in self.router("/ip/firewall/nat"):
-            if row.get("comment", "").startswith("openpiso-controller"):  # a NAT exemption of ours
+            # A NAT exemption of ours; the walled garden's dynamic rules carry its comment openpiso-controller.
+            if row.get("comment", "").startswith("openpiso-controller-") and row.get("dynamic") != "true":
                 self.router(f"/ip/firewall/nat/{row['.id']}", "DELETE")
         for row in self.router("/ip/hotspot/user"):
             if row["name"].startswith("op-"):  # a Time Credit's user, which holds a profile of ours

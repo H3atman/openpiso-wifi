@@ -406,6 +406,9 @@ looks up the request's actual source IP in the Router's HotSpot host table;
 redirect MAC/IP parameters and forwarded headers are never trusted. **Route
 HotSpot traffic to the Controller without source NAT, and provide a return route
 from the Controller to the HotSpot LAN.** Masqueraded requests cannot redeem.
+Router setup checks both per Adopted server: its one-click fix adds a
+Controller-owned source-NAT exemption (comment `openpiso-controller-<server>`)
+above the Operator's rules, and a missing return route is shown as manual steps.
 The Router's redirect parameters are informational only.
 
 Redemption atomically consumes the Voucher, creates or credits a Time Credit,
@@ -704,7 +707,11 @@ Use it only with exclusive access. It never operates on `piso-client`,
   exemption to the Controller. These
   addresses/network names must be unused. This preserves real Device source IPs
   without sudo or trusting browser identity. The network/NIC/NAT rule are removed
-  on exit; it does not modify `default`, `hotspot-lan`, or `pisonet`.
+  on exit; it does not modify `default`, `hotspot-lan`, or `pisonet`. The
+  `--only onboarding` scenario deletes that exemption, adds a masquerade for
+  `10.5.50.0/24` (comment `openpiso-e2e-masquerade`, removed on exit), lets the
+  Controller's checklist fix add its own exemption, and briefly disables the
+  routing NIC to show a missing return route.
 
 Every CHR run (full or partial, native or ARM) cleans `chr-client` immediately
 after it starts, before the VLAN prerequisite or any application scenario. It

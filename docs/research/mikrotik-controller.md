@@ -320,3 +320,13 @@ Do this instead (**decided**, with no customer accounts in the MVP):
 - **`$cause` in `on-logout`:** `admin reset` (controller remove), `idle timeout`, `session timeout`, `keepalive timeout`. This would let the controller count manual and idle pauses separately. **Decided otherwise:** no on-logout scripts; the Controller polls the active list (~10 s) to detect logouts, and only customer-tapped Pauses, which the Controller itself issues, count toward the Pause Limit.
 - **Resolved:** L7b (not needed, see L7); `on-logout` reliability and script -> HTTP callback vs polling (polling chosen).
 - **Still open:** `idle-timeout` combined with keepalive.
+
+## 9. Testing whether Devices reach the Portal un-NATed (2026-11-19)
+
+Router setup's checklist item 8. Probed on the CHR lab over REST with the admin login:
+
+- `POST /rest/ping` with `{"address": "<Controller IP>", "src-address": "<server's own address>", "count": "2"}` works. Each row is one packet: a reply carries `time` and `ttl`; a lost one carries `"status": "timeout"`; a `src-address` the Router does not own gives `"status": "could not make socket"`.
+- From the HotSpot address, with no route back from the Controller to the HotSpot network, the ping timed out; without `src-address` it succeeded. So the ping proves the return route.
+- Router-originated packets pass source NAT too: a masquerade that catches HotSpot-to-Controller traffic also masquerades the ping, which then succeeds. A ping alone does not prove Devices arrive with their own address.
+
+**Chosen mechanism:** item 8 is met when the Controller-owned exemption (`chain=srcnat action=accept src-address=<server network> dst-address=<Controller IP>`, comment `openpiso-controller-<server>`) comes before every enabled static source NAT rule of the Operator's, *and* the ping from the server's address answers. The fix adds the exemption, or moves it above the Operator's rules, and edits nothing else. With the exemption in place the ping is not masqueraded, so a ping that still fails means no route back: manual steps. The fallback (reading NAT rules for a matching masquerade and comparing the first Device's source address) was not needed.

@@ -29,6 +29,7 @@ type routerSetupView struct {
 	Error     string
 
 	AddAlongside addAlongsideView
+	FreshStart   freshStartView
 }
 
 // useExistingView is the review before Adopting Servers, with the ticked
@@ -97,6 +98,9 @@ func (s *Server) readRouterSetup(ctx context.Context, view *routerSetupView) err
 		return slices.Contains(view.Adopted, server.Name)
 	})
 	if view.AddAlongside, err = readAddAlongside(ctx, router); err != nil {
+		return err
+	}
+	if view.FreshStart, err = s.readFreshStart(ctx, router); err != nil {
 		return err
 	}
 	view.Checklist, err = s.readChecklist(ctx, router, view.Adopted, true)

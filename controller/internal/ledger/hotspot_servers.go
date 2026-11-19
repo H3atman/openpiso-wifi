@@ -1,6 +1,8 @@
 package ledger
 
 import (
+	"database/sql"
+	"errors"
 	"fmt"
 )
 
@@ -78,6 +80,64 @@ func (l *Ledger) AdoptHotspotServers(names []string) error {
 		return err
 	}
 	return tx.Commit()
+}
+
+// ForgetHotspotServers empties the Adopted HotSpot servers and their Portal
+// arrivals, and ends a pending AdoptAllPending. Fresh start calls it before it
+// deletes every server, so the ledger never names a server the Router lacks.
+func (l *Ledger) ForgetHotspotServers() error {
+	tx, err := l.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, statement := range []string{"DELETE FROM adopted_hotspot_servers", "DELETE FROM portal_arrivals", "DELETE FROM settings WHERE key = '" + adoptAllSetting + "'"} {
+		if _, err := tx.Exec(statement); err != nil {
+			return fmt.Errorf("forget HotSpot servers: %w", err)
+		}
+	}
+	return tx.Commit()
+}
+
+// FreshStartBlocker says why Fresh start must not run, or "" when it may: the
+// wipe deletes the Router users that hold Time Credits' time and the IP
+// bindings that let paired Vendos through.
+func (l *Ledger) FreshStartBlocker() (string, error) {
+	var credits, vendos int
+	if err := l.db.QueryRow("SELECT (SELECT count(*) FROM time_credits), (SELECT count(*) FROM vendos WHERE status != 'unpaired')").Scan(&credits, &vendos); err != nil {
+		return "", fmt.Errorf("read Time Credits and Vendos: %w", err)
+	}
+	switch {
+	case credits > 0:
+		return fmt.Sprintf("The ledger has %d Time Credit(s); Fresh start would delete the Router users that hold their time.", credits), nil
+	case vendos > 0:
+		return fmt.Sprintf("%d Vendo(s) are paired; Fresh start would delete the IP bindings that let them through. Unpair them first.", vendos), nil
+	}
+	return "", nil
+}
+
+// routerBackupSetting is the name of the Router backup file saved at the last connect.
+const routerBackupSetting = "router_backup"
+
+// SaveRouterBackup records the backup file connecting saved on the Router.
+func (l *Ledger) SaveRouterBackup(name string) error {
+	if _, err := l.db.Exec("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", routerBackupSetting, name); err != nil {
+		return fmt.Errorf("record Router backup: %w", err)
+	}
+	return nil
+}
+
+// RouterBackup is the backup file saved at the last connect, "" when none was recorded.
+func (l *Ledger) RouterBackup() (string, error) {
+	var name string
+	err := l.db.QueryRow("SELECT value FROM settings WHERE key = ?", routerBackupSetting).Scan(&name)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("read Router backup: %w", err)
+	}
+	return name, nil
 }
 
 // portalArrivalSchema records each HotSpot server a Device has been sent to the

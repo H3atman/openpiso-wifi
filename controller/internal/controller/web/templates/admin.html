@@ -15,6 +15,32 @@
   <div class="card-body">{{template "checklist" .Checklist}}</div>
 </section>
 <section class="card narrow">
+  <div class="card-head"><div><h3>Fresh start</h3><p class="muted-fg">Delete the Router's HotSpot configuration and create one HotSpot server. Addresses, DHCP, bridges, the internet connection and firewall rules outside HotSpot are kept.</p></div></div>
+  <div class="card-body">
+    {{with .FreshStart}}{{if .Blocked}}<p class="muted-fg fresh-start-blocked">Fresh start is not offered. {{.Blocked}}</p>
+    {{else}}
+    <p>Fresh start deletes:</p>
+    <ul class="fresh-start-counts">
+      <li data-count="servers">{{.Plan.Counts.Servers}} HotSpot servers, with their server profiles</li>
+      <li data-count="users">{{.Plan.Counts.Users}} HotSpot users, with their HotSpot profiles</li>
+      <li data-count="active">{{.Plan.Counts.Active}} active sessions</li>
+      <li data-count="walled-garden">{{.Plan.Counts.WalledGarden}} walled garden entries</li>
+    </ul>
+    <p class="xs muted-fg">It also deletes the HotSpot IP bindings. Login page files stay on the Router.</p>
+    {{if not .Backup}}<p class="field-error fresh-start-no-backup" role="alert">The Router no longer holds the backup saved when it was connected. Connect the Router again below to save one first.</p>
+    {{else}}<p class="fresh-start-backup">Router backup <code data-backup>{{.Backup}}</code>, saved when the Router was connected, covers this wipe: restore it on the Router to undo Fresh start.</p>
+    {{if .Plan.Interfaces}}
+    <form class="form" method="post" action="/admin/router/fresh-start">
+      <label class="field">Interface <select name="interface" required>{{$default := .Plan.Interface}}{{range .Plan.Interfaces}}<option value="{{.}}"{{if eq . $default}} selected{{end}}>{{.}}</option>{{end}}</select></label>
+      <label class="field">Address range <input name="range"value="{{.Plan.Range}}" required></label>
+      <p class="xs muted-fg">By default the server where the old one was, on its address range, reusing its address, address pool and DHCP server.</p>
+      <label class="field">Type {{.Confirmation}} to confirm <input name="confirm" autocomplete="off" required></label>
+      <div><button class="btn" type="submit">Delete and create</button></div>
+    </form>
+    {{else}}<p class="muted-fg">No interface can hold a HotSpot server.</p>{{end}}{{end}}{{end}}{{end}}
+  </div>
+</section>
+<section class="card narrow">
   <div class="card-head"><div><h3>Use existing</h3><p class="muted-fg">Adopt HotSpot servers already on the Router. The next page names what changes.</p></div></div>
   <div class="card-body">
     {{if eq .Servers 0}}<p class="muted-fg">The Router has no HotSpot server yet.</p>

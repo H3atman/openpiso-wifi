@@ -311,6 +311,7 @@ type Provisioned struct {
 	APISecret   string
 	Certificate Certificate
 	Version     string
+	Backup      string // the backup file saved on the Router, openpiso-<date>-<time>.backup
 }
 
 // Onboard connects a Router: with the Operator's admin login it saves a Router
@@ -365,6 +366,7 @@ func Onboard(ctx context.Context, admin *Client, existingSecret string) (Provisi
 		APISecret:   secret,
 		Certificate: admin.certificate,
 		Version:     version,
+		Backup:      backup + ".backup",
 	}, nil
 }
 

@@ -141,11 +141,15 @@ func (c *Client) BackupSaved(ctx context.Context, name string) (bool, error) {
 	return len(files) > 0, err
 }
 
-// hotspotRows are path's rows Fresh start deletes: all but RouterOS's default
-// and dynamic ones.
+// hotspotPlaceholder is the comment on the disabled walled garden entry RouterOS
+// adds with the HotSpot to mark where rules go, as it does in the firewall.
+const hotspotPlaceholder = "place hotspot rules here"
+
+// hotspotRows are path's rows Fresh start deletes: all but RouterOS's default,
+// dynamic and placeholder ones.
 func (c *Client) hotspotRows(ctx context.Context, path string) ([]map[string]string, error) {
 	rows, err := c.list(ctx, path)
 	return slices.DeleteFunc(rows, func(row map[string]string) bool {
-		return row["default"] == "true" || row["dynamic"] == "true"
+		return row["default"] == "true" || row["dynamic"] == "true" || row["comment"] == hotspotPlaceholder
 	}), err
 }

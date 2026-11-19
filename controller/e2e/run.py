@@ -6230,7 +6230,7 @@ def portal_reachability(opener, report, address, password, client_address, devic
                     reason=unroutable["reason"], manual=unroutable["manual"])
 
 
-# Fresh start deletes exactly these HotSpot paths, but RouterOS's default and dynamic rows.
+# Fresh start deletes exactly these HotSpot paths, but RouterOS's default, dynamic and placeholder rows.
 HOTSPOT_WIPE = ("/ip/hotspot/active", "/ip/hotspot/user", "/ip/hotspot/ip-binding", "/ip/hotspot/walled-garden",
                 "/ip/hotspot/walled-garden/ip", "/ip/hotspot", "/ip/hotspot/profile", "/ip/hotspot/user/profile")
 # What Fresh start must leave exactly as it was.
@@ -6239,7 +6239,7 @@ OUTSIDE_HOTSPOT = ("/interface/bridge", "/interface/bridge/port", "/interface/vl
                    "/ip/firewall/filter", "/ip/firewall/nat", "/ip/firewall/mangle")
 # Fields RouterOS changes on its own: traffic counters, timers, lease state.
 VOLATILE = {"bytes", "packets", "bytes-in", "bytes-out", "packets-in", "packets-out", "uptime", "idle-time",
-            "session-time-left", "proxy-status", "invalid", "expires-after", "status"}
+            "session-time-left", "proxy-status", "invalid", "expires-after", "status", "hits"}
 FRESH_CONFIRMATION = "DELETE"
 FRESH_EXTRAS = "opnw-existing"  # comment on the walled garden entries and IP binding the fixture adds
 
@@ -6249,9 +6249,11 @@ def stable(row):
 
 
 def wipe_rows(address, password):
-    """Each path Fresh start deletes from: its rows but the default and dynamic ones, without volatile fields."""
+    """Each path Fresh start deletes from: its rows but the default, dynamic and placeholder ones, without volatile
+    fields."""
     return {path: [stable(row) for row in router_rest(address, "admin", password, path)
-                   if row.get("default") != "true" and row.get("dynamic") != "true"] for path in HOTSPOT_WIPE}
+                   if row.get("default") != "true" and row.get("dynamic") != "true"
+                   and row.get("comment") != "place hotspot rules here"] for path in HOTSPOT_WIPE}
 
 
 def outside_hotspot(address, password):
@@ -6329,6 +6331,8 @@ def fresh_start(controller, args, data_dir, opener, report, address, password, c
             "address": f"https://{address}", "username": ROUTER_ADMIN, "password": ROUTER_ADMIN_PASSWORD}).status == 200
         response = request(opener, "/admin/router/confirm", "POST", timeout=30)
         assert response.status == 200, response.read().decode()
+    # The new Shop connects with an admin of its own, as the first one did; the run deleted that one.
+    rest("/user", "PUT", {"name": ROUTER_ADMIN, "group": "full", "password": ROUTER_ADMIN_PASSWORD})
     try:
         for path, entry in (("/ip/hotspot/walled-garden", {"dst-host": "opnw-existing.invalid"}),
                             ("/ip/hotspot/walled-garden/ip", {"dst-address": "192.0.2.10", "action": "accept"}),
@@ -6358,6 +6362,9 @@ def fresh_start(controller, args, data_dir, opener, report, address, password, c
         assert backup == backups[0], (backup, backups)
         assert offered is not None and offered[1] == iface and offered[2] == network, offered
         assert iface in offered[0] and _hotspot_module.OTHER in offered[0], offered
+        vlan = re.search(r'<form class="form fresh-start-vlan".*?</form>', page, re.S)
+        assert vlan and 'name="placement" value="vlan"' in vlan.group(0), text
+        vlan_form = {"confirm": FRESH_CONFIRMATION, "placement": "vlan", "parent": iface, "vlan": "7", "range": "10.5.20.0/24"}
         report.snapshot("fresh-start-counts-what-it-deletes-and-names-the-backup", address, password, opener,
                         counts=counts, backup=backup, interfaces=offered[0], old_login_page=old_page)
 
@@ -6368,6 +6375,9 @@ def fresh_start(controller, args, data_dir, opener, report, address, password, c
             "no confirmation": refused(opener, {**form, "confirm": ""}, FRESH_CONFIRMATION),
             "wrong confirmation": refused(opener, {**form, "confirm": "delete"}, FRESH_CONFIRMATION),
             "public range": refused(opener, {**form, "interface": _hotspot_module.OTHER, "range": "8.8.8.0/24"}, "not a private range"),
+            # The new-VLAN placement goes through the create step's own VLAN checks.
+            "VLAN on a missing parent": refused(opener, {**vlan_form, "parent": "opnw-missing"}, "opnw-missing is missing"),
+            "VLAN ID out of range": refused(opener, {**vlan_form, "vlan": "4095"}, "not from 1 to 4094"),
         }
         response = request(opener, "/admin/vendos/pair", "POST", {"mac": _lab_module.UNKNOWN_VENDO_MAC})
         assert response.status == 201, response.read().decode()
@@ -6453,14 +6463,31 @@ def fresh_start(controller, args, data_dir, opener, report, address, password, c
                 rest(f"{path}/{row['.id']}", "DELETE")
         for path in ("/ip/hotspot/walled-garden", "/ip/hotspot/walled-garden/ip", "/ip/hotspot/ip-binding"):
             for row in rest(f"{path}?comment={FRESH_EXTRAS}"):
-                rest(f"{path}/{row['.id']}", "DELETE")
+                if row.get("dynamic") != "true":  # walled-garden/ip entries show up dynamic in walled-garden
+                    rest(f"{path}/{row['.id']}", "DELETE")
         restore_rows(address, password, lab_rows)
-        # The fresh ledger Adopted a server the Router no longer has: run the Controller from before instead.
+        existing.teardown_other()  # as onboarding left the Router before this step
+        # The fresh ledger Adopted a server the Router no longer has: run the Controller from before instead,
+        # connected again since the new Shop's connect changed the Controller's Router password. Connecting keeps
+        # an existing Router user's password, so the user goes first and connecting adds it with the old one.
         controller.stop()
+        for row in rest("/user?name=openpiso-controller"):
+            rest(f"/user/{row['.id']}", "DELETE")
+        # That ledger still Adopts the servers Add alongside created and removed (there is no un-Adopt yet).
+        names = [row["name"] for row in rest("/ip/hotspot")]
+        with sqlite3.connect(Path(data_dir) / "openpiso.db") as db:
+            db.execute(f"DELETE FROM adopted_hotspot_servers WHERE name NOT IN ({','.join('?' * len(names))})", names)
+        db.close()
         controller = Controller(args.binary, data_dir, initialize=False)
         started(controller)
         opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
         assert request(opener, "/admin/login", "POST", {"password": ADMIN_PASSWORD}).status == 200
+        connect()
+        for row in rest(f"/user?name={ROUTER_ADMIN}"):
+            rest(f"/user/{row['.id']}", "DELETE")
+        state = json.load(request(opener, "/admin/state"))
+        assert state["router"]["status"] == "ready", state["router"]
+        assert state["router"]["adopted_hotspot_servers"] == [server] == [row["name"] for row in rest("/ip/hotspot")], state["router"]
     return controller, opener
 
 

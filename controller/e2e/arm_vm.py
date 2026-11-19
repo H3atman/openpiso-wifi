@@ -104,7 +104,7 @@ class ArmContainer:
 
     boot(lab_name) joins that Docker lab's WAN in the Controller's place, and the lab removes the
     container with the rest of it; boot() makes a WAN network of its own (the boot and update checks),
-    which close() removes with the container. The harness reaches the guest's SSH and Controller
+    which close() removes with the container unless --keep. The harness reaches the guest's SSH and Controller
     through the container's published ports; the serial console is the container's log."""
 
     def __init__(self, binary: Path, boot_timeout: float, serial_report: Path, lab):
@@ -387,15 +387,20 @@ done
         self.evidence["container_oom_kills"] = int(oom_kills)
         return {key: self.evidence[key] for key in ("container_memory_cap_mib", "qemu_peak_rss_mib", "container_oom_kills")}
 
-    def close(self):
+    def close(self, keep: bool = False):
+        """Removes the container and the WAN network boot() made, unless keep (--keep), which leaves them
+        and prints how to reach and remove them. A lab's guest goes with the lab instead."""
         for tunnel in self.tunnels:
             tunnel.terminate()
             tunnel.wait(timeout=10)
         self.tunnels = []
         if self.network is not None:
-            if self.created:
-                self.lab.sh("docker", "rm", "-f", "-v", self.name)
-            self.lab.sh("docker", "network", "rm", self.network)
+            if keep:
+                self._print_kept()
+            else:
+                if self.created:
+                    self.lab.sh("docker", "rm", "-f", "-v", self.name)
+                self.lab.sh("docker", "network", "rm", self.network)
             self.network = None
         self.created = False
         if self.logs is not None:
@@ -403,3 +408,13 @@ done
             self.logs.wait(timeout=10)
         if self.directory is not None:
             self.directory.cleanup()
+
+    def _print_kept(self) -> None:
+        lines = [f"ARMv7 guest left running (--keep) on network {self.network}."]
+        remove = f"docker network rm {self.network}"
+        if self.created:  # its SSH key goes with the run
+            lines += [f"  Controller:   {self.base_url}/admin in the guest, once installed; serial console: docker logs {self.name}",
+                      f"  Container:    docker exec -it {self.name} sh"]
+            remove = f"docker rm -f -v {self.name} && {remove}"
+        lines.append(f"  Remove:       {remove}")
+        print("\n".join(lines), flush=True)

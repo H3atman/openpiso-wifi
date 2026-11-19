@@ -1,42 +1,72 @@
 {
   "format_version": 1,
   "scenario": "vouchers-only",
-  "started_at": "2026-11-19T08:13:19.869460+00:00",
-  "git_commit": "8b009e8e67aa38becf384fc77b5aee0d7de9f32e",
-  "git_tree": "bb4ff2efa67e9f6612d3cbb3374b425247d5f169",
+  "started_at": "2026-11-19T18:01:59.250484+00:00",
+  "git_commit": "bac682b16b94708201642289b8cfbc17ed746f45",
+  "git_tree": "56960a2491b7a348819a79809d1ad25b344efcce",
   "git_dirty": true,
-  "binary_size_bytes": 23103576,
-  "binary_sha256": "fbff02a73023dbad86d3534637840caf877360c250e2d162e40932b4e5e905af",
+  "binary_size_bytes": 23103568,
+  "binary_sha256": "98b2195ffcb9bbda293ead6bb9516b4bda78aeebf641f324941f9a3d3fcfb6d0",
   "test_seam": "Controller binary via external HTTP against a Docker lab: stock CHR Router and Linux Devices",
   "result": "pass",
   "lab": {
-    "name": "opnwlab-05009b",
+    "name": "opnwlab-2111c3",
     "chr_version": "7.23.8",
     "chr_image": "/home/rgsv/.cache/openpiso/chr/chr-7.23.8.img",
-    "image": "opnwlab-image:00cb97e32920",
-    "router_rest_seconds": 20.1,
+    "image": "opnwlab-image:5e04c5edc5a0",
+    "router_rest_seconds": 20.3,
     "stock_router": {
       "version": "7.23.8 (long-term)",
       "admin_password": "empty",
       "hotspot_servers": 0
     },
-    "run_seconds": 71.3,
+    "vlan_leases": [
+      {
+        "container": "opnwlab-2111c3-vlan10-device",
+        "vlan": 10,
+        "mac-address": "02:00:00:00:0C:10",
+        "address": "10.5.10.200",
+        "server": "opnw-vlan10",
+        "status": "bound"
+      },
+      {
+        "container": "opnwlab-2111c3-vlan20-device",
+        "vlan": 20,
+        "mac-address": "02:00:00:00:0C:20",
+        "address": "10.5.20.200",
+        "server": "opnw-vlan20",
+        "status": "bound"
+      }
+    ],
+    "browsers": [
+      {
+        "container": "opnwlab-2111c3-browser-admin",
+        "phase": "voucher-print-sheet",
+        "memory_cap": "1024 MB"
+      },
+      {
+        "container": "opnwlab-2111c3-browser-admin",
+        "phase": "voucher-template-editor",
+        "memory_cap": "1024 MB"
+      },
+      {
+        "container": "opnwlab-2111c3-browser-admin",
+        "phase": "vouchers-mobile",
+        "memory_cap": "1024 MB"
+      }
+    ],
+    "run_seconds": 67.9,
     "removed": true
-  },
-  "not_ported": {
-    "#32": [
-      "vlan-hosts-evidence"
-    ]
   },
   "voucher_print_sheet": {
     "screenshots": [
-      "voucher-print-sheet/01-redeemed-reprint.png"
+      "docker-vouchers-only-voucher-print-sheet/01-redeemed-reprint.png"
     ],
     "browser": {
       "cards": 2,
       "rendered_event": true,
       "loads": [
-        "http://127.0.0.1:32940/admin/vouchers?batch=0cMO2rKWBCrwpKorqqB7FY2VXEugDJXNjQd6za95H_A"
+        "http://127.0.0.1:33101/admin/vouchers?batch=tEwJmBnnfJtxTVEtjvICaFexnLCF_k8POYzR2W5_CBQ"
       ],
       "browser": "chromium 156.0.8078.4",
       "device_profile": "desktop",
@@ -48,9 +78,9 @@
   },
   "voucher_template_editor": {
     "screenshots": [
-      "voucher-template-editor/01-draft-preview.png",
-      "voucher-template-editor/02-published-throwing-script.png",
-      "voucher-template-editor/03-reset-default.png"
+      "docker-vouchers-only-voucher-template-editor/01-draft-preview.png",
+      "docker-vouchers-only-voucher-template-editor/02-published-throwing-script.png",
+      "docker-vouchers-only-voucher-template-editor/03-reset-default.png"
     ],
     "browser": {
       "preview_cards": 6,
@@ -72,8 +102,8 @@
   },
   "vouchers_mobile": {
     "screenshots": [
-      "vouchers-mobile/01-mobile-batches.png",
-      "vouchers-mobile/02-mobile-search.png"
+      "docker-vouchers-only-vouchers-mobile/01-mobile-batches.png",
+      "docker-vouchers-only-vouchers-mobile/02-mobile-search.png"
     ],
     "browser": {
       "viewport": "390x844",
@@ -95,7 +125,7 @@
     "result": "pass",
     "failures": []
   },
-  "finished_at": "2026-11-19T08:14:32.834276+00:00",
+  "finished_at": "2026-11-19T18:03:08.328312+00:00",
   "steps": [
     "boot-admin-password-persisted-and-rate-limited",
     "authenticated-post-route-policy",
@@ -114,6 +144,5 @@
     "vouchers-search-cap-and-newest-batch-first",
     "vouchers-delete-unused-and-append-only-audit",
     "vouchers-delete-redeemed-direct-post-refused"
-  ],
-  "chr_client_cleanup_removed": 0
+  ]
 }

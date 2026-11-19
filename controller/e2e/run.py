@@ -61,11 +61,11 @@ _docker_spec.loader.exec_module(_docker_module)
 
 def assert_refused(error, code: str) -> None:
     """A Portal refusal carries the Portal's message: a Device's fetch keeps the reply as portal_reply
-    when it is JSON (DockerLab.fetch)."""
+    when it is JSON (DockerLab.fetch). A refusal without one fails."""
     reply = getattr(error, "portal_reply", None)
-    if reply is not None:
-        message = reply["message"]
-        assert message["code"] == code and message["text"], (code, message)
+    assert reply is not None, f"refused without a Portal JSON reply to check for {code!r}: {error}"
+    message = reply["message"]
+    assert message["code"] == code and message["text"], (code, message)
 
 
 def router_rest(address: str, username: str, password: str, path: str, method: str = "GET", body=None, scheme: str = "https"):
@@ -856,8 +856,8 @@ def pause_device_fetch(lab, device_ip, path, form=None, cookie=""):
 
 
 def device_redeem_refused(lab, device_ip, code, status, refusal):
-    """Redeem a code from the Device and assert the Portal refused it with status and,
-    where the lab's fetch keeps the reply, the refusal message code (see assert_refused)."""
+    """Redeem a code from the Device and assert the Portal refused it with status and
+    the refusal message code (see assert_refused)."""
     try:
         pause_device_fetch(lab, device_ip, "/portal/api/redeem", {"code": code})
     except urllib.error.HTTPError as error:
@@ -1827,9 +1827,9 @@ def admin_dashboard(opener, report, address, password, lab, device_ip, cookie):
     assert abs(listed - remaining) <= 10
     assert detail.count('<li data-kind="rebind">') == 2
     # Date-only input can't isolate a redemption, so compare today's local day before and after
-    # one priced redemption (the sibling code stays unsold). The lab host and Controller share
-    # a timezone, so the host's local date is the Controller's.
-    now = datetime.date.today()
+    # one priced redemption (the sibling code stays unsold). Today is the Controller's, in its
+    # system timezone (the Sales report's default To), which need not be the host's.
+    now = datetime.date.fromisoformat(json.load(request(opener, "/admin/sales?format=json"))["to"])
     today = now.isoformat()
     sales_today_before = sales(opener, today, today)
     dashboard_before = dashboard(opener)
@@ -2539,7 +2539,7 @@ def sales_report(opener, report, address, password, lab):
         assert_login_redirect(path)
     empty = sales(opener, "1970-01-01", "1970-01-01")
     assert empty["rows"] == [] and empty["count"] == 0 and empty["page"] == 1
-    today = datetime.date.today().isoformat()
+    today = local_today.isoformat()
     assert dashboard(opener)["sales"]["today"] == sales(opener, today, today)["total_pesos"]
     page = request(opener, "/admin/sales").read().decode()
     assert "Showing 1 to 25 of" in page and "Validity" in page
@@ -5427,7 +5427,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--only", choices=ONLY_SCENARIOS,
                         help="run onboarding, then one scenario: " + "; ".join(f"{name}: {what}" for name, what in ONLY_SCENARIOS.items()))
-    parser.add_argument("--keep", action="store_true", help="leave the Docker lab running and print how to reach and remove it")
+    parser.add_argument("--keep", action="store_true", help="leave the Docker lab (or the --only boot/update ARMv7 guest) running and print how to reach and remove it")
     parser.add_argument("--build", action="store_true", help="build the Controller first")
     parser.add_argument("--binary", help="Controller binary under test; --only update builds its own")
     parser.add_argument("--report", type=Path)
@@ -5487,7 +5487,8 @@ def run(args: argparse.Namespace) -> None:
             ARM_VM = module.ArmContainer(Path(args.binary), args.arm_boot_timeout, serial, _docker_module)
             if lab is not None:
                 lab.arm = ARM_VM  # the lab boots it on its WAN, in the Controller's place
-            else:
+            else:  # no lab to remove the guest: the run does, however it ends, as a lab run does
+                _docker_module.unwind_on_signals()
                 ARM_VM.boot()
                 BASE_URL = PORTAL_URL = ARM_VM.base_url
             if boot_only:
@@ -5524,8 +5525,9 @@ def run(args: argparse.Namespace) -> None:
     else:
         report.finish("pass")
     finally:
+        _docker_module.ignore_signals()
         if ARM_VM is not None:
-            ARM_VM.close()
+            ARM_VM.close(args.keep)
         if releases is not None:
             releases.close()
 

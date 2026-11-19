@@ -1,29 +1,79 @@
 {
   "format_version": 1,
   "scenario": "pairing-only",
-  "started_at": "2026-11-19T08:29:59.030267+00:00",
-  "git_commit": "7ddfecfe6dd3c7da874c8dd8222615df12b1310d",
-  "git_tree": "1ae8d000640fa508028fe474bde9aa4bcc553354",
+  "started_at": "2026-11-19T18:03:14.450969+00:00",
+  "git_commit": "bac682b16b94708201642289b8cfbc17ed746f45",
+  "git_tree": "56960a2491b7a348819a79809d1ad25b344efcce",
   "git_dirty": true,
   "binary_size_bytes": 23103568,
-  "binary_sha256": "b5658c8ba90d1cf5023199d113be9839d4f1bdef3a28833bac36d29038e3e652",
+  "binary_sha256": "98b2195ffcb9bbda293ead6bb9516b4bda78aeebf641f324941f9a3d3fcfb6d0",
   "test_seam": "Controller binary via external HTTP against a Docker lab: stock CHR Router and Linux Devices",
   "result": "pass",
   "lab": {
-    "name": "opnwlab-6efe24",
+    "name": "opnwlab-c5fd32",
     "chr_version": "7.23.8",
     "chr_image": "/home/rgsv/.cache/openpiso/chr/chr-7.23.8.img",
-    "image": "opnwlab-image:00cb97e32920",
-    "router_rest_seconds": 20.4,
+    "image": "opnwlab-image:5e04c5edc5a0",
+    "router_rest_seconds": 20.1,
     "stock_router": {
       "version": "7.23.8 (long-term)",
       "admin_password": "empty",
       "hotspot_servers": 0
     },
+    "vlan_leases": [
+      {
+        "container": "opnwlab-c5fd32-vlan10-device",
+        "vlan": 10,
+        "mac-address": "02:00:00:00:0C:10",
+        "address": "10.5.10.200",
+        "server": "opnw-vlan10",
+        "status": "bound"
+      },
+      {
+        "container": "opnwlab-c5fd32-vlan20-device",
+        "vlan": 20,
+        "mac-address": "02:00:00:00:0C:20",
+        "address": "10.5.20.200",
+        "server": "opnw-vlan20",
+        "status": "bound"
+      },
+      {
+        "container": "opnwlab-c5fd32-vlan10-device",
+        "vlan": 10,
+        "mac-address": "02:00:00:00:0C:10",
+        "address": "10.5.10.200",
+        "server": "opnw-vlan10",
+        "status": "bound"
+      },
+      {
+        "container": "opnwlab-c5fd32-vlan20-device",
+        "vlan": 20,
+        "mac-address": "02:00:00:00:0C:20",
+        "address": "10.5.20.200",
+        "server": "opnw-vlan20",
+        "status": "bound"
+      },
+      {
+        "container": "opnwlab-c5fd32-board1",
+        "vlan": 10,
+        "mac-address": "02:00:00:41:00:01",
+        "address": "10.5.10.199",
+        "server": "opnw-vlan10",
+        "status": "bound"
+      },
+      {
+        "container": "opnwlab-c5fd32-board2",
+        "vlan": 10,
+        "mac-address": "02:00:00:41:00:02",
+        "address": "10.5.10.198",
+        "server": "opnw-vlan10",
+        "status": "bound"
+      }
+    ],
     "vendo_reports": [
       {
         "vendo_id": 2,
-        "container": "opnwlab-6efe24-board2",
+        "container": "opnwlab-c5fd32-board2",
         "ip": "10.5.10.198",
         "source_address": [
           "10.5.10.198"
@@ -33,7 +83,7 @@
       },
       {
         "vendo_id": 2,
-        "container": "opnwlab-6efe24-board1",
+        "container": "opnwlab-c5fd32-board1",
         "ip": "10.5.10.199",
         "source_address": [
           "10.5.10.199"
@@ -43,7 +93,7 @@
       },
       {
         "vendo_id": 4294967295,
-        "container": "opnwlab-6efe24-board1",
+        "container": "opnwlab-c5fd32-board1",
         "ip": "10.5.10.199",
         "source_address": [
           "10.5.10.199"
@@ -53,7 +103,7 @@
       },
       {
         "vendo_id": 2,
-        "container": "opnwlab-6efe24-board1",
+        "container": "opnwlab-c5fd32-board1",
         "ip": "10.5.10.199",
         "source_address": [
           "10.5.10.199"
@@ -62,19 +112,14 @@
         "status": 200
       }
     ],
-    "run_seconds": 56.0,
+    "run_seconds": 61.4,
     "removed": true
-  },
-  "not_ported": {
-    "#32": [
-      "vlan-hosts-evidence"
-    ]
   },
   "cleanup": {
     "result": "pass",
     "failures": []
   },
-  "finished_at": "2026-11-19T08:30:57.954231+00:00",
+  "finished_at": "2026-11-19T18:04:18.835341+00:00",
   "steps": [
     "boot-admin-password-persisted-and-rate-limited",
     "authenticated-post-route-policy",
@@ -85,6 +130,5 @@
     "second-onboarding-is-idempotent",
     "boot-reverified-with-bootstrap-admin-deleted",
     "flash-pairing-adopted-from-real-vlan-source"
-  ],
-  "chr_client_cleanup_removed": 0
+  ]
 }

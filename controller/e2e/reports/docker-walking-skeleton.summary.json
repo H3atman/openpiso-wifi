@@ -1,26 +1,26 @@
 {
   "format_version": 1,
   "scenario": "6-skeleton-7-vouchers-8-pause-9-top-up-10-rebind-11-reconciler-13-admin-dashboard-15-vendo-16-coin-window-41-vlan-auto-select-61-default-portal-62-custom-portal",
-  "started_at": "2026-11-19T06:56:39.597948+00:00",
-  "git_commit": "3f082d7dd22934573410f120a7844031cacc0122",
-  "git_tree": "e5dc6bf4bf3783ffb6bc4d5e76ac0f2d63790166",
+  "started_at": "2026-11-19T07:38:56.143773+00:00",
+  "git_commit": "8b009e8e67aa38becf384fc77b5aee0d7de9f32e",
+  "git_tree": "bb4ff2efa67e9f6612d3cbb3374b425247d5f169",
   "git_dirty": true,
   "binary_size_bytes": 23103576,
-  "binary_sha256": "78a75171ec285087943697e13df6158f2dcc36a8589a306b4a8f47bd3e931f6b",
+  "binary_sha256": "fbff02a73023dbad86d3534637840caf877360c250e2d162e40932b4e5e905af",
   "test_seam": "Controller binary via external HTTP against a Docker lab: stock CHR Router and Linux Devices",
   "result": "pass",
   "lab": {
-    "name": "opnwlab-10bf1a",
+    "name": "opnwlab-4180b7",
     "chr_version": "7.23.8",
     "chr_image": "/home/rgsv/.cache/openpiso/chr/chr-7.23.8.img",
     "image": "opnwlab-image:00cb97e32920",
-    "router_rest_seconds": 19.3,
+    "router_rest_seconds": 19.7,
     "stock_router": {
       "version": "7.23.8 (long-term)",
       "admin_password": "empty",
       "hotspot_servers": 0
     },
-    "run_seconds": 919.8,
+    "run_seconds": 923.3,
     "removed": true
   },
   "not_ported": {
@@ -50,9 +50,6 @@
       "admin-grant-to-expired-time-credit-refused-without-mutation",
       "coin-credit-to-expired-target-creates-new-time-credit",
       "flash-pairing-adopted-from-real-vlan-source"
-    ],
-    "#31": [
-      "router-exhaustion-redirects-with-no-invented-time"
     ],
     "#33": [
       "sales-report-search-ip-mac-user-literal-totals-navigation",
@@ -92,7 +89,7 @@
     "result": "pass",
     "failures": []
   },
-  "finished_at": "2026-11-19T07:12:01.387157+00:00",
+  "finished_at": "2026-11-19T07:54:21.552911+00:00",
   "steps": [
     "boot-admin-password-persisted-and-rate-limited",
     "authenticated-post-route-policy",
@@ -120,6 +117,7 @@
     "idle-pause-disabled-and-profiles-updated",
     "online-top-up-reuses-time-credit-and-refreshes-countdown",
     "top-up-restores-pause-budget-and-replay-does-not-reset-it",
+    "router-exhaustion-redirects-with-no-invented-time",
     "router-error-keeps-committed-credit-pending",
     "kill-after-credit-commit-replays-one-absolute-limit",
     "two-devices-concurrently-redeem-exactly-one-winner",

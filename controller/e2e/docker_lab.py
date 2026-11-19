@@ -7,6 +7,8 @@ leaves it up). The pinned CHR image is downloaded, verified and cached on first 
 
 Device 1 has MAC 0C:01 and Device 2 0C:02, each its own container. A MAC change is a real one on
 Device 1's interface: Device 2 leaves and Device 1 takes its MAC, as the scenarios expect.
+A Vendo board is a container too, with its own MAC, lease and opnw-XXXX DHCP hostname (#30). It sends
+its first contact and every later Report itself, from its own address and MAC.
 The lab's own scenarios (sealed internet, memory caps, VLAN HotSpot login, IPv6) run in own_scenarios.
 """
 
@@ -50,6 +52,7 @@ OTHER_MEMORY = 128 << 20
 DEVICE_MACS = {1: "02:00:00:00:0C:01", 2: "02:00:00:00:0C:02"}  # Device 1 is lab/chr/e2e_lab.py's DEVICE_MAC
 OWN_DEVICE_MAC = "02:00:00:00:0C:31"
 VLAN_DEVICE_MAC = "02:00:00:00:0C:11"
+VLAN_DEVICE_MACS = {10: "02:00:00:00:0C:10", 20: "02:00:00:00:0C:20"}  # vlan_up's Devices
 SIGNALS = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
 
 
@@ -165,11 +168,13 @@ def device_exec(device: str, script: str, check: bool = True) -> str:
     return sh("docker", "exec", device, "sh", "-c", script, check=check)
 
 
-def device_lease(device: str, interface: str = "eth0") -> str:
-    """Take a DHCP lease from the Router and return the Device's address. udhcpc's script cannot `mv` its
-    resolv.conf over Docker's bind-mounted one and leaves it as resolv.conf.<pid>; copy that in place so
-    the Device resolves through the DNS server its lease named."""
-    device_exec(device, f"udhcpc -i {interface} -q -n -t 20 -T 2 && for f in /etc/resolv.conf.*; do "
+def device_lease(device: str, interface: str = "eth0", hostname: str = "") -> str:
+    """Take a DHCP lease from the Router, sending hostname (DHCP option 12) when given, and return the
+    Device's address. udhcpc's script cannot `mv` its resolv.conf over Docker's bind-mounted one and
+    leaves it as resolv.conf.<pid>; copy that in place so the Device resolves through the DNS server its
+    lease named."""
+    option = f" -x hostname:{hostname}" if hostname else ""
+    device_exec(device, f"udhcpc -i {interface}{option} -q -n -t 20 -T 2 && for f in /etc/resolv.conf.*; do "
                         "cat $f > /etc/resolv.conf && rm $f; done")
     output = device_exec(device, f"ip -o -4 addr show dev {interface}")
     return re.search(r"inet (\S+)/", output).group(1)
@@ -241,6 +246,33 @@ def internet_with_time_credit(device: str) -> dict:
     return {"pings_8_8_8_8": True, "google_resolves_to": resolved, "google_status": status}
 
 
+def vendo_hostname(mac: str) -> str:
+    """The DHCP hostname a Vendo board is flashed with: opnw- and the MAC's last four hex digits."""
+    return "opnw-" + mac.replace(":", "")[-4:].lower()
+
+
+def vendo_post(container: str, frame: bytes, timeout: float) -> tuple[int, bytes]:
+    """The Vendo in container POSTs a signed frame to the Controller from its own address and MAC;
+    returns (status, body) as SimulatedVendo.send does, and raises URLError when no reply comes."""
+    result = subprocess.run(["docker", "exec", "-i", container, "curl", "-sS", "-i", "--max-time", str(timeout),
+                             "-H", "Content-Type: application/octet-stream", "--data-binary", "@-",
+                             f"{PORTAL_URL}/vendo/messages"], input=frame, capture_output=True)
+    if result.returncode != 0:
+        raise urllib.error.URLError(f"{container}: curl exited {result.returncode}: {result.stderr.decode().strip()}")
+    head, _, body = result.stdout.partition(b"\r\n\r\n")
+    return int(head.split()[1]), body
+
+
+def container_vendo(base, senders: dict[int, str]):
+    """run.SimulatedVendo, sending from the Vendo's container once that Vendo has made first contact
+    from it (senders maps a Vendo ID to its container); other Vendos send from the harness, as on libvirt."""
+    class ContainerVendo(base):
+        def send(self, frame: bytes):
+            container = senders.get(self.id)
+            return super().send(frame) if container is None else vendo_post(container, frame, self.timeout)
+    return ContainerVendo
+
+
 def sealed_from_internet(lab: Lab, device: str) -> dict:
     """Nothing in the lab reaches the real internet: a public address the stand-in does not answer is
     unroutable from every container except via the Router (Devices), and a logged-in Device gets neither
@@ -302,7 +334,7 @@ class DockerLab:
     """The lab interface (see LibvirtLab) on a Docker lab. run is the loaded run.py module; `running`
     sets its BASE_URL, PORTAL_URL and CONTROLLER_HOST for the lab's published ports and Controller."""
 
-    not_ported = frozenset({30, 31, 32, 33, 34})  # tickets whose scenarios run.py skips here
+    not_ported = frozenset({31, 32, 33, 34})  # tickets whose scenarios run.py skips here
     router_url = f"https://{ROUTER_WAN}"
     router_password = ROUTER_PASSWORD
 
@@ -312,6 +344,8 @@ class DockerLab:
         self.keep = keep
         self.lab = None
         self._ip = {}  # Device container -> its leased address, while it is on the WiFi
+        self._lan = {}  # Vendo board and VLAN Device container -> its leased address
+        self._vendo_senders = {}  # Vendo ID -> the container it made first contact from
         self._shared = None
 
     def _rest(self, path, method="GET", body=None):
@@ -330,6 +364,7 @@ class DockerLab:
         for signum in SIGNALS:
             signal.signal(signum, interrupted)
         started = time.monotonic()
+        self._report = report  # vendo_report records where each Report came from
         chr_image = router_image()
         self.lab = Lab(self.binary, chr_image, lab_image())
         report.data["test_seam"] = "Controller binary via external HTTP against a Docker lab: stock CHR Router and Linux Devices"
@@ -364,6 +399,7 @@ class DockerLab:
         self.run.BASE_URL = "http://" + self.lab.port("controller", 18080)
         self.run.PORTAL_URL = PORTAL_URL
         self.run.CONTROLLER_HOST = self
+        self.run.SimulatedVendo = container_vendo(self.run.SimulatedVendo, self._vendo_senders)
 
         def stock(path, method="GET", body=None):
             return self.run.router_rest(self._router_http, "admin", "", path, method, body, scheme="http")
@@ -392,12 +428,14 @@ class DockerLab:
         rest = self._rest
         # The stock DHCP client on ether1 takes the stand-in's gateway and DNS; Devices resolve through the Router.
         rest("/ip/dns/set", "POST", {"allow-remote-requests": "yes"})
-        # The HotSpot baseline the libvirt wizard created by hand, plus a HotSpot server on VLAN 10. udhcpc
-        # does not renew (-q), so a lease outlives the run.
+        # The HotSpot baseline the libvirt wizard created by hand, plus HotSpot servers on VLANs 10 and 20
+        # (libvirt's vlan_up adds those). udhcpc does not renew (-q), so a lease outlives the run.
         for name, interface, subnet, pool in (("hs1", "ether2", "10.5.50", "10-10.5.50.200"),
-                                              ("opnw-vlan10", "opnw-vlan10", "10.5.10", "100-10.5.10.200")):
+                                              ("opnw-vlan10", "opnw-vlan10", "10.5.10", "100-10.5.10.200"),
+                                              ("opnw-vlan20", "opnw-vlan20", "10.5.20", "100-10.5.20.200")):
             if interface != "ether2":
-                rest("/interface/vlan", "PUT", {"name": interface, "interface": "ether2", "vlan-id": "10"})
+                rest("/interface/vlan", "PUT", {"name": interface, "interface": "ether2",
+                                                "vlan-id": interface.removeprefix("opnw-vlan")})
             pool_name = "hs-pool" if name == "hs1" else name
             rest("/ip/address", "PUT", {"address": f"{subnet}.1/24", "interface": interface})
             rest("/ip/pool", "PUT", {"name": pool_name, "ranges": f"{subnet}.{pool}"})
@@ -480,10 +518,11 @@ class DockerLab:
             self._rest("/user/" + user[".id"], "DELETE")
 
     def stop_router_rest(self) -> None:
-        not_ported(30)  # only the Dashboard outage scenario uses it, and it needs coin Sales
+        """The Controller loses the Router's REST (www-ssl); the harness keeps plain HTTP. Undo with start_router_rest."""
+        self._rest("/ip/service/set", "POST", {"numbers": "www-ssl", "disabled": "yes"})
 
     def start_router_rest(self) -> None:
-        not_ported(30)
+        self._rest("/ip/service/set", "POST", {"numbers": "www-ssl", "disabled": "no"})
 
     def start(self, evidence: dict) -> None:
         """Nothing to start or clean: the lab is new."""
@@ -504,7 +543,7 @@ class DockerLab:
         evidence = {"router": {path: self._rest(path) for path in
                                ("/ip/dhcp-server/lease", "/ip/hotspot/host", "/ip/hotspot/active")}}
         evidence["devices"] = {device: device_exec(device, "ip -o link show eth0; ip -o -4 addr; ip route", check=False)
-                               for device in self.lab.containers() if "-device" in device}
+                               for device in self.lab.containers() if "-device" in device or "board" in device}
         return evidence
 
     def own_scenarios(self, opener, report) -> None:
@@ -637,7 +676,7 @@ class DockerLab:
         self._ip.pop(device, None)
 
     def _sender(self, device_ip: str) -> str:
-        return next(device for device, ip in self._ip.items() if ip == device_ip)
+        return next(device for device, ip in (*self._ip.items(), *self._lan.items()) if ip == device_ip)
 
     def device_ip(self, second: bool = False) -> str:
         return self._ip[self._device(2 if second else 1)]
@@ -664,10 +703,30 @@ class DockerLab:
         return row
 
     def fetch_when_ready(self, device_ip: str, url: str):
-        not_ported(30)
+        """This Device GETs url once it can, retrying refusals for 30s; returns [the result row]."""
+        deadline = time.monotonic() + 30
+        while True:
+            try:
+                return [self.fetch(device_ip, url, headers=False)]
+            except (urllib.error.HTTPError, AssertionError):
+                if time.monotonic() > deadline:
+                    raise
+                time.sleep(1)
 
     def unreachable(self, device_ip: str, url: str) -> dict:
-        not_ported(30)
+        """Assert this Device gets no reply from url within 3s; returns the evidence. The Router takes about
+        a second to apply firewall rules just written (measured on this lab), so replies within 10s of the
+        first attempt are retried and counted."""
+        deadline = time.monotonic() + 10
+        replied = 0
+        while True:
+            output = device_exec(self._sender(device_ip), f"curl -sS --max-time 3 -o /dev/null -w ' status=%{{http_code}}' "
+                                                          f"{url} 2>&1; echo \" exit=$?\"", check=False).strip()
+            if "status=000" in output and "exit=0" not in output:
+                return {"url": url, "curl": output, "replies_before_rules_applied": replied}
+            replied += 1
+            assert time.monotonic() < deadline, output
+            time.sleep(0.5)
 
     def internet(self, device_ip: str) -> tuple[str, str]:
         """Fetch from the Device for checks that expect internet; returns (target, body)."""
@@ -692,7 +751,10 @@ class DockerLab:
         return redirect, portal
 
     def renew_lease(self, *, verify_portal: bool = True) -> None:
-        not_ported(30)  # only needed after a paired Vendo's static lease is deleted
+        """Give Device 1 a fresh lease after its paired (static) lease was deleted."""
+        self._lease(self._device(1))
+        if verify_portal:
+            self.wait_device()
 
     def second_device_up(self) -> list[str]:
         """Connect Device 2 beside Device 1. Returns [Device 1 IP, Device 2 IP]."""
@@ -756,28 +818,82 @@ class DockerLab:
             self._shared = None
         self.rejoin()
 
-    # Vendo boards and VLANs: later tickets.
+    # Vendo boards: a container each, found by its leased address like a Device.
+
+    def _board(self, suffix: str, mac: str, vlan: int = 0, hostname: str = "") -> dict:
+        """Start a Vendo board on the LAN, tagged on vlan when given, and lease it an address sending
+        hostname; returns {"mac", "ip"}."""
+        board = self.lab.device(suffix, mac)
+        interface = "eth0"
+        if vlan:
+            interface = f"eth0.{vlan}"
+            device_exec(board, f"ip link add link eth0 name {interface} type vlan id {vlan} && ip link set {interface} up")
+        self._lan[board] = device_lease(board, interface, hostname)
+        return {"mac": mac, "ip": self._lan[board]}
 
     def coin_board(self) -> dict:
-        not_ported(30)
+        """The coin board beside Device 1 on the HotSpot LAN, hostname opnw-0c04; returns {"mac", "ip"}.
+        Started on first use; later calls return the same board. Unpairing deletes the board's lease, and
+        with this lab's three DHCP servers pairing needs one, so the board leases again then, as a real
+        board renewing would."""
+        mac = self.run._lab_module.COIN_BOARD_MAC
+        board = f"{self.lab.name}-coin-board"
+        if board not in self._lan:
+            return self._board("coin-board", mac, hostname=vendo_hostname(mac))
+        if not self._rest(f"/ip/dhcp-server/lease?mac-address={mac}"):
+            device_exec(board, "ip -4 addr flush dev eth0; ip -4 route flush dev eth0")
+            self._lan[board] = device_lease(board, hostname=vendo_hostname(mac))
+        return {"mac": mac, "ip": self._lan[board]}
 
     def remove_coin_board(self) -> None:
-        """No coin board was ever added (run-end cleanup calls this)."""
+        """The coin board goes with the lab (run-end cleanup calls this)."""
 
     def vendo_report(self, ip: str, frame: bytes) -> None:
-        not_ported(30)
+        """The Vendo board at ip sends this signed Report to the Controller's PORTAL_URL from its own
+        container, address and MAC. That Vendo's later Reports (run.SimulatedVendo) go from there too."""
+        board = self._sender(ip)
+        self._vendo_senders[int.from_bytes(frame[1:5])] = board
+        deadline = time.monotonic() + 30
+        while subprocess.run(["docker", "exec", board, "curl", "-sf", "--max-time", "3", "-o", "/dev/null",
+                              f"{PORTAL_URL}/healthz"], capture_output=True).returncode != 0:
+            assert time.monotonic() < deadline, f"Board at {ip} cannot reach the Controller"
+            time.sleep(0.5)
+        source = device_exec(board, "ip -o -4 addr show scope global; cat /sys/class/net/eth0/address")
+        try:
+            status, body = vendo_post(board, frame, self.run.HTTP_TIMEOUT)
+        except urllib.error.URLError as error:
+            # PairVendo clears existing connections, including the first report.
+            # Assert rejection/acceptance through admin and Router observations.
+            status, body = None, str(error.reason).encode()
+        if status != 200:
+            print("Board report:", status, body.decode(errors="replace").strip())
+        self._report.data["lab"].setdefault("vendo_reports", []).append({
+            "vendo_id": int.from_bytes(frame[1:5]), "container": board, "ip": ip,
+            "source_address": re.findall(r"inet (\S+)/", source), "source_mac": source.split()[-1].upper(),
+            "status": status})
+
+    # Two HotSpot VLANs (10 and 20, both part of the lab), each with a Device; Vendo boards join either.
 
     def vlan_up(self) -> None:
-        not_ported(32)
+        """Connect a Device on each VLAN. Undo with vlan_down."""
+        for vlan, mac in VLAN_DEVICE_MACS.items():
+            self._board(f"vlan{vlan}-device", mac, vlan)
 
     def vlan_hosts(self) -> list[dict]:
-        not_ported(32)
+        """Each VLAN Device's Router host rows: [{"vlan", "host_rows"}]."""
+        evidence = []
+        for vlan in VLAN_DEVICE_MACS:
+            device = f"{self.lab.name}-vlan{vlan}-device"
+            device_exec(device, f"ping -c 1 -W 2 10.5.{vlan}.1", check=False)
+            evidence.append({"vlan": vlan, "host_rows": self._rest(f"/ip/hotspot/host?address={self._lan[device]}")})
+        return evidence
 
     def vlan_devices(self) -> dict[int, str]:
         not_ported(32)
 
     def vlan_board(self, vlan: int, number: int, hostname=None) -> dict:
-        not_ported(32)
+        """Vendo board number (1-3) on this VLAN, sending hostname over DHCP when given; returns {"mac", "ip"}."""
+        return self._board(f"board{number}", self.run._lab_module.BOARD_MACS[number - 1], vlan, hostname or "")
 
     def vlan_leave(self, vlan: int) -> None:
         not_ported(32)
@@ -786,4 +902,13 @@ class DockerLab:
         not_ported(32)
 
     def vlan_down(self) -> None:
-        not_ported(32)
+        """Remove the VLAN Devices and boards; the VLAN HotSpots stay, they are part of the lab."""
+        names = [f"{self.lab.name}-{suffix}" for suffix in
+                 (*(f"vlan{vlan}-device" for vlan in VLAN_DEVICE_MACS), "board1", "board2", "board3")]
+        if gone := [name for name in names if name in self.lab.containers()]:
+            sh("docker", "rm", "-f", "-v", *gone)
+        for name in names:
+            self._lan.pop(name, None)
+        for vendo_id, board in list(self._vendo_senders.items()):
+            if board in names:
+                del self._vendo_senders[vendo_id]

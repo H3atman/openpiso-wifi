@@ -5369,26 +5369,23 @@ def scenario(args, report: Report, lab) -> None:
                 assert "OpenPiso WiFi" in portal_page and "/portal/core.js" in portal_page
                 report.snapshot("customer-device-redirect-and-walled-garden", address, password, opener,
                                 redirect_html=redirect_page, portal_page=portal_page, customer_admin_status=403)
-                if ported(lab, report, 30, "vendo-paired-mac-spoof-restricted-to-controller",
-                          "vendo-authenticated-cumulative-reports-and-wire-vectors",
-                          "vendo-restart-lost-ack-does-not-credit-twice", "vendo-unpaired-router-rules-removed"):
-                    paired = vendo_pairing(opener, address, password, lab, report)
-                    vendo = vendo_protocol(opener, paired, address, password, report)
-                    before_restart = json.load(request(opener, "/admin/state"))["vendo_protocol"]
-                    repeated = vendo.frame()
-                    assert vendo.post(repeated, ignore_ack=True)[0] == 200
-                    controller.stop()
-                    controller = Controller(args.binary, data_dir, initialize=False)
-                    opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
-                    assert request(opener, "/admin/login", "POST", {"password": ADMIN_PASSWORD}).status == 200
-                    assert vendo.post(repeated)[0] == 200
-                    after_restart = json.load(request(opener, "/admin/state"))["vendo_protocol"]
-                    assert after_restart["coin_deltas"] == before_restart["coin_deltas"]
-                    assert after_restart["totals"] == before_restart["totals"]
-                    report.snapshot("vendo-restart-lost-ack-does-not-credit-twice", address, password, opener)
-                    vendo_unpair(opener, paired, address, password, report)
-                    lab.renew_lease()
-                    assert vendo.post(vendo.frame())[0] == 401
+                paired = vendo_pairing(opener, address, password, lab, report)
+                vendo = vendo_protocol(opener, paired, address, password, report)
+                before_restart = json.load(request(opener, "/admin/state"))["vendo_protocol"]
+                repeated = vendo.frame()
+                assert vendo.post(repeated, ignore_ack=True)[0] == 200
+                controller.stop()
+                controller = Controller(args.binary, data_dir, initialize=False)
+                opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+                assert request(opener, "/admin/login", "POST", {"password": ADMIN_PASSWORD}).status == 200
+                assert vendo.post(repeated)[0] == 200
+                after_restart = json.load(request(opener, "/admin/state"))["vendo_protocol"]
+                assert after_restart["coin_deltas"] == before_restart["coin_deltas"]
+                assert after_restart["totals"] == before_restart["totals"]
+                report.snapshot("vendo-restart-lost-ack-does-not-credit-twice", address, password, opener)
+                vendo_unpair(opener, paired, address, password, report)
+                lab.renew_lease()
+                assert vendo.post(vendo.frame())[0] == 401
                 device_ip, time_credit_cookie = voucher_redemption(opener, report, address, password, lab, codes)
                 controller.stop()
                 controller = Controller(args.binary, data_dir, initialize=False)
@@ -5400,8 +5397,7 @@ def scenario(args, report: Report, lab) -> None:
                                 cookie_stable=True)
                 controller, opener = reconciler_restart_outage(controller, args, data_dir, opener, report, address,
                                                                 password, lab, device_ip)
-                if ported(lab, report, 30, "dashboard-says-router-unreachable-and-keeps-sales"):
-                    dashboard_router_unreachable(opener, report, address, password, lab)
+                dashboard_router_unreachable(opener, report, address, password, lab)
                 tapped_pause(opener, report, address, password, lab, device_ip, time_credit_cookie)
                 idle_pause(opener, report, address, password, lab, device_ip)
                 top_up_code = top_up_online(opener, report, address, password, lab, device_ip, time_credit_cookie)
@@ -5418,48 +5414,31 @@ def scenario(args, report: Report, lab) -> None:
                 assert request(opener, "/admin/login", "POST", {"password": ADMIN_PASSWORD}).status == 200
                 device_ip = rebind_recovery(opener, report, address, password, lab, device_ip, time_credit_cookie)
                 admin_grant(opener, report, address, password, lab, device_ip, time_credit_cookie)
-                # Its Sales figures include the Vendo's coins.
-                if ported(lab, report, 30, "admin-dashboard-sales-periods-time-credit-detail-and-batch-usage"):
-                    admin_dashboard(opener, report, address, password, lab, device_ip, time_credit_cookie)
-                else:
-                    dashboard_router_status(opener, report, address, password)
-                coins = ported(lab, report, 30, "audit-review-persists-until-explicit-dismissal-or-linked-grant",
-                               "empty-coin-window-creates-identity-without-free-router-time",
-                               "coin-window-rate-table-and-unique-vendo-reservation",
-                               "coin-done-in-flight-tiered-top-up-and-replayed-closed",
-                               "coin-grace-holds-busy-and-late-coins-reprice-whole-window",
-                               "coin-window-open-at-restart-closes-on-boot",
-                               "coin-window-sixty-seconds-without-coins-sends-close",
-                               "coin-window-real-device-departure-sends-close")
-                if coins:
-                    controller, opener = admin_audit_review(controller, args, data_dir, opener, report, address,
-                                                            password, lab, device_ip, time_credit_cookie)
-                    coin_window_empty(opener, report, address, password, lab)
-                    paired_coins, coin_vendo, coin_window = coin_window_open(opener, report, address, password, lab, device_ip)
-                    coin_window_done(opener, report, address, password, lab, device_ip, coin_vendo, coin_window)
-                    coin_window_grace(opener, report, address, password, lab, device_ip, coin_vendo)
-                    controller, opener = coin_window_boot(controller, args, data_dir, opener, report, address,
-                                                          password, lab, device_ip, coin_vendo)
-                    coin_window_idle(opener, report, address, password, lab, device_ip, coin_vendo)
-                    device_ip = coin_window_departure(opener, report, address, password, lab, device_ip, coin_vendo)
+                admin_dashboard(opener, report, address, password, lab, device_ip, time_credit_cookie)
+                controller, opener = admin_audit_review(controller, args, data_dir, opener, report, address,
+                                                        password, lab, device_ip, time_credit_cookie)
+                coin_window_empty(opener, report, address, password, lab)
+                paired_coins, coin_vendo, coin_window = coin_window_open(opener, report, address, password, lab, device_ip)
+                coin_window_done(opener, report, address, password, lab, device_ip, coin_vendo, coin_window)
+                coin_window_grace(opener, report, address, password, lab, device_ip, coin_vendo)
+                controller, opener = coin_window_boot(controller, args, data_dir, opener, report, address,
+                                                      password, lab, device_ip, coin_vendo)
+                coin_window_idle(opener, report, address, password, lab, device_ip, coin_vendo)
+                device_ip = coin_window_departure(opener, report, address, password, lab, device_ip, coin_vendo)
                 resume_code_throttling(opener, report, address, password, lab, device_ip)
                 device_ip = mac_change_without_rebind(opener, report, address, password, lab, device_ip)
                 ambiguous_device_host(opener, report, address, password, lab, device_ip, time_credit_cookie)
                 expired_id, expired_cookie, validity_code = validity_online_expiry(
                     opener, report, address, password, lab, device_ip)
-                # It expects the audit review's pending row (#30).
-                if ported(lab, report, 30, "admin-grant-to-expired-time-credit-refused-without-mutation"):
-                    admin_expired_grant(opener, report, address, password, expired_id)
+                admin_expired_grant(opener, report, address, password, expired_id)
                 validity_offline_expiry(opener, report, address, password, lab,
                                         device_ip, expired_id, expired_cookie, validity_code)
                 # A Top-up never shortens Validity (ADR 0006), so the short-deadline
                 # steps run while the Device holds no live Time Credit.
                 admin_grant_after_deadline(opener, report, address, password, lab, device_ip)
-                if ported(lab, report, 30, "coin-credit-to-expired-target-creates-new-time-credit"):
-                    coin_credit_after_expiry(opener, report, address, password, lab, device_ip, coin_vendo)
+                coin_credit_after_expiry(opener, report, address, password, lab, device_ip, coin_vendo)
                 voucher_while_tapped_paused(opener, report, address, password, lab, device_ip)
-                if coins:
-                    assert request(opener, "/admin/vendos/unpair", "POST", {"id": paired_coins["id"]}).status == 204
+                assert request(opener, "/admin/vendos/unpair", "POST", {"id": paired_coins["id"]}).status == 204
                 if ported(lab, report, 33, "sales-report-search-ip-mac-user-literal-totals-navigation",
                           "sales-report-rows-late-stray-open-vouchers-pagination-auth",
                           "sales-report-vendo-filter-unpaired-history", "sales-report-csv-export"):
@@ -5471,8 +5450,7 @@ def scenario(args, report: Report, lab) -> None:
                           "browser-sales-report", "browser-signin-logout-restart"):
                     custom_portal(opener, report, address, password, lab, device_ip)
                     _browser_module.scenario(sys.modules[__name__], opener, address, password, lab, report, restart_browser_controller)
-                if ported(lab, report, 30, "flash-pairing-adopted-from-real-vlan-source"):
-                    _flash_module.scenario(sys.modules[__name__], opener, address, password, lab, report)
+                _flash_module.scenario(sys.modules[__name__], opener, address, password, lab, report)
                 if ported(lab, report, 32, "single-vendo-auto-select-from-either-vlan",
                           "one-vendo-per-vlan-learned-and-auto-selected",
                           "picker-is-limited-to-network-and-forged-id-reserves-nothing",
@@ -5536,7 +5514,7 @@ ONLY_SCENARIOS = {
     "update": "with --armv7, without CHR: install a throwaway-key v0.1.0, then update, roll back and refuse releases (see update_vm.py)",
 }
 # --only scenarios the Docker lab has not ported yet, by the ticket that ports them.
-ONLY_TICKETS = {"pairing": 30, "vouchers": 31, "time-running-out": 31, "vlan": 32,
+ONLY_TICKETS = {"vouchers": 31, "time-running-out": 31, "vlan": 32,
                 "sales": 33, "vendo-list": 33, "shop-defaults": 33, "browser": 34}
 
 

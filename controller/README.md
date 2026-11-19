@@ -741,92 +741,87 @@ with status, resolution timestamp, actor, reason and linked grant audit ID.
 export PATH="$HOME/.local/go/bin:$PATH"
 make -C controller check    # Go type checking and vet
 make -C controller cross    # static Linux armv7 and arm64 binaries
-make -C controller e2e      # build native binary and run the real-CHR scenario
+make -C controller e2e      # build native binary and run the real-CHR scenario on the Docker lab
 ```
 
-Lab workflow (a full native run is ~23 min, ARMv7 ~26 min, one `--only` run 1.5–3.5 min):
+Lab workflow (a full run is ~22 min, ARMv7 ~42 min, one `--only` run 1.5–3.5 min):
 
 - Each new issue adds its own `--only <name>` scenario (one `ONLY_SCENARIOS`
   entry in `e2e/run.py`) and iterates on that.
 - Run the full `make -C controller e2e` once before the PR is merged.
 - Run `make -C controller e2e-armv7` at milestones, or when a change touches
-  performance or memory.
-- Parallel runs queue on the lab lock (below) instead of failing.
+  performance or memory. It runs on the Docker lab ([ARMv7 guest in a
+  container](#armv7-guest-in-a-container)).
 
-For fast UI iteration against the same Router, see the dev lab in
-[`lab/dev/README.md`](../lab/dev/README.md). It shares `chr-lab`: never run both at once.
+### The Docker lab
 
-The E2E harness **reconfigures the throwaway `chr-lab` and `chr-client` VMs**.
-Use it only with exclusive access. It never operates on `piso-client`,
-`piso-server`, or the `pisonet` network. Requirements:
+Each run creates its own throwaway lab of Docker containers on private networks
+([ADR 0012](../docs/adr/0012-e2e-runs-on-a-docker-lab-per-run.md)):
+a stock RouterOS CHR under QEMU, the Controller binary, an internet stand-in, and
+Linux Devices, Vendos and Playwright browsers on the lab LAN
+([`e2e/docker_lab.py`](e2e/docker_lab.py), [`lab/docker/`](../lab/docker/)). It
+needs Docker, `/dev/kvm` readable by your user, Python 3 and Go; no sudo, libvirt
+or `lab/chr/.env`. The pinned CHR image is downloaded once, checked against
+`CHR_SHA256` and cached in `~/.cache/openpiso/chr/`. Every container has a hard
+memory cap (Router 320 MB, browser 1 GB, ARMv7 guest 512 MB, the rest 128 MB).
 
-- Existing CHR lab from `lab/chr/README.md`; `chr-lab` running and `chr-client`
-  defined, with the management/HotSpot NICs described there.
-- `virsh -c qemu:///system`, Python 3, `flock`, OpenSSL (for the non-v7 HTTPS
-  fixture), and the gitignored `lab/chr/.env`. The loader prefers this checkout's
-  file; when absent, it reads the main checkout's copy through Git's common
-  directory. No credentials file is copied or symlinked into a worktree.
-- Host address `192.168.122.1`, available TCP port 18080, and the lab HotSpot
-  at `10.5.50.1`. Router/client management addresses are discovered from libvirt.
-- Permission through libvirt to create a transient isolated network and hotplug
-  a NIC on `chr-lab`. The harness creates `openpiso-e2e-routing` / `virbr-opiso7`
-  (`10.77.7.1/24`, Router `10.77.7.2`) with host static return routes for
-  `10.5.50.0/24`, `10.5.10.0/24` and `10.5.20.0/24`, and a lab-only source-NAT
-  exemption to the Controller. These
-  addresses/network names must be unused. This preserves real Device source IPs
-  without sudo or trusting browser identity. The network/NIC/NAT rule are removed
-  on exit; it does not modify `default`, `hotspot-lan`, or `pisonet`. The
-  `--only onboarding` scenario deletes that exemption, adds a masquerade for
-  `10.5.50.0/24` as the first NAT rule (comment `openpiso-e2e-masquerade`,
-  removed on exit), shows a Device's Voucher refused through it, lets the
-  Controller's checklist fix add its own exemption, and briefly disables the
-  routing NIC to show a missing return route. RouterOS applies a NAT change to
-  new connections only seconds later, so the step waits until the rule counts a
-  Device fetch of `/portal/ready.js`.
-
-Every CHR run (full or partial, native or ARM) cleans `chr-client` immediately
-after it starts, before the VLAN prerequisite or any application scenario. It
-removes leftover fixtures identified by `opnw-` or `openpiso-e2e-` names/comments:
-routing rules and routes before tables, DHCP clients before their board MACVLANs
-or VLANs, and harness DHCP options. DHCP clients are removed only on those
-harness-owned interfaces; `mgmt` and its DHCP client are never touched. It then
-enables `lan1` and releases/reacquires its Device lease using the same lease step
-as Vendo unpair. The full report's `chr_client_cleanup.removed` lists each
-successful deletion (resource path and original row), even if cleanup fails
-partway; `chr_client_cleanup.device_lease` records the fresh lease. The summary
-includes only `chr_client_cleanup_removed`, the removal count. End-of-run cleanup
-remains in place. ARM `--only boot` does not access CHR and skips this step.
-
-The entry takes an exclusive `flock` on
-`/tmp/openpiso-chr-lab-<uid>.lock` before the `make e2e` build or any lab access,
-shared by all this user's worktrees and native/ARM runs. A second run prints the
-holder's PID and entry process once and queues; after `--lock-timeout` seconds
-(default 2700, one full run plus margin) it exits with the same holder message. The lock is released on exit, including failure;
-never delete the lock file to bypass a holder. Direct `run.py` invocations take
-the same lock; `--build` builds the Controller while holding it.
-
-The entry reports the loaded credentials file path (never its values) before
-preflight. Before touching the Router, preflight refuses the dev lab's active
-`openpiso-dev-routing` network or leftover routing NIC (`52:54:00:07:08:07`).
-It prints the exact `python3 -I /path/to/checkout/lab/dev/dev.py down` command,
-but never executes it. Agree with the dev lab's owner before running that
-cleanup; the lock does not prevent someone starting the dev lab concurrently.
-
-The refusal and worktree-credentials checks need no CHR lab:
+The `--only onboarding` scenario adds a masquerade for `10.5.50.0/24` as the
+first NAT rule (comment `openpiso-e2e-masquerade`, removed on exit), shows a
+Device's Voucher refused through it, lets the Controller's checklist fix add its
+own exemption, and briefly cuts the Controller's return route to show the manual
+step. RouterOS applies a NAT change to new connections only seconds later, so the
+step waits until the rule counts a Device fetch of `/portal/ready.js`.
 
 ```sh
-python3 -I controller/e2e/safety_checks.py
+make -C controller e2e                                    # full run
+python3 -I controller/e2e/run.py --build --binary "$PWD/controller/bin/openpiso" --only vouchers   # one group
+python3 -I controller/e2e/run.py --binary "$PWD/controller/bin/openpiso" --only pairing --keep     # leave the lab up
 ```
 
-They use PATH stubs for libvirt inspection and a scratch Git worktree with
-synthetic credentials. They never connect to the Router or change lab state.
-The held-lock check invokes `run.py --build --lock-timeout 1` with a failing
-PATH-stubbed `go` to prove the queue gives up before compilation. The credentials check invokes `run.py` in
-the scratch worktree and stops at a planted preflight conflict. Full E2E
-verification is separate and requires exclusive lab access.
+Runs write `docker-<name>.json` under `e2e/reports/` (the full run's is
+`docker-walking-skeleton.json`). The reports without the `docker-` prefix are
+the libvirt lab's, kept as the record from before ADR 0012. The lab
+is removed when the run ends, including on failure or Ctrl-C. `--keep` leaves it
+running and prints the Router and Controller addresses, a shell per container and
+the command that removes it. Labs share nothing, so runs in different worktrees
+(or the same one) can go at once, and the dev lab runs beside them.
 
-Each run creates a fresh CA and server certificate on the Router via its serial
-console, then enables `www-ssl`. This fixture trusts the isolated lab to seed a
+The full run has the old libvirt run's steps in the same order, plus the
+Docker lab's own checks: the sealed internet stand-in, the memory caps, a HotSpot
+login on a VLAN and IPv6 on the LAN.
+
+### ARMv7 guest in a container
+
+`--armv7` runs the ARM guest described in [ARM VM E2E run](#arm-vm-e2e-run-256-mib)
+under QEMU with TCG (no KVM) in a lab-image container
+([`lab/docker/armv7.sh`](../lab/docker/armv7.sh), `ArmContainer` in
+[`e2e/arm_vm.py`](e2e/arm_vm.py)). For the full run it joins the Docker lab's WAN
+in the Controller's place, at `10.77.7.1`, so the Router and Devices see the same
+lab; the boot and update checks (`--only boot`, `--only update`) put it on a
+Docker network of its own, with no Router. Its NIC is bridged through a tap like
+the Router's; cloud-init gives it the static address. The harness reaches its SSH
+and Controller through the container's published ports, so the Controller's
+admin network is the container's helper address `10.77.7.252/32`. The pinned
+image, kernel and initrd are cached in `~/.cache/openpiso/armv7/`, verified on
+every use. The container's cap is 512 MB: the guest's 256 MiB, TCG's 64 MiB
+translation cache and QEMU (about 435 MiB resident together, measured), plus
+room for the guest disk's page cache. Reports record the cap, QEMU's peak RSS
+and the cgroup's OOM kills (`execution.container_memory_cap_mib`,
+`qemu_peak_rss_mib`, `container_oom_kills`) beside the Controller's peak RSS.
+Host needs: Docker and OpenSSH (`ssh`, `scp`, `ssh-keygen`), no libvirt, `qemu`
+or ISO tool. TCG is slow: the boot alone takes 7 to 9 minutes (the boot
+timeout defaults to 1800 s; `--arm-boot-timeout` overrides it).
+
+```sh
+python3 -I controller/e2e/run.py --armv7 --only boot --binary "$PWD/controller/bin/openpiso-linux-armv7"   # docker-armv7-boot.json
+make -C controller e2e-armv7-update   # docker-armv7-update.json
+make -C controller e2e-armv7          # full run, docker-armv7.json
+```
+
+For fast UI iteration, see the dev lab in [`lab/dev/README.md`](../lab/dev/README.md).
+
+Each run creates a fresh CA and server certificate on the Router over REST, then
+enables `www-ssl`. This fixture trusts the isolated lab to seed a
 short-lived full-permission bootstrap account over HTTPS. Its password includes
 `&`, `=`, `+`, `#`, spaces and a non-ASCII character; it is submitted to the
 Controller as a real URL-encoded HTML form. Fixture inspection deliberately uses
@@ -858,28 +853,27 @@ measured departure time and confirms that no manual host delete was used. These 
 other scenarios. VLAN auto-selection additionally covers the single-Vendo
 site fallback, real host-server learning, one Vendo per VLAN, a network-limited
 picker and forged-ID rejection, VLAN movement with a held Coin Window, admin
-overrides and no-match refusal without a reservation. Its scripted topology
-and teardown are documented in `lab/chr/README.md`.
+overrides and no-match refusal without a reservation. Its VLAN HotSpots, VLAN
+Devices and boards are set up by `DockerLab` (`vlan_up`, `vlan_board`).
 Pause coverage includes tapped Pause until refused, signed-cookie resume,
 refusal of silent/unauthenticated resume, Idle Pause with stable paused uptime
 and cookie-free automatic resume, and profile changes.
-The Device fetches with its HotSpot source
-IP through a dedicated policy-routing table, not through its management NIC.
+Each Device fetches from its own container, with its HotSpot lease as the source.
 
 The Default Portal browser run (`e2e/browser_portal.py`) drives Chromium
 (Playwright, Pixel 7 profile) as real Devices behind the HotSpot. It needs
 Docker and no root. It builds `openpiso-e2e-browser:pw1.64.1`, which is
 `mcr.microsoft.com/playwright/python:v1.64.1-noble` plus `pip install
-playwright==1.64.1`. Each Device is one `--rm` container on a macvlan network
-(`openpiso-e2e-hs`) over `virbr-hs`, with its own MAC and IP and a static
-Router lease, so the Controller resolves it through the Router like a phone.
+playwright==1.64.1`. Each Device is one `--rm` container on the lab LAN, with
+its own MAC and a DHCP lease from the Router (a static lease fixes its IP), so
+the Controller resolves it through the Router like a phone.
 The container runs `e2e/browser_device.py` and asks the harness for simulated
 Vendo coins over stdin, so the Vendo key stays in the harness process. It walks
 new, Voucher error, online, paused → Resume, Coin Window → Done, Rebind to a
 second Device, and out of time. It asserts the code budget, zero CSP violations
 (plus a probe that an inline style is refused) and that the HttpOnly cookie
-survives `fetch` POSTs. Containers, the network and the Router leases and hosts
-are removed on exit, failures included. A third Device then opens a published
+survives `fetch` POSTs. Containers and the Router leases and hosts are removed
+on exit, failures included. A third Device then opens a published
 Custom Portal whose `custom.js` throws and whose inline script the CSP refuses,
 and still redeems a Voucher through `core.js`. Then an Operator's browser on
 the host network previews a good draft, one with a misspelled marker and one
@@ -895,9 +889,8 @@ violations. Real Voucher redemptions provide more than 25 matching rows, and a
 CSV downloaded from a later page is compared with all filtered JSON rows while
 Total Sales retains its Vendo/date context. Screenshots of All, one Vendo, a
 search and a later page join the Portal screenshots in
-`e2e/reports/browser-portal/`; commit those with the summary.
-The bootstrap account is removed on exit; `chr-client` stays running. Lab TLS and
-baseline configuration remain; the next run recreates them repeatably.
+`e2e/reports/<report stem>-browser-portal/`; commit those with the summary.
+The lab, Router included, is removed at the end of the run.
 
 The final certificate-replacement step intentionally leaves the disposable
 Controller database pinned to the old certificate. The temporary database and
@@ -912,8 +905,8 @@ python3 -I controller/e2e/run.py \
   --report /tmp/walking-skeleton.json
 ```
 
-For a focused run, add `--only <name>`. Without `--report`, each native partial
-run writes `<name>-only.json` under `e2e/reports/`:
+For a focused run, add `--only <name>`. Without `--report`, each partial run
+writes `docker-<name>-only.json` under `e2e/reports/`:
 
 - `--only onboarding`: Router setup from someone else's HotSpot: Use existing,
   a Device online, Next steps, the unticked server, a ledger from before Router
@@ -935,17 +928,16 @@ run writes `<name>-only.json` under `e2e/reports/`:
   Devices per HotSpot server and Up since across a new boot nonce on two VLAN
   Vendos, and Deactivate/Reactivate on two VLAN Vendos.
 - `--only boot` (requires `--armv7`): boot the ARM guest through cloud-init and
-  verify SSH, without CHR; `armv7-boot.json`.
+  verify SSH, without CHR; `docker-armv7-boot.json`.
 
 Each report has a matching `.summary.json` (for example,
-`pairing-only.summary.json`). Full native runs keep `walking-skeleton.json`;
-ARM runs keep `armv7.json` or `armv7-boot.json`. An explicit `--report` overrides
+`docker-pairing-only.summary.json`). Full runs keep `docker-walking-skeleton.json`;
+ARM runs keep `docker-armv7.json` or `docker-armv7-boot.json`. An explicit `--report` overrides
 any default. Full reports stay gitignored; only their summaries are tracked.
 
-Every CHR run records VLAN host evidence in its full report's `vlan_hosts`, but
-leaves the committed research hosts file untouched by default. Add
-`--write-vlan-hosts` to explicitly refresh
-`docs/research/results/2026-10-29-chr-vlan-autoselect/hosts.json`.
+Every run records VLAN host evidence in its full report's `vlan_hosts`. The
+research file `docs/research/results/2026-10-29-chr-vlan-autoselect/hosts.json`
+was recorded on the libvirt lab and is kept as it is.
 
 These runs keep the existing pairing-only setup/cleanup pattern and stop before
 unrelated purchase, recovery and certificate-replacement steps. Both the full
@@ -967,16 +959,9 @@ again before writing. Do not commit raw Router exports or `.env`.
 Failed lab runs (full or partial) also keep a `lab_snapshot` in the full local
 report, never in the committed summary. It is captured before failure cleanup,
 including nested scenario cleanup, and the first capture is retained. It records
-chr-client's addresses, DHCP clients, routing rules, all routes (including
-inactive ones), routing tables and MACVLAN interfaces, plus the HotSpot Router's
-DHCP leases and host rows for the run's Device MACs. The shared Device MAC list
-lives in `lab/chr/e2e_lab.py`. Each snapshot read records either `rows` or its
-`error` and continues independently; snapshot errors never replace the run's
-original failure. To check a failed read, temporarily change the snapshot's
-`addresses` path in that module from `/ip/address` to `/invalid-snapshot-path`,
-then induce a lab failure: `lab_snapshot.chr_client.addresses.error` records the
-read error while the report's top-level `error` still records the run failure.
-Restore the path after the check.
+the Router's DHCP leases, HotSpot hosts and active sessions, and each Device and
+board container's link, addresses and routes (`DockerLab.snapshot`). The Device
+MACs live in `lab/chr/e2e_lab.py`.
 
 The real lab is v7.23.8. A tiny HTTPS fixture reporting RouterOS 6.49.18 covers
 onboarding refusal before any Router write or persisted Controller change;
@@ -1132,27 +1117,15 @@ every installed Controller must be reinstalled by hand to trust a new key.
 
 The ARM mode runs **the same `scenario()` in `e2e/run.py`**, not a separate smoke
 scenario. New Voucher, Vendo, and Coin Window steps added there are automatically
-included, including simulated coins once #15/#16 land. It boots a fresh transient
-`openpiso-armv7-<random>` domain on libvirt's `default` network and talks directly
-to the guest IP. There is no HTTP proxy or SSH port-forward that would erase the
-Device source IP. Only the existing CHR fixture and this uniquely named guest
-are touched; no sudo is used on the host.
-
-Host prerequisites, in addition to the native CHR requirements:
-
-- Python 3.11+, `qemu-system-arm`, `qemu-img`, libvirt ARM/TCG support,
-  OpenSSH (`ssh`, `scp`, `ssh-keygen`), and an ISO tool: `xorrisofs` (preferred),
-  `genisoimage`, or `mkisofs`.
-- Permission to create/destroy transient ARM domains and attach them to libvirt's
-  existing `default` network. Libvirt must be able to DAC-relabel the disposable
-  disk under `/var/tmp`; restrictive host security policies may need an operator
-  to authorize this path. No ARM UEFI firmware or qemu-user-static is required.
-- Internet access to `cloud-images.ubuntu.com`, several GiB of temporary disk,
-  guest reachability from the host and Router, and exclusive use of the CHR lab.
+included. The guest runs in a container on the Docker lab, in the Controller's
+place ([ARMv7 guest in a container](#armv7-guest-in-a-container)), so Devices
+reach it through the Router with their own source IPs. No sudo is used on the
+host. It needs, beyond the Docker lab: OpenSSH (`ssh`, `scp`, `ssh-keygen`),
+internet access to `cloud-images.ubuntu.com` on first use, and several GiB of
+temporary disk.
 
 ```sh
 export PATH="$HOME/.local/go/bin:$PATH"
-make -C controller check
 make -C controller e2e-armv7  # cross-builds armv7, then runs the current full scenario
 ```
 
@@ -1160,39 +1133,38 @@ The runner fetches Canonical's stock Ubuntu 18.04 armhf cloud image at the
 versioned `release-20230607` URL, plus its matching direct-boot kernel/initrd.
 `e2e/arm_vm.py` pins literal SHA-256 hashes from that release's checksum manifests;
 no `latest` URL, mutable checksum fetch, cached guest, or prebuilt private image
-is used. Each download goes into its own fresh directory, separate from seed
-inputs and scripts, and is verified before use. The root image is read-only
+is used. Downloads are cached by hash and verified on every use. The root image is read-only
 behind a fresh 4 GiB qcow2 overlay. Cloud-init supplies a new SSH key and disables
 swap, without package upgrades. **Bionic is an isolated test fixture past standard
 support, not a production OS recommendation**; boards should use supported
 Armbian/Raspberry Pi OS releases.
 
-Libvirt/QEMU caps guest RAM at 256 MiB with no balloon; the harness also asserts
+QEMU caps guest RAM at 256 MiB with no balloon; the harness also asserts
 armv7 execution, no swap, the unprivileged service identity, and persistent
 journal entries with a 32M cap and one-minute sync interval. Installation uses the real install script. All later starts/restarts
 use the installed systemd unit without the install password. ARM HTTP timeouts,
 including simulated Vendo requests, default to 120 seconds for TCG/bcrypt
 (`--http-timeout` overrides this); the Vendo's six-second acceptor/ACK gate is
 unchanged.
-Boot/cloud-init has a separate 900-second limit; pass `--arm-boot-timeout 1800`
-to `python3 -I controller/e2e/run.py --armv7 --binary /path/to/armv7-binary`
-to allow a slower host. The configured limit is recorded in the report.
+Boot/cloud-init has a separate 1800-second limit; `--arm-boot-timeout` changes
+it. The configured limit is recorded in the report.
 
-The serial console is streamed over loopback TCP into a file owned by the runner
-(libvirt's own log files are root-only) from domain creation. Ubuntu 20.04's
+The serial console is the container's log, streamed into a file owned by the
+runner from the start. Ubuntu 20.04's
 71 MiB initrd was tried first and hit an initramfs-unpack OOM panic at 256 MiB, so
 the 48 MiB 18.04 initrd is pinned instead. `--only boot` (with `--armv7`) boots the
-guest and verifies SSH without touching the CHR lab or installing the Controller;
-under TCG this takes about 5.5 minutes. On failure its last 16 KiB
+guest and verifies SSH without a Router or installing the Controller;
+under TCG this takes 7 to 9 minutes. On failure its last 16 KiB
 are included in the report (`execution.serial_console_tail`) and boot-timeout
 error. The full log is copied alongside the report as `armv7.serial.log` (0600)
 before temporary files are removed, with its path recorded in
 `execution.serial_console_log`. Treat raw logs as local diagnostics, not a
 committable artifact; inspect them for sensitive data before sharing.
 
-`controller/e2e/reports/armv7.json` (or `armv7-boot.json` for boot-only) is the
-full format version 1 report, local and gitignored for debugging. The harness also
-writes `armv7.summary.json` (or `armv7-boot.summary.json`) for committing: result,
+`controller/e2e/reports/docker-armv7.json` (or `docker-armv7-boot.json` for
+boot-only) is the full format version 1 report, local and gitignored for
+debugging. The harness also writes `docker-armv7.summary.json` (or
+`docker-armv7-boot.summary.json`) for committing: result,
 step names, binary SHA-256 and size in bytes, git commit and dirty flag, and
 `execution` evidence including pinned guest/boot artifacts, guest RAM/swap, and
 `execution.peak_controller_rss_kib`. Summaries converted from older reports have
@@ -1201,8 +1173,8 @@ the Controller process's kernel `VmHWM` across service restarts, with a final
 read before each stop. This is RSS of the Controller, not QEMU/guest memory or
 cgroup page cache. The final maximum covers every step executed by the harness;
 it must be positive and below the 64 MiB target. Failure reports retain available
-resource evidence too. The transient guest, downloads, overlay, and SSH key are
-removed at exit. Do not commit raw guest disk images or logs.
+resource evidence too. The guest container, its overlay and SSH key are removed
+at exit. Do not commit raw guest disk images or logs.
 
 Until this target is actually run, neither ARM boot nor the memory target is
 proven. Commit the generated summary only after inspecting the real serial run;

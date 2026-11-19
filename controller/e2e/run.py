@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Issue #6 end-to-end scenario.
 
-The native or ARM-guest Controller is exercised through HTTP. Router assertions
-use the real chr-lab Router; later ticket scenarios extend this same harness.
+The Controller, in the lab or in an ARM guest, is exercised through HTTP on a throwaway
+Docker lab per run (docker_lab.py): a stock RouterOS CHR Router and Linux Devices. Later
+ticket scenarios extend this same harness.
 """
 
 import argparse
@@ -18,10 +19,7 @@ import importlib.util
 import io
 import ipaddress
 import json
-import os
 import re
-import socket
-import sqlite3
 import ssl
 import subprocess
 import sys
@@ -33,18 +31,16 @@ import urllib.request
 from pathlib import Path
 
 BASE_URL = "http://127.0.0.1:18080"
-PORTAL_URL = "http://192.168.122.1:18080"
+PORTAL_URL = "http://10.77.7.1:18080"  # the Controller on the lab WAN; DockerLab or the ARM guest sets it
 PORTAL_CSP = "default-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"  # docs/portal-contract.md
 ARM_VM = None
+CONTROLLER_HOST = None  # the lab that runs the Controller (DockerLab sets it)
 HTTP_TIMEOUT = 3
 ADMIN_PASSWORD = "controller-e2e-password"
 ROUTER_ADMIN = "openpiso-bootstrap"
 ROUTER_ADMIN_PASSWORD = "Tést& = + # issue6"
 ROOT = Path(__file__).resolve().parents[2]
 # python -I intentionally omits the script directory from sys.path.
-_safety_spec = importlib.util.spec_from_file_location("lab_safety", Path(__file__).with_name("lab_safety.py"))
-_safety_module = importlib.util.module_from_spec(_safety_spec)
-_safety_spec.loader.exec_module(_safety_module)
 _vendo_spec = importlib.util.spec_from_file_location("simulated_vendo", Path(__file__).with_name("simulated_vendo.py"))
 _vendo_module = importlib.util.module_from_spec(_vendo_spec)
 _vendo_spec.loader.exec_module(_vendo_module)
@@ -58,131 +54,22 @@ _browser_spec.loader.exec_module(_browser_module)
 _lab_spec = importlib.util.spec_from_file_location("e2e_lab", ROOT / "lab/chr/e2e_lab.py")
 _lab_module = importlib.util.module_from_spec(_lab_spec)
 _lab_spec.loader.exec_module(_lab_module)
-_vlan_spec = importlib.util.spec_from_file_location("vlan_lab", ROOT / "lab/chr/vlan_lab.py")
-_vlan_module = importlib.util.module_from_spec(_vlan_spec)
-_vlan_spec.loader.exec_module(_vlan_module)
 _hotspot_spec = importlib.util.spec_from_file_location("hotspot_lab", ROOT / "lab/chr/hotspot_lab.py")
 _hotspot_module = importlib.util.module_from_spec(_hotspot_spec)
 _hotspot_spec.loader.exec_module(_hotspot_module)
+# Scenarios reach the Router, Devices and Vendos only through the lab object (DockerLab).
+_docker_spec = importlib.util.spec_from_file_location("docker_lab", Path(__file__).with_name("docker_lab.py"))
+_docker_module = importlib.util.module_from_spec(_docker_spec)
+_docker_spec.loader.exec_module(_docker_module)
 
 
-def load_lab_env() -> dict[str, str]:
-    path = ROOT / "lab/chr/.env"
-    if not path.is_file():
-        common = subprocess.run(["git", "-C", str(ROOT), "rev-parse", "--path-format=absolute", "--git-common-dir"],
-                                check=True, capture_output=True, text=True).stdout.strip()
-        path = Path(common).parent / "lab/chr/.env"
-    values = {}
-    for line in path.read_text().splitlines():
-        if line and not line.startswith("#"):
-            key, value = line.split("=", 1)
-            values[key] = value.strip("'\"")
-    print(f"Loaded lab credentials from {path}", flush=True)
-    return values
-
-
-def router_address(domain="chr-lab") -> str:
-    output = subprocess.run(
-        ["virsh", "-c", "qemu:///system", "domifaddr", domain],
-        timeout=10,
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout
-    match = re.search(r"(192\.168\.122\.\d+)/24", output)
-    if not match:
-        raise AssertionError(f"{domain} has no management address")
-    return match.group(1)
-
-
-def start_client(password: str) -> str:
-    state = subprocess.run(
-        ["virsh", "-c", "qemu:///system", "domstate", "chr-client"],
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout.strip()
-    if state != "running":
-        subprocess.run(["virsh", "-c", "qemu:///system", "start", "chr-client"], check=True, capture_output=True)
-    deadline = time.monotonic() + 30
-    while time.monotonic() < deadline:
-        output = subprocess.run(
-            ["virsh", "-c", "qemu:///system", "domifaddr", "chr-client"],
-            check=True,
-            capture_output=True,
-            text=True,
-        ).stdout
-        match = re.search(r"(192\.168\.122\.\d+)/24", output)
-        if match:
-            address = match.group(1)
-            try:
-                with urllib.request.urlopen(f"http://{address}/", timeout=1):
-                    return address
-            except OSError:
-                pass
-        time.sleep(1)
-    raise AssertionError("chr-client has no management address")
-
-
-def rcon(password: str, *commands: str) -> None:
-    result = subprocess.run(
-        ["python3", "-I", str(ROOT / "lab/chr/rcon.py"), "chr-lab", password, *commands],
-        capture_output=True,
-        text=True,
-        timeout=90,
-    )
-    if result.returncode != 0:
-        raise AssertionError(f"Router console command failed: {result.stdout}\n{result.stderr}")
-
-
-def configure_router_tls(address: str, password: str) -> None:
-    rcon(
-        password,
-        "/ip service set www-ssl disabled=yes certificate=none",
-        '/certificate remove [find where name~"openpiso-e2e"]',
-    )
-    rcon(
-        password,
-        '/certificate add name="openpiso-e2e-ca" common-name="openpiso-e2e-ca" key-usage=key-cert-sign,crl-sign',
-        "/certificate sign openpiso-e2e-ca",
-    )
-    rcon(
-        password,
-        f'/certificate add name="openpiso-e2e-server" common-name="{address}" subject-alt-name="IP:{address}" key-usage=tls-server',
-        "/certificate sign openpiso-e2e-server ca=openpiso-e2e-ca",
-    )
-    rcon(
-        password,
-        "/ip service set www-ssl disabled=no certificate=openpiso-e2e-server tls-version=only-1.2",
-    )
-
-    context = ssl._create_unverified_context()
-    deadline = time.monotonic() + 15
-    while time.monotonic() < deadline:
-        try:
-            with socket.create_connection((address, 443), timeout=2) as raw:
-                with context.wrap_socket(raw, server_hostname=address):
-                    break
-        except OSError:
-            time.sleep(0.25)
-    else:
-        raise AssertionError("Router www-ssl did not become ready")
-
-    existing = router_rest(address, "admin", password, f"/user?name={ROUTER_ADMIN}")
-    for entry in existing:
-        router_rest(address, "admin", password, f"/user/{entry['.id']}", "DELETE")
-    router_rest(
-        address,
-        "admin",
-        password,
-        "/user",
-        "PUT",
-        {"name": ROUTER_ADMIN, "group": "full", "password": ROUTER_ADMIN_PASSWORD},
-    )
-
-
-def cleanup_router(password: str) -> None:
-    rcon(password, f'/user remove [find where name="{ROUTER_ADMIN}"]')
+def assert_refused(error, code: str) -> None:
+    """A Portal refusal carries the Portal's message: a Device's fetch keeps the reply as portal_reply
+    when it is JSON (DockerLab.fetch). A refusal without one fails."""
+    reply = getattr(error, "portal_reply", None)
+    assert reply is not None, f"refused without a Portal JSON reply to check for {code!r}: {error}"
+    message = reply["message"]
+    assert message["code"] == code and message["text"], (code, message)
 
 
 def router_rest(address: str, username: str, password: str, path: str, method: str = "GET", body=None, scheme: str = "https"):
@@ -202,78 +89,6 @@ def router_rest(address: str, username: str, password: str, path: str, method: s
         failure = urllib.error.HTTPError(error.url, error.code, error.msg, error.hdrs, io.BytesIO(detail))
         failure.add_note(f"RouterOS {method} {path}: {detail.decode(errors='replace')[:500]}")
         raise failure from None
-
-
-def device_internet(client_address: str, password: str, device_ip: str) -> tuple[str, str]:
-    """Fetch from the Device for checks that expect internet; returns (target, body).
-
-    1.1.1.1 drops HTTP some of the time on the lab network, so fall back to
-    8.8.8.8 over HTTPS (plain HTTP there never answers). Checks that expect a
-    redirect or a block must keep fetching 1.1.1.1 directly: a fallback could
-    make a blocked Device look online.
-    """
-    try:
-        target = "http://1.1.1.1/"
-        result = router_rest(client_address, "admin", password, "/tool/fetch", "POST", {
-            "url": target, "output": "user", "src-address": device_ip}, scheme="http")
-    except OSError:
-        target = "https://8.8.8.8/"
-        result = router_rest(client_address, "admin", password, "/tool/fetch", "POST", {
-            "url": target, "output": "user", "src-address": device_ip}, scheme="http")
-    return target, result[-1].get("data", "")
-
-
-def configure_device_routing(password: str) -> None:
-    # libvirt installs the host return route without sudo. A temporary third
-    # chr-lab NIC is its next hop; only the two throwaway CHR VMs are involved.
-    # Never replace source identity with redirect parameters to work around NAT.
-    xml = '''<network><name>openpiso-e2e-routing</name><bridge name="virbr-opiso7"/>
-      <ip address="10.77.7.1" netmask="255.255.255.0"/>
-      <route address="10.5.50.0" prefix="24" gateway="10.77.7.2"/>
-      <route address="10.5.10.0" prefix="24" gateway="10.77.7.2"/>
-      <route address="10.5.20.0" prefix="24" gateway="10.77.7.2"/>
-    </network>'''
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".xml") as definition:
-        definition.write(xml)
-        definition.flush()
-        # Right after an interrupted run libvirt can still be tearing the old
-        # network down, so retry briefly and show virsh's own error.
-        for attempt in range(10):
-            created = subprocess.run(["virsh", "-c", "qemu:///system", "net-create", definition.name],
-                                     capture_output=True, text=True)
-            if created.returncode == 0:
-                break
-            time.sleep(3)
-        else:
-            raise AssertionError("virsh net-create failed: " + created.stderr.strip())
-    subprocess.run(["virsh", "-c", "qemu:///system", "attach-interface", "chr-lab",
-                    "network", "openpiso-e2e-routing", "--model", "virtio", "--mac", "52:54:00:07:07:07", "--live"],
-                   check=True, capture_output=True)
-    rcon(password,
-         '/ip address add address=10.77.7.2/24 interface=[/interface ethernet find where mac-address="52:54:00:07:07:07"] comment="openpiso-e2e-routing"',
-         f'/ip firewall nat add chain=srcnat src-address=10.5.0.0/16 dst-address={urllib.parse.urlsplit(PORTAL_URL).hostname} action=accept place-before=0 comment="openpiso-e2e-routing"')
-
-
-# A live unplug needs the guest's acknowledgement, so re-send it until the NIC is gone;
-# destroying the network under a lingering NIC breaks the next run's domifaddr.
-def detach_device_routing() -> None:
-    for _ in range(20):
-        interfaces = subprocess.run(["virsh", "-c", "qemu:///system", "domiflist", "chr-lab"],
-                                    check=True, capture_output=True, text=True, timeout=30).stdout
-        if "52:54:00:07:07:07" not in interfaces:
-            return
-        subprocess.run(["virsh", "-c", "qemu:///system", "detach-interface", "chr-lab", "network",
-                        "--mac", "52:54:00:07:07:07", "--live"], capture_output=True, timeout=30)
-        time.sleep(3)
-    raise RuntimeError("chr-lab kept the routing NIC after detach")
-
-
-def destroy_device_network() -> None:
-    networks = subprocess.run(["virsh", "-c", "qemu:///system", "net-list", "--name"],
-                              check=True, capture_output=True, text=True, timeout=30).stdout.splitlines()
-    if "openpiso-e2e-routing" in networks:
-        subprocess.run(["virsh", "-c", "qemu:///system", "net-destroy", "openpiso-e2e-routing"],
-                       check=True, capture_output=True, timeout=30)
 
 
 def cleanup_hotspot_users(address, password, original_names) -> None:
@@ -303,95 +118,6 @@ def cleanup_steps(report, steps) -> None:
             raise AssertionError(message)
 
 
-def device_fetch(client, device_ip: str, interface: str, table: str, url: str):
-    # Probe with a GET before scenario mutations: RouterOS also wraps expected
-    # portal errors in HTTP 400, so those requests must not be retried here.
-    deadline = time.monotonic() + 30
-    detail = "Device address or routing fixture not ready"
-    while time.monotonic() < deadline:
-        addresses = client(f"/ip/address?interface={interface}")
-        leases = client(f"/ip/dhcp-client?interface={interface}")
-        routes = client("/ip/route?comment=openpiso-e2e-device")
-        rules = client("/routing/rule?comment=openpiso-e2e-device")
-        ready = (
-            any(entry["address"].split("/")[0] == device_ip and entry.get("invalid") != "true"
-                and entry.get("disabled") != "true" for entry in addresses)
-            # A lease mid-renewal ("renewing...") keeps its address; long ARM runs hit this.
-            and any(entry.get("status", "").startswith(("bound", "renewing")) for entry in leases)
-            and any(entry.get("routing-table") == table and entry.get("dst-address") == "0.0.0.0/0"
-                    and entry.get("gateway") == f"10.5.50.1%{interface}" and entry.get("active") == "true"
-                    for entry in routes)
-            and any(entry.get("src-address") == f"{device_ip}/32" and entry.get("table") == table
-                    and entry.get("action") == "lookup-only-in-table" and entry.get("disabled") != "true"
-                    and entry.get("invalid") != "true" for entry in rules)
-        )
-        if not ready:
-            detail = ("Device address or routing fixture not ready: addresses="
-                      f"{[(e['address'], e.get('invalid'), e.get('disabled')) for e in addresses]} "
-                      f"leases={[e.get('status') for e in leases]} "
-                      f"routes={[(e.get('routing-table'), e.get('gateway'), e.get('active')) for e in routes]} "
-                      f"rules={[(e.get('src-address'), e.get('table'), e.get('invalid')) for e in rules]}")
-        if ready:
-            try:
-                return client("/tool/fetch", "POST", {"url": url, "output": "user", "src-address": device_ip})
-            except urllib.error.HTTPError as error:
-                if error.code != 400:
-                    raise
-                detail = f"HTTP 400: {error.read().decode(errors='replace')}"
-        time.sleep(min(1, max(0, deadline - time.monotonic())))
-    raise AssertionError(f"Device fetch from {device_ip} on {interface} via {table} to {url} failed: {detail}")
-
-
-def device_redirect(client_address: str, password: str) -> tuple[str, str]:
-    def client(path: str, method: str = "GET", body=None):
-        return router_rest(client_address, "admin", password, path, method, body, scheme="http")
-
-    for name, disabled in (("lan1", "no"), ("lan2", "yes")):
-        interfaces = client(f"/interface/ethernet?name={name}")
-        client(f"/interface/ethernet/{interfaces[0]['.id']}", "PATCH", {"disabled": disabled})
-
-    deadline = time.monotonic() + 20
-    while time.monotonic() < deadline:
-        addresses = client("/ip/address?interface=lan1")
-        if addresses:
-            break
-        time.sleep(1)
-    else:
-        raise AssertionError("chr-client lan1 has no HotSpot address")
-
-    routes = client("/ip/route?comment=openpiso-e2e-controller-route")
-    for route in routes:
-        client(f"/ip/route/{route['.id']}", "DELETE")
-    client("/ping", "POST", {"address": "10.5.50.1", "count": "1"})
-
-    device_ip = addresses[0]["address"].split("/")[0]
-    tables = client("/routing/table?name=openpiso-e2e-device")
-    if not tables:
-        client("/routing/table", "PUT", {"name": "openpiso-e2e-device", "fib": "yes"})
-    for route in client("/ip/route?comment=openpiso-e2e-device"):
-        client(f"/ip/route/{route['.id']}", "DELETE")
-    client("/ip/route", "PUT", {
-        "dst-address": "0.0.0.0/0", "gateway": "10.5.50.1%lan1",
-        "routing-table": "openpiso-e2e-device", "comment": "openpiso-e2e-device",
-    })
-    for rule in client("/routing/rule?comment=openpiso-e2e-device"):
-        client(f"/routing/rule/{rule['.id']}", "DELETE")
-    client("/routing/rule", "PUT", {
-        "src-address": f"{device_ip}/32", "action": "lookup-only-in-table",
-        "table": "openpiso-e2e-device", "comment": "openpiso-e2e-device",
-    })
-    redirect = device_fetch(client, device_ip, "lan1", "openpiso-e2e-device", "http://1.1.1.1/")
-    portal = device_fetch(client, device_ip, "lan1", "openpiso-e2e-device", f"{PORTAL_URL}/portal")
-    try:
-        client("/tool/fetch", "POST", {"url": f"{PORTAL_URL}/admin/login", "output": "user", "src-address": device_ip})
-    except urllib.error.HTTPError as error:
-        detail = json.load(error).get("detail", "")
-        assert "403" in detail, detail
-    else:
-        raise AssertionError("customer Device could reach the admin login")
-    return redirect[-1].get("data", ""), portal[-1].get("data", "")
-
-
 def cleanup_vendo_router(address: str, password: str):
     # Only disposable Controller-owned Vendo fixtures, including failed runs.
     for path in ("/ip/hotspot/ip-binding", "/ip/dhcp-server/lease", "/ip/firewall/filter", "/ipv6/firewall/filter"):
@@ -400,48 +126,19 @@ def cleanup_vendo_router(address: str, password: str):
                 router_rest(address, "admin", password, f"{path}/{entry['.id']}", "DELETE")
 
 
-def pair_board(opener, client_address, password, board):
+def pair_board(opener, lab, board):
     response = request(opener, "/admin/vendos/pair", "POST", {"mac": board["mac"]})
     assert response.status == 201, response.read().decode()
     paired = json.load(response)
-    client = lambda path, method="GET", body=None: router_rest(client_address, "admin", password, path, method, body, scheme="http")
     vendo = SimulatedVendo(BASE_URL, paired["id"], bytes.fromhex(paired["secret"]), timeout=HTTP_TIMEOUT)
-    _flash_module.adopt(sys.modules[__name__], opener, client, board["ip"], vendo)
+    _flash_module.adopt(sys.modules[__name__], opener, lab, board["ip"], vendo)
     return paired
 
 
-def coin_board(client_address, password):
-    client = lambda path, method="GET", body=None: router_rest(client_address, "admin", password, path, method, body, scheme="http")
-    name = "opnw-coin-board"
-    mac = _lab_module.COIN_BOARD_MAC
-    if not client("/interface/macvlan?name=" + name):
-        client("/interface/macvlan", "PUT", {"name": name, "interface": "lan1", "mac-address": mac})
-        client("/ip/dhcp-client", "PUT", {"interface": name, "add-default-route": "no", "use-peer-dns": "no", "disabled": "no"})
-        deadline = time.monotonic() + 30
-        while not client("/ip/address?interface=" + name):
-            assert time.monotonic() < deadline, "coin board DHCP did not bind"
-            time.sleep(0.5)
-        if not client("/routing/table?name=" + name):
-            client("/routing/table", "PUT", {"name": name, "fib": "yes"})
-        client("/ip/route", "PUT", {"dst-address": "0.0.0.0/0", "gateway": "10.5.50.1%" + name, "routing-table": name, "comment": name})
-    ip = client("/ip/address?interface=" + name)[0]["address"].split("/")[0]
-    if not client("/routing/rule?comment=" + name):
-        client("/routing/rule", "PUT", {"src-address": ip + "/32", "action": "lookup-only-in-table", "table": name, "comment": name})
-    return {"mac": mac, "ip": ip}
-
-
-def cleanup_coin_board(client_address, password):
-    client = lambda path, method="GET", body=None: router_rest(client_address, "admin", password, path, method, body, scheme="http")
-    for path, query in (("/routing/rule", "comment=opnw-coin-board"), ("/ip/route", "comment=opnw-coin-board"),
-                        ("/ip/dhcp-client", "interface=opnw-coin-board"), ("/interface/macvlan", "name=opnw-coin-board")):
-        for row in client(path + "?" + query):
-            client(path + "/" + row[".id"], "DELETE")
-
-
-def vendo_pairing(opener, address: str, password: str, client_address: str, report):
+def vendo_pairing(opener, address: str, password: str, lab, report):
     mac = _lab_module.DEVICE_MAC
-    device_ip = router_rest(client_address, "admin", password, "/ip/address?interface=lan1", scheme="http")[0]["address"].split("/")[0]
-    paired = pair_board(opener, client_address, password, {"mac": mac, "ip": device_ip})
+    device_ip = lab.device_ip()
+    paired = pair_board(opener, lab, {"mac": mac, "ip": device_ip})
     assert len(bytes.fromhex(paired["secret"])) == 32
     vendo_id = paired["id"]
     comment = f"openpiso-vendo-{vendo_id}"
@@ -459,30 +156,12 @@ def vendo_pairing(opener, address: str, password: str, client_address: str, repo
     assert state["vendos"][0]["last_contact"]
 
     # This Device already has the paired MAC: no Vendo key, no internet.
-    def client(path, method="GET", body=None):
-        return router_rest(client_address, "admin", password, path, method, body, scheme="http")
-
-    def fetch(url):
-        # Expected failures must not use device_fetch's readiness/retry loop.
-        return client("/tool/fetch", "POST", {
-            "url": url, "output": "user", "src-address": device_ip, "duration": "3s",
-        })
-
     controller_rule = router_rest(address, "admin", password, "/ip/hotspot/walled-garden/ip?comment=openpiso-controller")[0]
     controller_url = f"http://{controller_rule['dst-address']}:{controller_rule['dst-port']}"
-    portal = device_fetch(client, device_ip, "lan1", "openpiso-e2e-device", controller_url + "/portal")
+    portal = lab.fetch_when_ready(device_ip, controller_url + "/portal")
     assert "OpenPiso WiFi" in portal[-1].get("data", "")
-    blocked_fetches = []
-    for url in ("http://1.1.1.1/", f"http://{urllib.parse.urlsplit(PORTAL_URL).hostname}:18081/", "http://10.5.50.1/"):
-        try:
-            result = fetch(url)
-        except urllib.error.HTTPError as error:
-            blocked_fetches.append({"url": url, "router_error": json.load(error).get("detail", "")})
-        else:
-            # RouterOS duration-limited fetch can return only 'connecting'
-            # progress without raising an error when no HTTP reply arrives.
-            assert result and all(row.get("status") != "finished" and not row.get("data") for row in result), result
-            blocked_fetches.append({"url": url, "progress": result})
+    blocked_fetches = [lab.unreachable(device_ip, url) for url in (
+        "http://1.1.1.1/", f"http://{urllib.parse.urlsplit(PORTAL_URL).hostname}:18081/", "http://10.5.50.1/")]
     filters = router_rest(address, "admin", password, "/ip/firewall/filter")
     owned = [rule for rule in filters if rule.get("comment", "").startswith(comment + "-")]
     assert len(owned) == 5
@@ -606,28 +285,6 @@ def vendo_unpair(opener, paired, address: str, password: str, report):
     report.snapshot("vendo-unpaired-router-rules-removed", address, password, opener)
 
 
-def renew_device_lease(client_address: str, password: str, *, verify_portal: bool = True) -> None:
-    """Give chr-client lan1 a fresh HotSpot lease after its paired (static) lease was deleted.
-
-    Unicast renewals are refused by the HotSpot, so the next broadcast rebind for
-    a lease the server no longer has gets a new address minutes later, mid-scenario.
-    The new lease may differ, so the Device routing rule follows it. Run-start
-    cleanup skips the Portal probe because its routing fixture does not exist yet.
-    """
-    client = lambda path, method="GET", body=None: router_rest(client_address, "admin", password, path, method, body, scheme="http")
-    lease = client("/ip/dhcp-client?interface=lan1")[0]
-    client("/ip/dhcp-client/release", "POST", {".id": lease[".id"]})
-    deadline = time.monotonic() + 30
-    while (lease := client("/ip/dhcp-client?interface=lan1")[0]).get("status") != "bound":
-        assert time.monotonic() < deadline, "chr-client lan1 did not get a new lease"
-        time.sleep(0.5)
-    device_ip = lease["address"].split("/")[0]
-    for rule in client("/routing/rule?comment=openpiso-e2e-device"):
-        client(f"/routing/rule/{rule['.id']}", "PATCH", {"src-address": f"{device_ip}/32"})
-    if verify_portal:
-        device_fetch(client, device_ip, "lan1", "openpiso-e2e-device", f"{PORTAL_URL}/portal")
-
-
 def capture_baseline(address: str, password: str) -> dict:
     groups = router_rest(address, "admin", password, "/user/group?name=openpiso-controller")
     users = router_rest(address, "admin", password, "/user?name=openpiso-controller")
@@ -656,7 +313,7 @@ def capture_baseline(address: str, password: str) -> dict:
             if item.get("comment") == "openpiso-controller"
         ],
         # The Controller's login page exists once a HotSpot server is Adopted.
-        "login_html": files[0]["contents"] if files else None,
+        "login_html": files[0].get("contents") if files else None,
         "login_file": {key: files[0].get(key, "") for key in ("name", "size", "last-modified")} if files else None,
     }
 
@@ -673,32 +330,16 @@ def wait_for(url: str, timeout: float = 10) -> None:
 
 
 class Controller:
+    """The Controller under test, run by the lab (CONTROLLER_HOST) or in the ARM guest.
+    binary and data_dir stay for the call sites: the lab container has its own."""
+
     def __init__(self, binary: str, data_dir: str, initialize: bool):
         if ARM_VM is not None:
             ARM_VM.start_controller()
             wait_for(f"{BASE_URL}/healthz", timeout=120)
             return
-        env = os.environ.copy()
-        if initialize:
-            env["OPENPISO_ADMIN_PASSWORD"] = ADMIN_PASSWORD
-        else:
-            env.pop("OPENPISO_ADMIN_PASSWORD", None)
-        self.process = subprocess.Popen(
-            [
-                binary,
-                "-listen",
-                "0.0.0.0:18080",
-                "-data",
-                data_dir,
-                "-portal-url",
-                PORTAL_URL,
-            ],
-            env=env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-        )
-        wait_for(f"{BASE_URL}/healthz")
+        self.process = CONTROLLER_HOST.start_controller(initialize)
+        wait_for(f"{BASE_URL}/healthz", timeout=30)
 
     def kill(self) -> None:
         # Abrupt crash for recovery scenarios.
@@ -717,7 +358,8 @@ class Controller:
             self.process.wait(timeout=5)
         except subprocess.TimeoutExpired:
             self.process.kill()
-        if self.process.returncode not in (0, -15, -9):
+        # 143 and 137: docker exec reports a signalled Controller the shell way.
+        if self.process.returncode not in (0, -15, -9, 143, 137):
             output = self.process.stdout.read() if self.process.stdout else ""
             raise AssertionError(f"Controller exited {self.process.returncode}:\n{output}")
 
@@ -748,12 +390,12 @@ def sales(opener, start="1970-01-01", end="2100-01-01"):
     return json.load(request(opener, "/admin/sales?" + query))
 
 
-def non_v7_refusal(opener, report, address, password):
+def non_v7_refusal(opener, report, address, password, lab):
     spec = importlib.util.spec_from_file_location("non_v7_router", Path(__file__).with_name("non_v7_router.py"))
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     before = json.load(request(opener, "/admin/state"))
-    with module.NonV7Router() as router:
+    with lab.non_v7_router(module) as router:
         assert request(opener, "/admin/router/probe", "POST", {
             "address": router.address, "username": "fixture", "password": "not-a-router-secret"}).status == 200
         response = request(opener, "/admin/router/confirm", "POST")
@@ -814,24 +456,24 @@ def voucher_codes(opener, response):
     return [row["code"] for row in voucher_csv(opener, response)]
 
 
-def vouchers(opener, report, address, password, client_address):
+def vouchers(opener, report, address, password, lab):
     """Voucher feature entry point; later tickets add one sub-function per behaviour."""
-    device_redirect(client_address, password)
+    lab.redirect()
     saved = json.load(request(opener, "/admin/state"))["rate_tiers"]
     milli = lambda m: f"{m // 1000}.{m % 1000:03d}".rstrip("0").rstrip(".")
     saved_rates = "\n".join(f'{t["pesos"]}={t["seconds"]},{t["validity_seconds"]},{t["pause_limit"]},{milli(t.get("points_milli", 0))}' for t in saved)
     try:
         tier = vouchers_batch_pricing(opener, report, address, password)
-        vouchers_tier_redemption(opener, report, address, password, client_address, tier)
+        vouchers_tier_redemption(opener, report, address, password, lab, tier)
         vouchers_print_sheet(opener, report, address, password, tier)
         vouchers_template_editor(opener, report, address, password, tier)
-        vouchers_code_formats(opener, report, address, password, client_address)
-        vouchers_seller_sales(opener, report, address, password, client_address)
-        vouchers_code_search(opener, report, address, password, client_address)
+        vouchers_code_formats(opener, report, address, password, lab)
+        vouchers_seller_sales(opener, report, address, password, lab)
+        vouchers_code_search(opener, report, address, password, lab)
         vouchers_search_limit(opener, report, address, password)
         _browser_module.vouchers_mobile(sys.modules[__name__], report)
-        vouchers_delete_unused(opener, report, address, password, client_address)
-        vouchers_delete_redeemed_refused(opener, report, address, password, client_address)
+        vouchers_delete_unused(opener, report, address, password, lab)
+        vouchers_delete_redeemed_refused(opener, report, address, password, lab)
     finally:
         assert request(opener, "/admin/rates", "POST", {"tiers": saved_rates}).status == 200
 
@@ -870,9 +512,9 @@ def vouchers_batch_pricing(opener, report, address, password):
     return tier
 
 
-def vouchers_tier_redemption(opener, report, address, password, client_address, tier):
+def vouchers_tier_redemption(opener, report, address, password, lab, tier):
     """#112: editing a tier leaves the batch terms and redeemed credit intact."""
-    device_ip = router_rest(client_address, "admin", password, "/ip/address?interface=lan1", scheme="http")[0]["address"].split("/")[0]
+    device_ip = lab.device_ip()
     assert request(opener, "/admin/rates", "POST", {"tiers": "1=30,60,1\n5=150,60,1"}).status == 200
     printable = request(opener, voucher_print_url(tier)).read().decode()
     data = json.loads(re.search(r'<script[^>]*data-voucher-batch[^>]*>(.*?)</script>', printable, re.S).group(1))
@@ -880,7 +522,7 @@ def vouchers_tier_redemption(opener, report, address, password, client_address, 
     assert data["batch"]["pause-limit"] == "7" and data["batch"]["pesos"] == "₱5"
     code = voucher_codes(opener, tier)[0]
     started = time.time()
-    portal = portal_state(pause_device_fetch(client_address, password, device_ip, "/portal/api/redeem", {"code": code.lower()}))
+    portal = portal_state(pause_device_fetch(lab, device_ip, "/portal/api/redeem", {"code": code.lower()}))
     tc = portal["time_credit"]
     assert tc["bought"] == 600 and tc["pause_limit"] == tc["pauses_left"] == 7
     assert started + 10800 - 2 <= tc["valid_until"] <= time.time() + 10800 + 2
@@ -917,7 +559,7 @@ def vouchers_template_editor(opener, report, address, password, batch):
     report.snapshot("vouchers-template-editor-publish-revert-reset", address, password, opener, browser=browser)
 
 
-def vouchers_code_formats(opener, report, address, password, client_address):
+def vouchers_code_formats(opener, report, address, password, lab):
     """#113: all formats and lengths, refusal, and case-insensitive prefixed redeem."""
     presets = [("digits", r"[0-9]"), ("uppercase", r"[A-Z]"),
                ("unambiguous", r"[A-HJ-NP-Z2-9]"), ("mixed", r"[A-Za-z0-9]")]
@@ -944,21 +586,21 @@ def vouchers_code_formats(opener, report, address, password, client_address):
     state = json.load(request(opener, "/admin/state"))
     batch = next(b for b in state["purchases"]["batches"] if b["id"] in mixed.url)
     assert (batch["code_preset"], batch["code_length"], batch["code_prefix"]) == ("mixed", 10, "Ab12Cd")
-    device_ip = router_rest(client_address, "admin", password, "/ip/address?interface=lan1", scheme="http")[0]["address"].split("/")[0]
+    device_ip = lab.device_ip()
     before = time_credit_for_device(state["purchases"], _lab_module.DEVICE_MAC, device_ip)
     typed = rows[0]["code"].swapcase()
     assert typed != rows[0]["code"]
-    portal = portal_state(pause_device_fetch(client_address, password, device_ip, "/portal/api/redeem", {"code": typed}))
+    portal = portal_state(pause_device_fetch(lab, device_ip, "/portal/api/redeem", {"code": typed}))
     assert portal["time_credit"]["bought"] == before["bought_seconds"] + 60
     redeemed = voucher_csv(opener, mixed)
     assert next(r for r in redeemed if r["code"] == rows[0]["code"])["redeemed_at"]
-    device_redeem_refused(client_address, password, device_ip, rows[0]["code"], 409)
-    device_redeem_refused(client_address, password, device_ip, "bad!", 400)
+    device_redeem_refused(lab, device_ip, rows[0]["code"], 409, "voucher-used")
+    device_redeem_refused(lab, device_ip, "bad!", 400, "voucher-invalid")
     report.snapshot("vouchers-code-formats-and-prefixed-different-case-redemption", address, password, opener,
                     formats=generated, batch=batch, typed_code=typed, redeemed_csv=redeemed, portal=portal)
 
 
-def vouchers_seller_sales(opener, report, address, password, client_address):
+def vouchers_seller_sales(opener, report, address, password, lab):
     """#114: Seller labels follow redeemed Vouchers into Sales and filtered CSV."""
     seller = "Aling Nena & Co"
     generated = generate_vouchers(opener, {"seconds": "60", "pesos": "7", "count": "1", "seller": "  " + seller + "  "})
@@ -968,8 +610,8 @@ def vouchers_seller_sales(opener, report, address, password, client_address):
     assert '<option value="' + html.escape(seller) + '">' in page
     refused = generate_vouchers(opener, {"seconds": "60", "pesos": "", "count": "1", "seller": seller})
     assert 'value="' + html.escape(seller) + '"' in refused.read().decode()
-    device_ip = router_rest(client_address, "admin", password, "/ip/address?interface=lan1", scheme="http")[0]["address"].split("/")[0]
-    portal_state(pause_device_fetch(client_address, password, device_ip, "/portal/api/redeem", {"code": code}))
+    device_ip = lab.device_ip()
+    portal_state(pause_device_fetch(lab, device_ip, "/portal/api/redeem", {"code": code}))
     query = urllib.parse.urlencode({"from": "1970-01-01", "to": "2100-01-01", "seller": seller})
     filtered = json.load(request(opener, "/admin/sales?format=json&" + query))
     assert filtered["rows"] and all(r["type"] == "voucher" and r["seller"] == seller for r in filtered["rows"])
@@ -984,7 +626,7 @@ def vouchers_seller_sales(opener, report, address, password, client_address):
     assert any(r["User"] == code for r in exported)
     promo = generate_vouchers(opener, {"seconds": "60", "pesos": "0", "count": "1", "seller": "   "})
     promo_code = voucher_codes(opener, promo)[0]
-    portal_state(pause_device_fetch(client_address, password, device_ip, "/portal/api/redeem", {"code": promo_code}))
+    portal_state(pause_device_fetch(lab, device_ip, "/portal/api/redeem", {"code": promo_code}))
     shop = json.load(request(opener, "/admin/sales?format=json&from=1970-01-01&to=2100-01-01&seller=Shop&page_size=100"))
     assert shop["rows"] and all(r["type"] == "voucher" and r["seller"] == "Shop" for r in shop["rows"])
     assert any(r["user"] == promo_code and r["amount"] == 0 for r in shop["rows"])
@@ -997,13 +639,13 @@ def vouchers_seller_sales(opener, report, address, password, client_address):
                     seller_sales=filtered, seller_csv=exported, shop_sales=shop)
 
 
-def vouchers_code_search(opener, report, address, password, client_address):
+def vouchers_code_search(opener, report, address, password, lab):
     """#115: literal code search shows redemption details and opens the batch."""
     seller = "Search Seller & Co"
     generated = generate_vouchers(opener, {"seconds": "73", "pesos": "7", "count": "1", "seller": seller, "prefix": "FiNd"})
     code = voucher_codes(opener, generated)[0]
-    device_ip = router_rest(client_address, "admin", password, "/ip/address?interface=lan1", scheme="http")[0]["address"].split("/")[0]
-    portal_state(pause_device_fetch(client_address, password, device_ip, "/portal/api/redeem", {"code": code}))
+    device_ip = lab.device_ip()
+    portal_state(pause_device_fetch(lab, device_ip, "/portal/api/redeem", {"code": code}))
     # Exclude both ends: matching a prefix alone would not satisfy substring search.
     query = code[1:-1].lower()
     path = "/admin/vouchers?" + urllib.parse.urlencode({"q": query})
@@ -1056,7 +698,7 @@ def vouchers_search_limit(opener, report, address, password):
                     returned_codes=codes, total_matches=52, results_html=results)
 
 
-def vouchers_delete_unused(opener, report, address, password, client_address):
+def vouchers_delete_unused(opener, report, address, password, lab):
     """#116: deletion removes unused Vouchers and leaves exactly one audit line."""
     generated = generate_vouchers(opener, {"seconds": "60", "count": "2", "seller": "Delete Seller & Co"})
     codes = voucher_codes(opener, generated)
@@ -1079,8 +721,8 @@ def vouchers_delete_unused(opener, report, address, password, client_address):
     assert logs.count(audit_line) == 1 and "Voucher Batch deleted" in logs
     assert request(opener, path, "POST", {}).status == 404
     assert request(opener, "/admin/logs?kind=audit").read().decode().count(audit_line) == 1
-    device_ip = router_rest(client_address, "admin", password, "/ip/address?interface=lan1", scheme="http")[0]["address"].split("/")[0]
-    device_redeem_refused(client_address, password, device_ip, codes[0], 400)
+    device_ip = lab.device_ip()
+    device_redeem_refused(lab, device_ip, codes[0], 400, "voucher-unknown")
     next_batch = generate_vouchers(opener, {"seconds": "60", "count": "1"})
     next_state = json.load(request(opener, "/admin/state"))
     assert next(b for b in next_state["purchases"]["batches"] if b["id"] in next_batch.url)["number"] > batch["number"]
@@ -1088,12 +730,12 @@ def vouchers_delete_unused(opener, report, address, password, client_address):
                     deleted_batch=batch, deleted_codes=codes, audit_line=audit_line, logs_html=logs)
 
 
-def vouchers_delete_redeemed_refused(opener, report, address, password, client_address):
+def vouchers_delete_redeemed_refused(opener, report, address, password, lab):
     """#116: a direct POST cannot delete a batch with one redeemed Voucher."""
     generated = generate_vouchers(opener, {"seconds": "60", "count": "2"})
     codes = voucher_codes(opener, generated)
-    device_ip = router_rest(client_address, "admin", password, "/ip/address?interface=lan1", scheme="http")[0]["address"].split("/")[0]
-    portal_state(pause_device_fetch(client_address, password, device_ip, "/portal/api/redeem", {"code": codes[0]}))
+    device_ip = lab.device_ip()
+    portal_state(pause_device_fetch(lab, device_ip, "/portal/api/redeem", {"code": codes[0]}))
     state = json.load(request(opener, "/admin/state"))
     batch = next(b for b in state["purchases"]["batches"] if b["id"] in generated.url)
     before_csv = voucher_csv(opener, generated)
@@ -1135,20 +777,13 @@ def voucher_batch(opener, report, address, password):
     return codes
 
 
-def voucher_redemption(opener, report, address, password, client_address, codes):
-    def client(path, method="GET", body=None):
-        return router_rest(client_address, "admin", password, path, method, body, scheme="http")
-
-    device_ip = client("/ip/address?interface=lan1")[0]["address"].split("/")[0]
+def voucher_redemption(opener, report, address, password, lab, codes):
+    device_ip = lab.device_ip()
 
     def fetch(path, code=None):
-        body = {"url": PORTAL_URL + path, "output": "user",
-                "src-address": device_ip}
-        if code is not None:
-            body.update({"output": "user-with-headers", "http-method": "post",
-                         "http-data": urllib.parse.urlencode({"code": code}),
-                         "http-header-field": "Content-Type:application/x-www-form-urlencoded"})
-        return client("/tool/fetch", "POST", body)[-1]
+        if code is None:
+            return lab.fetch(device_ip, PORTAL_URL + path, headers=False)
+        return lab.fetch(device_ip, PORTAL_URL + path, {"code": code})
 
     # No redirect/forwarded-header identity: a management request cannot redeem.
     response = request(urllib.request.build_opener(), "/portal/api/redeem?ip=" + device_ip,
@@ -1168,7 +803,7 @@ def voucher_redemption(opener, report, address, password, client_address, codes)
     assert "HttpOnly" in cookie_header.group(1)
     assert "SameSite=Lax" in cookie_header.group(1)
     assert "Path=/portal" in cookie_header.group(1)
-    internet_target, internet = device_internet(client_address, password, device_ip)
+    internet_target, internet = lab.internet(device_ip)
     assert PORTAL_URL.removeprefix("http://") + "/portal" not in internet
     state = json.load(request(opener, "/admin/state"))["purchases"]
     assert len(state["time_credits"]) == 1
@@ -1194,9 +829,8 @@ def voucher_redemption(opener, report, address, password, client_address, codes)
     router_rest(address, "admin", password, "/ip/hotspot/active/" + active[0][".id"], "DELETE")
     committed = duration_seconds(router_rest(address, "admin", password, "/ip/hotspot/user?name=op-" + time_credit["id"])[0]["uptime"])
     assert committed >= 2
-    connected = client("/tool/fetch", "POST", {"url": PORTAL_URL + "/portal/api/connect", "output": "user",
-                       "src-address": device_ip, "http-method": "post", "http-data": ""})
-    assert_message(portal_state(connected[-1]), "success", "online")
+    connected = lab.fetch(device_ip, PORTAL_URL + "/portal/api/connect", {}, headers=False)
+    assert_message(portal_state(connected), "success", "online")
     time.sleep(3)
     state = portal_state(fetch("/portal/api/state"))
     remaining = state["time_credit"]["remaining"]
@@ -1205,12 +839,14 @@ def voucher_redemption(opener, report, address, password, client_address, codes)
     assert abs(remaining - duration_seconds(active[0]["session-time-left"])) <= 3
     report.snapshot("remaining-includes-committed-and-live-router-uptime", address, password, opener,
                     committed_seconds=committed, remaining_seconds=remaining, portal_state=state)
-    for code, expected in ((codes[0], "already used"), ("IIIIIIII", "invalid"), ("ZZZZZZZZ", "not found")):
+    for code, expected, refusal in ((codes[0], "already used", "voucher-used"), ("IIIIIIII", "invalid", "voucher-unknown"),
+                                    ("ZZZZZZZZ", "not found", "voucher-unknown")):
         try:
             fetch("/portal/api/redeem", code)
         except urllib.error.HTTPError as error:
             # RouterOS wraps the Controller's status in its own REST error.
             assert error.code == 400
+            assert_refused(error, refusal)
         else:
             raise AssertionError("Voucher failure was accepted: " + expected)
     assert len(json.load(request(opener, "/admin/state"))["purchases"]["audit"]) == 1
@@ -1218,30 +854,20 @@ def voucher_redemption(opener, report, address, password, client_address, codes)
     return device_ip, cookie_header.group(1).split(";", 1)[0]
 
 
-def pause_device_fetch(client_address, password, device_ip, path, form=None, cookie=""):
-    body = {"url": PORTAL_URL + path, "output": "user-with-headers",
-            "src-address": device_ip}
-    headers = []
-    if form is not None:
-        body.update({"http-method": "post", "http-data": urllib.parse.urlencode(form)})
-        headers.append("Content-Type:application/x-www-form-urlencoded")
-    if cookie:
-        headers.append("Cookie:" + cookie)
-    if headers:
-        body["http-header-field"] = ",".join(headers)
-    return router_rest(client_address, "admin", password, "/tool/fetch", "POST", body, scheme="http")[-1]
+def pause_device_fetch(lab, device_ip, path, form=None, cookie=""):
+    """This Device fetches a Portal path, with the reply's headers."""
+    return lab.fetch(device_ip, PORTAL_URL + path, form, cookie)
 
 
-def device_redeem_refused(client_address, password, device_ip, code, status):
-    """Redeem a code from the Device and assert the Portal refused it with status.
-
-    RouterOS /tool/fetch fails on a non-2xx reply and keeps only the status, not the
-    Portal's JSON message, so a refusal can be told apart only by its status here."""
+def device_redeem_refused(lab, device_ip, code, status, refusal):
+    """Redeem a code from the Device and assert the Portal refused it with status and
+    the refusal message code (see assert_refused)."""
     try:
-        pause_device_fetch(client_address, password, device_ip, "/portal/api/redeem", {"code": code})
+        pause_device_fetch(lab, device_ip, "/portal/api/redeem", {"code": code})
     except urllib.error.HTTPError as error:
         detail = error.read().decode(errors="replace")
         assert f"Status {status}" in detail, detail
+        assert_refused(error, refusal)
         return
     raise AssertionError(f"redeeming {code!r} was not refused")
 
@@ -1278,7 +904,7 @@ def ledger_and_router(opener, address, password, time_credit_id):
     return state, user, [a[".id"] for a in active]
 
 
-def tapped_pause(opener, report, address, password, client_address, device_ip, cookie):
+def tapped_pause(opener, report, address, password, lab, device_ip, cookie):
     assert request(opener, "/admin/pause", "POST", {
         "pause_limit": "2", "idle_seconds": "120", "idle_enabled": "off"}).status == 200
     state = json.load(request(opener, "/admin/state"))
@@ -1287,18 +913,19 @@ def tapped_pause(opener, report, address, password, client_address, device_ip, c
     active_path = "/ip/hotspot/active?user=op-" + time_credit["id"]
 
     def fetch(path, form=None, proof=""):
-        return pause_device_fetch(client_address, password, device_ip, path, form, proof)
+        return pause_device_fetch(lab, device_ip, path, form, proof)
 
     # The latest Top-up sets the Pause Limit (ADR 0006), so a Voucher applies the new 2.
     response = generate_vouchers(opener, {"seconds": "30", "count": "1"})
     code = voucher_codes(opener, response)[0]
     assert portal_state(fetch("/portal/api/redeem", {"code": code}, cookie))["time_credit"]["pause_limit"] == 2
 
-    def refused(path, proof=""):
+    def refused(path, refusal, proof=""):
         try:
             fetch(path, {}, proof)
         except urllib.error.HTTPError as error:
             assert error.code == 400  # RouterOS wraps non-2xx HTTP responses.
+            assert_refused(error, refusal)
         else:
             raise AssertionError("Pause ownership/limit check was bypassed: " + path)
 
@@ -1316,12 +943,11 @@ def tapped_pause(opener, report, address, password, client_address, device_ip, c
             state = portal_state(visit)
             assert state["time_credit"]["paused"] and "resume_code" not in state["time_credit"]
             assert "set-cookie:" not in visit.get("http-headers", "").lower(), "Paused visit minted ownership proof"
-        refused("/portal/api/connect")
-        refused("/portal/api/resume")
-        refused("/portal/api/resume", cookie[:-1] + ("A" if cookie[-1] != "A" else "B"))
-        internet = router_rest(client_address, "admin", password, "/tool/fetch", "POST", {
-            "url": "http://1.1.1.1/", "output": "user", "src-address": device_ip}, scheme="http")
-        assert "/portal" in internet[-1].get("data", ""), "Router silently logged paused Device back in"
+        refused("/portal/api/connect", "paused-needs-resume")
+        refused("/portal/api/resume", "resume-needs-proof")
+        refused("/portal/api/resume", "resume-needs-proof", cookie[:-1] + ("A" if cookie[-1] != "A" else "B"))
+        internet = lab.fetch(device_ip, "http://1.1.1.1/", headers=False)
+        assert "/portal" in internet.get("data", ""), "Router silently logged paused Device back in"
         time.sleep(3)
         assert not router_rest(address, "admin", password, active_path)
         after = duration_seconds(router_rest(address, "admin", password, user_path)[0]["uptime"])
@@ -1334,12 +960,12 @@ def tapped_pause(opener, report, address, password, client_address, device_ip, c
         assert state["time_credit"]["online"] and not state["time_credit"]["paused"]
         assert state["time_credit"]["resume_code"]
         assert len(router_rest(address, "admin", password, active_path)) == 1
-    refused("/portal/api/pause")
+    refused("/portal/api/pause", "pause-limit")
     assert len(router_rest(address, "admin", password, active_path)) == 1
     report.snapshot("pause-limit-refuses-without-disconnecting", address, password, opener)
 
 
-def idle_pause(opener, report, address, password, client_address, device_ip):
+def idle_pause(opener, report, address, password, lab, device_ip):
     for form in ({"pause_limit": "-1", "idle_enabled": "on", "idle_seconds": "5"},
                  {"pause_limit": "2", "idle_enabled": "on", "idle_seconds": "0"},
                  {"pause_limit": "2", "idle_enabled": "maybe", "idle_seconds": "5"}):
@@ -1356,9 +982,6 @@ def idle_pause(opener, report, address, password, client_address, device_ip):
     assert duration_seconds(profiles["openpiso-idle"]["idle-timeout"]) == 5
     assert profiles["openpiso-no-idle"]["idle-timeout"] == "none"
     assert profiles["openpiso-idle"]["keepalive-timeout"] == "none"
-    # Fixture traffic generator must not keep the customer Device active.
-    for scheduler in router_rest(client_address, "admin", password, "/system/scheduler?name=ping-gen", scheme="http"):
-        router_rest(client_address, "admin", password, "/system/scheduler/" + scheduler[".id"], "PATCH", {"disabled": "yes"}, scheme="http")
     for iteration in range(2):
         deadline = time.monotonic() + 20
         while router_rest(address, "admin", password, active_path):
@@ -1371,7 +994,7 @@ def idle_pause(opener, report, address, password, client_address, device_ip):
         # Opening the Portal only reads: two state reads change nothing anywhere.
         before = ledger_and_router(opener, address, password, time_credit["id"])
         for _ in range(2):
-            idle = portal_state(pause_device_fetch(client_address, password, device_ip, "/portal/api/state"))
+            idle = portal_state(pause_device_fetch(lab, device_ip, "/portal/api/state"))
             assert idle["message"] is None, idle
             credit = idle["time_credit"]
             assert not credit["online"] and not credit["paused"] and credit["remaining"] > 0
@@ -1379,7 +1002,7 @@ def idle_pause(opener, report, address, password, client_address, device_ip):
         assert ledger_and_router(opener, address, password, time_credit["id"]) == before, "state read changed ledger or Router"
         assert not router_rest(address, "admin", password, active_path), "state read logged the Device in"
         # The Portal's automatic reconnect is the POST connect.
-        state = portal_state(pause_device_fetch(client_address, password, device_ip, "/portal/api/connect", {}))
+        state = portal_state(pause_device_fetch(lab, device_ip, "/portal/api/connect", {}))
         assert_message(state, "success", "online")
         assert state["time_credit"]["online"] and state["time_credit"]["pauses_left"] == 0
         assert len(router_rest(address, "admin", password, active_path)) == 1
@@ -1399,21 +1022,17 @@ def idle_pause(opener, report, address, password, client_address, device_ip):
     report.snapshot("idle-pause-disabled-and-profiles-updated", address, password, opener)
 
 
-def cookie_after_restart(client_address, password, device_ip, cookie):
-    result = router_rest(client_address, "admin", password, "/tool/fetch", "POST", {
-        "url": PORTAL_URL + "/portal/api/connect", "output": "user-with-headers",
-        "src-address": device_ip, "http-method": "post", "http-data": "",
-        "http-header-field": "Cookie:" + cookie,
-    }, scheme="http")
-    state = portal_state(result[-1])
+def cookie_after_restart(lab, device_ip, cookie):
+    result = pause_device_fetch(lab, device_ip, "/portal/api/connect", {}, cookie)
+    state = portal_state(result)
     assert state["time_credit"]["bought"] == 120
     assert_message(state, "success", "online")
-    issued = re.search(r"(?:^|,)Set-Cookie: (openpiso_time_credit=[^;,\r\n]+)", result[-1].get("http-headers", ""), re.I)
+    issued = re.search(r"(?:^|,)Set-Cookie: (openpiso_time_credit=[^;,\r\n]+)", result.get("http-headers", ""), re.I)
     assert issued and issued.group(1) == cookie, "per-install signing key/token changed on restart"
 
 
 def reconciler_restart_outage(controller, args, data_dir, opener, report, address, password,
-                              client_address, device_ip):
+                              lab, device_ip):
     before = json.load(request(opener, "/admin/state"))
     tc = time_credit_for_device(before, _lab_module.DEVICE_MAC, device_ip)
     active = router_rest(address, "admin", password, "/ip/hotspot/active?user=op-" + tc["id"])
@@ -1438,7 +1057,7 @@ def reconciler_restart_outage(controller, args, data_dir, opener, report, addres
             pass
         else:
             raise AssertionError("stopped Controller accepted " + path)
-    internet_target, internet = device_internet(client_address, password, device_ip)
+    internet_target, internet = lab.internet(device_ip)
     assert "temporarily unavailable" not in internet and "/portal" not in internet
     time.sleep(3)
     during = router_rest(address, "admin", password, "/ip/hotspot/active?user=op-" + tc["id"])
@@ -1468,7 +1087,7 @@ def reconciler_restart_outage(controller, args, data_dir, opener, report, addres
         assert duration_seconds(router_rest(address, "admin", password, "/ip/hotspot/user?name=op-" + tc["id"])[0]["limit-uptime"]) == tc["bought_seconds"]
         committed_after = duration_seconds(router_rest(address, "admin", password, "/ip/hotspot/user?name=op-" + tc["id"])[0]["uptime"])
         assert committed_after == committed_before
-        remaining = portal_state(pause_device_fetch(client_address, password, device_ip, "/portal/api/state"))["time_credit"]["remaining"]
+        remaining = portal_state(pause_device_fetch(lab, device_ip, "/portal/api/state"))["time_credit"]["remaining"]
         assert abs(remaining - (tc["bought_seconds"] - committed_after - duration_seconds(after[0]["uptime"]))) <= 3
         assert request(opener, "/portal/ready.js").status == 200
         report.snapshot("boot-and-ten-second-poll-preserve-meter-and-ledger", address, password, opener,
@@ -1481,7 +1100,7 @@ def reconciler_restart_outage(controller, args, data_dir, opener, report, addres
         raise
 
 
-def top_up_online(opener, report, address, password, client_address, device_ip, cookie):
+def top_up_online(opener, report, address, password, lab, device_ip, cookie):
     response = generate_vouchers(opener, {"seconds": "15", "count": "1"})
     assert response.status == 200
     code = voucher_codes(opener, response)[0]
@@ -1499,7 +1118,7 @@ def top_up_online(opener, report, address, password, client_address, device_ip, 
     assert len(active_before) == 1
     used_before = duration_seconds(user_before["uptime"]) + duration_seconds(active_before[0]["uptime"])
     started = time.monotonic()
-    result = pause_device_fetch(client_address, password, device_ip, "/portal/api/redeem", {"code": code}, cookie)
+    result = pause_device_fetch(lab, device_ip, "/portal/api/redeem", {"code": code}, cookie)
     state = portal_state(result)
     total = tc["bought_seconds"] + 15
     assert state["time_credit"]["bought"] == total
@@ -1544,7 +1163,7 @@ def top_up_online(opener, report, address, password, client_address, device_ip, 
     remaining = state["time_credit"]["remaining"]
     assert abs(remaining - (total - used_after)) <= 3
     assert abs(remaining - duration_seconds(active[0]["session-time-left"])) <= 3
-    internet_target, internet = device_internet(client_address, password, device_ip)
+    internet_target, internet = lab.internet(device_ip)
     assert "/portal" not in internet and "temporarily unavailable" not in internet
     report.snapshot("online-top-up-reuses-time-credit-and-refreshes-countdown", address, password, opener,
                     portal_state=state, remaining_seconds=remaining, committed_seconds=committed,
@@ -1558,16 +1177,17 @@ def top_up_online(opener, report, address, password, client_address, device_ip, 
     return code
 
 
-def top_up_pause_budget(opener, report, address, password, client_address, device_ip, cookie, used_code):
+def top_up_pause_budget(opener, report, address, password, lab, device_ip, cookie, used_code):
     # The old budget was exhausted. Top-up must actually permit another Pause,
     # not merely display a reset count. A rejected Voucher must not reset it.
-    state = portal_state(pause_device_fetch(client_address, password, device_ip, "/portal/api/pause", {}))
+    state = portal_state(pause_device_fetch(lab, device_ip, "/portal/api/pause", {}))
     assert state["time_credit"]["paused"] and state["time_credit"]["pauses_left"] == 1
     before = json.load(request(opener, "/admin/state"))
     try:
-        pause_device_fetch(client_address, password, device_ip, "/portal/api/redeem", {"code": used_code}, cookie)
+        pause_device_fetch(lab, device_ip, "/portal/api/redeem", {"code": used_code}, cookie)
     except urllib.error.HTTPError as error:
         assert "409" in json.load(error).get("detail", "")
+        assert_refused(error, "voucher-used")
     else:
         raise AssertionError("Top-up Voucher was consumed twice")
     after = json.load(request(opener, "/admin/state"))
@@ -1575,14 +1195,14 @@ def top_up_pause_budget(opener, report, address, password, client_address, devic
         assert after[key] == before[key], "rejected Top-up changed " + key
     tc = time_credit_for_device(after, _lab_module.DEVICE_MAC, device_ip)
     assert not router_rest(address, "admin", password, "/ip/hotspot/active?user=op-" + tc["id"])
-    state = portal_state(pause_device_fetch(client_address, password, device_ip, "/portal/api/resume", {}, cookie))
+    state = portal_state(pause_device_fetch(lab, device_ip, "/portal/api/resume", {}, cookie))
     assert_message(state, "success", "online")
     assert state["time_credit"]["pauses_left"] == 1
     report.snapshot("top-up-restores-pause-budget-and-replay-does-not-reset-it", address, password, opener,
                     portal_state=state, voucher_replay_rejected=True)
 
 
-def time_running_out(opener, report, address, password, client_address, device_ip):
+def time_running_out(opener, report, address, password, lab, device_ip):
     before = json.load(request(opener, "/admin/state"))["purchases"]
     tc = time_credit_for_device(before, _lab_module.DEVICE_MAC, device_ip)
     deadline = time.monotonic() + tc["bought_seconds"] + 15
@@ -1591,16 +1211,14 @@ def time_running_out(opener, report, address, password, client_address, device_i
         if not active:
             break
         # Real traffic keeps this a running-out test, not Idle Pause.
-        router_rest(client_address, "admin", password, "/ping", "POST", {
-            "address": "10.5.50.1", "src-address": device_ip, "count": "1"}, scheme="http")
+        lab.ping(device_ip)
         time.sleep(2)
     assert not active, "Router did not enforce limit-uptime"
     user = router_rest(address, "admin", password, "/ip/hotspot/user?name=op-" + tc["id"])[0]
     assert duration_seconds(user["uptime"]) >= tc["bought_seconds"]
-    redirect = router_rest(client_address, "admin", password, "/tool/fetch", "POST", {
-        "url": "http://1.1.1.1/", "src-address": device_ip, "output": "user"}, scheme="http")[-1]["data"]
+    redirect = lab.fetch(device_ip, "http://1.1.1.1/", headers=False)["data"]
     assert "/portal" in redirect and "/portal/ready.js" in redirect
-    state = portal_state(pause_device_fetch(client_address, password, device_ip, "/portal/api/state"))
+    state = portal_state(pause_device_fetch(lab, device_ip, "/portal/api/state"))
     assert state["time_credit"]["usage_known"] and state["time_credit"]["remaining"] == 0
     assert not state["time_credit"]["online"]
     assert_message(state, "warning", "time-up")
@@ -1610,7 +1228,7 @@ def time_running_out(opener, report, address, password, client_address, device_i
 
 
 def pending_credit_recovery(controller, args, data_dir, opener, report, address, password,
-                            client_address, device_ip):
+                            lab, device_ip):
     response = generate_vouchers(opener, {"seconds": "15", "count": "1"})
     code = voucher_codes(opener, response)[0]
     before_state = json.load(request(opener, "/admin/state"))
@@ -1633,9 +1251,10 @@ def pending_credit_recovery(controller, args, data_dir, opener, report, address,
         policy = router_rest(address, "admin", password, "/user/group?name=openpiso-controller")[0]["policy"]
         assert "write" not in policy.split(","), "fixture did not revoke Router write permission"
         try:
-            pause_device_fetch(client_address, password, device_ip, "/portal/api/redeem", {"code": code})
+            pause_device_fetch(lab, device_ip, "/portal/api/redeem", {"code": code})
         except urllib.error.HTTPError as error:
             assert "503" in json.load(error).get("detail", "")
+            assert_refused(error, "connect-failed")
         else:
             raise AssertionError("Router write failure was not surfaced")
         state = json.load(request(opener, "/admin/state"))
@@ -1703,26 +1322,26 @@ def wait_for_validity_removal(opener, address, password, time_credit_id, valid_u
     raise AssertionError("Validity expired but Time Credit/Router removal did not finish")
 
 
-def validity_online_expiry(opener, report, address, password, client_address, device_ip):
+def validity_online_expiry(opener, report, address, password, lab, device_ip):
     # A Top-up never shortens Validity (ADR 0006), so Rebind the Device's long-lived
     # Time Credit to the lan2 Device; the Vouchers below then start a fresh one here.
-    held = portal_state(rebind_fetch(client_address, password, device_ip))["time_credit"]
+    held = portal_state(rebind_fetch(lab, device_ip))["time_credit"]
     assert held, "the Device should still hold its long-lived Time Credit"
-    second_ip = rebind_wait_device(client_address, password, "lan2")
-    moved = rebind_fetch(client_address, password, second_ip, "/portal/api/recover", {"code": held["resume_code"]})
+    second_ip = lab.wait_device(second=True)
+    moved = rebind_fetch(lab, second_ip, "/portal/api/recover", {"code": held["resume_code"]})
     # Earlier scenarios may have used up its time; Recover still moves it.
     if held["remaining"]:
         assert_message(portal_state(moved), "success", "online")
     else:
         assert_message(portal_state(moved), "warning", "time-up")
-    assert portal_state(rebind_fetch(client_address, password, device_ip))["time_credit"] is None
+    assert portal_state(rebind_fetch(lab, device_ip))["time_credit"] is None
     # Thirty real seconds through the same whole-number form an operator uses.
     assert request(opener, "/admin/validity", "POST", {"value": "30", "unit": "seconds"}).status == 200
     response = generate_vouchers(opener, {"seconds": "120", "count": "3"})
     assert response.status == 200
     codes = voucher_codes(opener, response)
     assert len(codes) == 3
-    first = pause_device_fetch(client_address, password, device_ip, "/portal/api/redeem", {"code": codes[0]})
+    first = pause_device_fetch(lab, device_ip, "/portal/api/redeem", {"code": codes[0]})
     assert_message(portal_state(first), "success", "online")
     cookie = re.search(r"(?:^|,)Set-Cookie: (openpiso_time_credit=[^;,\r\n]+)", first.get("http-headers", ""), re.I).group(1)
     state = json.load(request(opener, "/admin/state"))
@@ -1730,7 +1349,7 @@ def validity_online_expiry(opener, report, address, password, client_address, de
     time_credit_id = voucher["time_credit_id"]
     original = next(v for v in state["validity"] if v["time_credit_id"] == time_credit_id)
     time.sleep(8)
-    topped_up = pause_device_fetch(client_address, password, device_ip, "/portal/api/redeem", {"code": codes[1]}, cookie)
+    topped_up = pause_device_fetch(lab, device_ip, "/portal/api/redeem", {"code": codes[1]}, cookie)
     assert_message(portal_state(topped_up), "success", "online")
     state = json.load(request(opener, "/admin/state"))
     validity = next(v for v in state["validity"] if v["time_credit_id"] == time_credit_id)
@@ -1748,17 +1367,17 @@ def validity_online_expiry(opener, report, address, password, client_address, de
     state = wait_for_validity_removal(opener, address, password, time_credit_id, validity["valid_until"])
     expiry_audit = [a for a in state["purchases"]["audit"] if a["time_credit_id"] == time_credit_id and a["reason"] == "validity-expiry"]
     assert len(expiry_audit) == 1 and expiry_audit[0]["after_seconds"] == 0
-    expired_state = portal_state(pause_device_fetch(client_address, password, device_ip, "/portal/api/state", cookie=cookie))
+    expired_state = portal_state(pause_device_fetch(lab, device_ip, "/portal/api/state", cookie=cookie))
     assert expired_state["time_credit"] is None, "forfeited time still shown"
     assert expired_state["rates"], "the out state must still offer ways to buy"
     try:
-        pause_device_fetch(client_address, password, device_ip, "/portal/api/connect", {}, cookie)
+        pause_device_fetch(lab, device_ip, "/portal/api/connect", {}, cookie)
     except urllib.error.HTTPError as error:
         assert "403" in json.load(error).get("detail", "")
+        assert_refused(error, "no-time-credit")
     else:
         raise AssertionError("expired cookie recreated a Router user")
-    redirect = router_rest(client_address, "admin", password, "/tool/fetch", "POST", {
-        "url": "http://1.1.1.1/", "src-address": device_ip, "output": "user"}, scheme="http")[-1]["data"]
+    redirect = lab.fetch(device_ip, "http://1.1.1.1/", headers=False)["data"]
     assert "/portal" in redirect
     report.snapshot("online-validity-forfeits-unused-time-and-removes-router-user", address, password, opener,
                     portal_state=expired_state, router_user_removed=True, redirect_html=redirect)
@@ -1786,11 +1405,11 @@ def admin_expired_grant(opener, report, address, password, expired_id):
                     router_user_still_removed=True)
 
 
-def validity_offline_expiry(opener, report, address, password, client_address, device_ip,
+def validity_offline_expiry(opener, report, address, password, lab, device_ip,
                             expired_id, expired_cookie, code):
     assert request(opener, "/admin/validity", "POST", {"value": "20", "unit": "seconds"}).status == 200
     before = json.load(request(opener, "/admin/state"))
-    result = pause_device_fetch(client_address, password, device_ip, "/portal/api/redeem", {"code": code}, expired_cookie)
+    result = pause_device_fetch(lab, device_ip, "/portal/api/redeem", {"code": code}, expired_cookie)
     assert_message(portal_state(result), "success", "online")
     cookie = re.search(r"(?:^|,)Set-Cookie: (openpiso_time_credit=[^;,\r\n]+)", result.get("http-headers", ""), re.I).group(1)
     assert cookie != expired_cookie
@@ -1803,7 +1422,7 @@ def validity_offline_expiry(opener, report, address, password, client_address, d
     assert tc["bought_seconds"] == 120, "new purchase carried forfeited time forward"
     assert next(v for v in state["validity"] if v["time_credit_id"] == expired_id) == next(v for v in before["validity"] if v["time_credit_id"] == expired_id)
     assert not router_rest(address, "admin", password, "/ip/hotspot/user?name=op-" + expired_id)
-    assert portal_state(pause_device_fetch(client_address, password, device_ip, "/portal/api/pause", {}, cookie))["time_credit"]["paused"]
+    assert portal_state(pause_device_fetch(lab, device_ip, "/portal/api/pause", {}, cookie))["time_credit"]["paused"]
     assert not router_rest(address, "admin", password, "/ip/hotspot/active?user=op-" + new_id)
     user = router_rest(address, "admin", password, "/ip/hotspot/user?name=op-" + new_id)[0]
     assert duration_seconds(user["uptime"]) < tc["bought_seconds"], "offline expiry requires unused time"
@@ -1816,9 +1435,10 @@ def validity_offline_expiry(opener, report, address, password, client_address, d
     assert next(tc for tc in after["purchases"]["time_credits"] if tc["id"] == new_id) == tc
     assert len([a for a in after["purchases"]["audit"] if a["time_credit_id"] == new_id and a["reason"] == "validity-expiry"]) == 1
     try:
-        pause_device_fetch(client_address, password, device_ip, "/portal/api/resume", {}, cookie)
+        pause_device_fetch(lab, device_ip, "/portal/api/resume", {}, cookie)
     except urllib.error.HTTPError as error:
         assert "403" in json.load(error).get("detail", "")
+        assert_refused(error, "no-time-credit")
     else:
         raise AssertionError("expired offline Time Credit resumed")
     time.sleep(11)
@@ -1828,17 +1448,17 @@ def validity_offline_expiry(opener, report, address, password, client_address, d
                     offline_expired=True, router_user_removed=True, expiry_audited_once=True)
 
 
-def voucher_while_tapped_paused(opener, report, address, password, client_address, device_ip):
+def voucher_while_tapped_paused(opener, report, address, password, lab, device_ip):
     response = generate_vouchers(opener, {"seconds": "60", "count": "2"})
     codes = voucher_codes(opener, response)
-    first = pause_device_fetch(client_address, password, device_ip, "/portal/api/redeem", {"code": codes[0]})
+    first = pause_device_fetch(lab, device_ip, "/portal/api/redeem", {"code": codes[0]})
     cookie = re.search(r"(?:^|,)Set-Cookie: (openpiso_time_credit=[^;,\r\n]+)", first.get("http-headers", ""), re.I).group(1)
-    paused = portal_state(pause_device_fetch(client_address, password, device_ip, "/portal/api/pause", {}, cookie))
+    paused = portal_state(pause_device_fetch(lab, device_ip, "/portal/api/pause", {}, cookie))
     before_remaining = paused["time_credit"]["remaining"]
     before = json.load(request(opener, "/admin/state"))
     time_credit_id = next(v["time_credit_id"] for v in before["purchases"]["vouchers"] if v["code"] == codes[0])
     # RouterOS fetch fails for a non-2xx response, so success here asserts 200.
-    credited = portal_state(pause_device_fetch(client_address, password, device_ip, "/portal/api/redeem", {"code": codes[1]}, cookie))
+    credited = portal_state(pause_device_fetch(lab, device_ip, "/portal/api/redeem", {"code": codes[1]}, cookie))
     assert_message(credited, "success", "time-added-paused")
     assert credited["time_credit"]["paused"] and not credited["time_credit"]["online"]
     assert credited["time_credit"]["remaining"] == before_remaining + 60
@@ -1847,17 +1467,17 @@ def voucher_while_tapped_paused(opener, report, address, password, client_addres
     assert pause["tapped"] and pause["tapped_count"] == 0
     assert next(v["time_credit_id"] for v in after["purchases"]["vouchers"] if v["code"] == codes[1]) == time_credit_id
     assert not router_rest(address, "admin", password, "/ip/hotspot/active?user=op-" + time_credit_id)
-    state = portal_state(pause_device_fetch(client_address, password, device_ip, "/portal/api/state", cookie=cookie))
+    state = portal_state(pause_device_fetch(lab, device_ip, "/portal/api/state", cookie=cookie))
     assert state["time_credit"]["paused"] and not state["time_credit"]["online"] and state["message"] is None
     assert not router_rest(address, "admin", password, "/ip/hotspot/active?user=op-" + time_credit_id)
     report.snapshot("voucher-while-tapped-paused-credits-without-resuming", address, password, opener,
                     portal_state=credited, credited_seconds=60, remained_paused=True, response_status=200)
     # Leave the Device online: the next scenarios expect a Voucher to connect it.
-    resumed = portal_state(pause_device_fetch(client_address, password, device_ip, "/portal/api/resume", {}, cookie))
+    resumed = portal_state(pause_device_fetch(lab, device_ip, "/portal/api/resume", {}, cookie))
     assert_message(resumed, "success", "online")
 
 
-def admin_grant_after_deadline(opener, report, address, password, client_address, device_ip):
+def admin_grant_after_deadline(opener, report, address, password, lab, device_ip):
     # Start just after a completed poll: the deadline must pass BEFORE retirement.
     previous = json.load(request(opener, "/admin/state"))["reconciliation"]["last_poll"]
     deadline = time.monotonic() + 15
@@ -1867,7 +1487,7 @@ def admin_grant_after_deadline(opener, report, address, password, client_address
     assert request(opener, "/admin/validity", "POST", {"value": "3", "unit": "seconds"}).status == 200
     response = generate_vouchers(opener, {"seconds": "120", "count": "1"})
     code = voucher_codes(opener, response)[0]
-    pause_device_fetch(client_address, password, device_ip, "/portal/api/redeem", {"code": code})
+    pause_device_fetch(lab, device_ip, "/portal/api/redeem", {"code": code})
     state = json.load(request(opener, "/admin/state"))
     time_credit_id = next(v["time_credit_id"] for v in state["purchases"]["vouchers"] if v["code"] == code)
     validity = next(v for v in state["validity"] if v["time_credit_id"] == time_credit_id)
@@ -1888,43 +1508,8 @@ def admin_grant_after_deadline(opener, report, address, password, client_address
     assert request(opener, "/admin/validity", "POST", {"value": "30", "unit": "days"}).status == 200
 
 
-def second_device_up(client_address, password):
-    """Enable the lan2 Device beside lan1, with a source-policy rule each. Returns [lan1 IP, lan2 IP]."""
-    def client(path, method="GET", body=None):
-        return router_rest(client_address, "admin", password, path, method, body, scheme="http")
-    interface = client("/interface/ethernet?name=lan2")[0]
-    client("/interface/ethernet/" + interface[".id"], "PATCH", {"disabled": "no"})
-    deadline = time.monotonic() + 20
-    while time.monotonic() < deadline:
-        second = client("/ip/address?interface=lan2")
-        if second:
-            break
-        time.sleep(1)
-    assert second, "second Device has no HotSpot address"
-    ips = [client("/ip/address?interface=lan1")[0]["address"].split("/")[0], second[0]["address"].split("/")[0]]
-    assert ips[0] != ips[1]
-    if not client("/routing/table?name=openpiso-e2e-device2"):
-        client("/routing/table", "PUT", {"name": "openpiso-e2e-device2", "fib": "yes"})
-    if not client("/ip/route?routing-table=openpiso-e2e-device2"):
-        client("/ip/route", "PUT", {"dst-address": "0.0.0.0/0", "gateway": "10.5.50.1%lan2",
-               "routing-table": "openpiso-e2e-device2", "comment": "openpiso-e2e-device"})
-    # lan1's DHCP address may have changed since the earlier steps (slower guests
-    # run longer); rebuild both source-policy rules for the current addresses.
-    for rule in client("/routing/rule?comment=openpiso-e2e-device"):
-        client("/routing/rule/" + rule[".id"], "DELETE")
-    for ip, table in zip(ips, ("openpiso-e2e-device", "openpiso-e2e-device2")):
-        client("/routing/rule", "PUT", {"src-address": ip + "/32", "action": "lookup-only-in-table",
-               "table": table, "comment": "openpiso-e2e-device"})
-    for ip, interface, table in zip(ips, ("lan1", "lan2"), ("openpiso-e2e-device", "openpiso-e2e-device2")):
-        device_fetch(client, ip, interface, table, PORTAL_URL + "/portal")
-        client("/ping", "POST", {"address": "10.5.50.1", "src-address": ip, "interface": interface, "count": "1"})
-    return ips
-
-
-def concurrent_voucher(opener, report, address, password, client_address, code):
-    def client(path, method="GET", body=None):
-        return router_rest(client_address, "admin", password, path, method, body, scheme="http")
-    ips = second_device_up(client_address, password)
+def concurrent_voucher(opener, report, address, password, lab, code):
+    ips = lab.second_device_up()
     hosts = router_rest(address, "admin", password, "/ip/hotspot/host")
     macs = [next(host["mac-address"] for host in hosts if host["address"] == ip) for ip in ips]
     assert len(set(macs)) == 2, "concurrency scenario must use two real Device MACs"
@@ -1933,14 +1518,13 @@ def concurrent_voucher(opener, report, address, password, client_address, code):
     def redeem(ip):
         barrier.wait()
         try:
-            result = client("/tool/fetch", "POST", {"url": PORTAL_URL + "/portal/api/redeem", "output": "user",
-                "src-address": ip, "http-method": "post", "http-data": urllib.parse.urlencode({"code": code}),
-                "http-header-field": "Content-Type:application/x-www-form-urlencoded"})
-            assert portal_state(result[-1])["time_credit"]["bought"] >= 120
+            result = lab.fetch(ip, PORTAL_URL + "/portal/api/redeem", {"code": code}, headers=False)
+            assert portal_state(result)["time_credit"]["bought"] >= 120
             return "success"
         except urllib.error.HTTPError as error:
             assert error.code == 400
             assert "409" in json.load(error).get("detail", "")
+            assert_refused(error, "voucher-used")
             return "used"
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
         results = list(pool.map(redeem, ips))
@@ -1953,68 +1537,29 @@ def concurrent_voucher(opener, report, address, password, client_address, code):
     # Per-Device rate limit is independent of the signed cookie and URL parameters.
     for _ in range(5):
         try:
-            client("/tool/fetch", "POST", {"url": PORTAL_URL + "/portal/api/redeem", "output": "user",
-                "src-address": ips[1], "http-method": "post", "http-data": "code=IIIIIIII",
-                "http-header-field": "Content-Type:application/x-www-form-urlencoded"})
+            lab.fetch(ips[1], PORTAL_URL + "/portal/api/redeem", {"code": "IIIIIIII"}, headers=False)
         except urllib.error.HTTPError:
             pass
     try:
-        client("/tool/fetch", "POST", {"url": PORTAL_URL + "/portal/api/redeem?mac=fake", "output": "user",
-            "src-address": ips[1], "http-method": "post", "http-data": "code=IIIIIIII",
-            "http-header-field": "Content-Type:application/x-www-form-urlencoded"})
+        lab.fetch(ips[1], PORTAL_URL + "/portal/api/redeem?mac=fake", {"code": "IIIIIIII"}, headers=False)
     except urllib.error.HTTPError as error:
         assert "429" in json.load(error).get("detail", "")
+        assert_refused(error, "too-many-attempts")
     else:
         raise AssertionError("per-Device Voucher rate limit not enforced")
     report.snapshot("voucher-redemption-rate-limited-per-device", address, password, opener)
 
 
-def rebind_fetch(client_address, password, device_ip, path="/portal/api/state", form=None, cookie=None):
-    body = {"url": PORTAL_URL + path, "output": "user-with-headers",
-            "src-address": device_ip}
-    headers = []
-    if form is not None:
-        body.update({"http-method": "post", "http-data": urllib.parse.urlencode(form)})
-        headers.append("Content-Type:application/x-www-form-urlencoded")
-    if cookie:
-        headers.append("Cookie:" + cookie)
-    if headers:
-        body["http-header-field"] = ",".join(headers)
-    return router_rest(client_address, "admin", password, "/tool/fetch", "POST", body, scheme="http")[-1]
+def rebind_fetch(lab, device_ip, path="/portal/api/state", form=None, cookie=None):
+    return lab.fetch(device_ip, PORTAL_URL + path, form, cookie)
 
 
-def rebind_wait_device(client_address, password, interface="lan1", url=None):
-    url = url or PORTAL_URL + "/portal"  # PORTAL_URL changes in ARM mode
-    def client(path, method="GET", body=None):
-        return router_rest(client_address, "admin", password, path, method, body, scheme="http")
-    table = "openpiso-e2e-device" if interface == "lan1" else "openpiso-e2e-device2"
-    deadline = time.monotonic() + 30
-    while time.monotonic() < deadline:
-        leases = client("/ip/dhcp-client?interface=" + interface)
-        # As in device_fetch, a renewing lease still owns its usable address.
-        bound = next((lease for lease in leases
-                      if lease.get("status", "").startswith(("bound", "renewing")) and lease.get("address")), None)
-        if bound is not None:
-            # DHCP may choose a new IP when the NIC returns. Update only this
-            # Device's fixture rule; the Controller still verifies the real host.
-            device_ip = bound["address"].split("/")[0]
-            rules = [rule for rule in client("/routing/rule?comment=openpiso-e2e-device") if rule["table"] == table]
-            assert len(rules) == 1, "Device source-policy fixture must have exactly one rule per table"
-            if rules[0]["src-address"] != device_ip + "/32":
-                client("/routing/rule/" + rules[0][".id"], "PATCH", {"src-address": device_ip + "/32"})
-            device_fetch(client, device_ip, interface, table, url)
-            return device_ip
-        time.sleep(1)
-    raise AssertionError("Device DHCP lease did not become usable after the NIC switch: " +
-                         repr([(lease.get("status"), lease.get("address")) for lease in leases]))
-
-
-def rebind_recovery(opener, report, address, password, client_address, device_ip, cookie):
+def rebind_recovery(opener, report, address, password, lab, device_ip, cookie):
     # Earlier exhaustion/recovery cases may have spent the original purchase.
     response = generate_vouchers(opener, {"seconds": "180", "count": "1"})
     top_up = voucher_codes(opener, response)[0]
-    assert_message(portal_state(rebind_fetch(client_address, password, device_ip, "/portal/api/redeem", {"code": top_up}, cookie)), "success", "online")
-    code = portal_state(rebind_fetch(client_address, password, device_ip))["time_credit"].get("resume_code", "")
+    assert_message(portal_state(rebind_fetch(lab, device_ip, "/portal/api/redeem", {"code": top_up}, cookie)), "success", "online")
+    code = portal_state(rebind_fetch(lab, device_ip))["time_credit"].get("resume_code", "")
     assert re.fullmatch(r"[A-HJ-NP-Z2-9]{8}", code), "purchase must show a short Resume Code"
     before = json.load(request(opener, "/admin/state"))["purchases"]
     time_credit = time_credit_for_device(before, _lab_module.DEVICE_MAC, device_ip)
@@ -2026,25 +1571,20 @@ def rebind_recovery(opener, report, address, password, client_address, device_ip
     assert denied.status == 403
     assert_message(json.load(denied), "error", "not-on-wifi")
     assert json.load(request(opener, "/admin/state"))["purchases"] == before
-    interface = router_rest(client_address, "admin", password, "/interface/ethernet?name=lan1", scheme="http")[0]
-    second_ip = router_rest(client_address, "admin", password, "/ip/address?interface=lan2", scheme="http")[0]["address"].split("/")[0]
-    changed_mac = router_rest(client_address, "admin", password, "/interface/ethernet?name=lan2", scheme="http")[0]["mac-address"]
+    second_ip = lab.device_ip(second=True)
+    changed_mac = lab.second_device_mac()
     assert changed_mac != original_mac
     response = generate_vouchers(opener, {"seconds": "60", "count": "1"})
     second_code = voucher_codes(opener, response)[0]
-    assert_message(portal_state(rebind_fetch(client_address, password, second_ip, "/portal/api/redeem", {"code": second_code})), "success", "online")
+    assert_message(portal_state(rebind_fetch(lab, second_ip, "/portal/api/redeem", {"code": second_code})), "success", "online")
     before = json.load(request(opener, "/admin/state"))["purchases"]
     displaced = time_credit_for_device(before, changed_mac, second_ip)
     assert displaced["id"] != time_credit["id"]
-    # Virtio ignores runtime MAC edits. Switch the CHR's real HotSpot NIC, as in
-    # the identity lab; source-policy routes preserve the two distinct Devices.
-    router_rest(client_address, "admin", password, "/interface/ethernet/" + interface[".id"], "PATCH",
-                {"disabled": "yes"}, scheme="http")
     try:
-        second_ip = rebind_wait_device(client_address, password, "lan2")
+        second_ip = lab.change_mac()
         hosts = router_rest(address, "admin", password, "/ip/hotspot/host")
         assert any(h["address"] == second_ip and h["mac-address"] == changed_mac for h in hosts)
-        recovered = portal_state(rebind_fetch(client_address, password, second_ip, "/portal/api/recover", {"code": code}))
+        recovered = portal_state(rebind_fetch(lab, second_ip, "/portal/api/recover", {"code": code}))
         assert_message(recovered, "success", "online")
         remaining = recovered["time_credit"]["remaining"]
         assert 0 < remaining < time_credit["bought_seconds"], "Rebind reset metered uptime"
@@ -2071,18 +1611,18 @@ def rebind_recovery(opener, report, address, password, client_address, device_ip
                         host_present_before_login=True, displaced_time_credit_id=displaced["id"],
                         displaced_binding_cleared=True, hotspot_user_mac_restriction=restriction["mac-address"])
         # Bring back the old Device; its old session must no longer grant access.
-        router_rest(client_address, "admin", password, "/interface/ethernet/" + interface[".id"], "PATCH",
-                    {"disabled": "no"}, scheme="http")
-        device_ip = rebind_wait_device(client_address, password)
-        internet = router_rest(client_address, "admin", password, "/tool/fetch", "POST",
-                              {"url": "http://1.1.1.1/", "output": "user", "src-address": device_ip}, scheme="http")[-1]["data"]
+        lab.restore_mac()
+        device_ip = lab.wait_device()
+        internet = lab.fetch(device_ip, "http://1.1.1.1/", headers=False)["data"]
         assert PORTAL_URL.removeprefix("http://") + "/portal" in internet, "old Device retained Internet access"
         used_code = next(v["code"] for v in before["vouchers"] if v["time_credit_id"] == time_credit["id"])
-        for rejected, status in ((used_code, "409"), ("IIIIIIII", "400"), ("ZZZZZZZZ", "400")):
+        for rejected, status, refusal in ((used_code, "409", "voucher-used"), ("IIIIIIII", "400", "voucher-unknown"),
+                                          ("ZZZZZZZZ", "400", "voucher-unknown")):
             try:
-                rebind_fetch(client_address, password, device_ip, "/portal/api/redeem", {"code": rejected}, cookie)
+                rebind_fetch(lab, device_ip, "/portal/api/redeem", {"code": rejected}, cookie)
             except urllib.error.HTTPError as error:
                 assert status in json.load(error).get("detail", "")
+                assert_refused(error, refusal)
             else:
                 raise AssertionError("invalid Voucher was accepted while presenting a new Device cookie")
             assert json.load(request(opener, "/admin/state"))["purchases"] == after, "failed Voucher moved a Time Credit"
@@ -2091,27 +1631,28 @@ def rebind_recovery(opener, report, address, password, client_address, device_ip
         # State only flags the Rebind, twice over, without moving anything; core.js POSTs connect.
         before_reads = ledger_and_router(opener, address, password, time_credit["id"])
         for _ in range(2):
-            automatic = portal_state(rebind_fetch(client_address, password, device_ip, cookie=cookie))
+            automatic = portal_state(rebind_fetch(lab, device_ip, cookie=cookie))
             assert automatic["rebind"] and automatic["time_credit"] is None, automatic
         assert ledger_and_router(opener, address, password, time_credit["id"]) == before_reads, "state read moved the Time Credit"
         assert json.load(request(opener, "/admin/state"))["purchases"] == after
         active = router_rest(address, "admin", password, "/ip/hotspot/active?user=op-" + time_credit["id"])
         assert len(active) == 1 and active[0]["mac-address"] == changed_mac
-        assert portal_state(rebind_fetch(client_address, password, second_ip, "/portal/api/pause", {}))["time_credit"]["paused"]
+        assert portal_state(rebind_fetch(lab, second_ip, "/portal/api/pause", {}))["time_credit"]["paused"]
         try:
-            rebind_fetch(client_address, password, device_ip, "/portal/api/connect", {}, cookie)
+            rebind_fetch(lab, device_ip, "/portal/api/connect", {}, cookie)
         except urllib.error.HTTPError as error:
             assert "403" in json.load(error).get("detail", "")
+            assert_refused(error, "paused-needs-resume")
         else:
             raise AssertionError("automatic cookie Rebind bypassed tapped Pause")
         paused = json.load(request(opener, "/admin/state"))
         pause = next(p for p in paused["pauses"] if p["time_credit_id"] == time_credit["id"])
         assert pause["tapped"]
         assert not router_rest(address, "admin", password, "/ip/hotspot/active?user=op-" + time_credit["id"])
-        unsigned = rebind_fetch(client_address, password, device_ip)
+        unsigned = rebind_fetch(lab, device_ip)
         assert "resume_code" not in json.dumps(portal_state(unsigned))
         assert "Set-Cookie:" not in unsigned.get("http-headers", "")
-        connected = portal_state(rebind_fetch(client_address, password, device_ip, "/portal/api/recover", {"code": code}))
+        connected = portal_state(rebind_fetch(lab, device_ip, "/portal/api/recover", {"code": code}))
         assert_message(connected, "success", "online")
         resumed = json.load(request(opener, "/admin/state"))
         pause_after = next(p for p in resumed["pauses"] if p["time_credit_id"] == time_credit["id"])
@@ -2126,13 +1667,12 @@ def rebind_recovery(opener, report, address, password, client_address, device_ip
                         old_device_denied=True, automatic_cookie_post=True, restored_device_ip=device_ip)
     finally:
         report.capture_lab_failure()
-        router_rest(client_address, "admin", password, "/interface/ethernet/" + interface[".id"], "PATCH",
-                    {"disabled": "no"}, scheme="http")
+        lab.restore_mac()
 
     return device_ip
 
 
-def admin_grant(opener, report, address, password, client_address, device_ip, cookie):
+def admin_grant(opener, report, address, password, lab, device_ip, cookie):
     before = json.load(request(opener, "/admin/state"))
     tc = time_credit_for_device(before, _lab_module.DEVICE_MAC, device_ip)
     form = {"time_credit_id": tc["id"], "seconds": "20", "reason": "Customer compensation",
@@ -2172,7 +1712,7 @@ def admin_grant(opener, report, address, password, client_address, device_ip, co
     assert len(active) == 1
     used = duration_seconds(user["uptime"]) + duration_seconds(active[0]["uptime"])
     assert used_before <= used <= used_before + int(time.monotonic() - started) + 3
-    state = portal_state(rebind_fetch(client_address, password, device_ip, cookie=cookie))
+    state = portal_state(rebind_fetch(lab, device_ip, cookie=cookie))
     assert state["time_credit"]["bought"] == updated["bought_seconds"]
     remaining = state["time_credit"]["remaining"]
     assert abs(remaining - duration_seconds(active[0]["session-time-left"])) <= 3
@@ -2226,9 +1766,9 @@ def dashboard_router_status(opener, report, address, password):
                     router=data, router_card_html=card)
 
 
-def dashboard_router_unreachable(opener, report, address, password):
+def dashboard_router_unreachable(opener, report, address, password, lab):
     # Stop the Router's REST service while the Controller keeps running, then restore it.
-    rcon(password, "/ip service set www-ssl disabled=yes")
+    lab.stop_router_rest()
     try:
         deadline = time.monotonic() + 30
         while time.monotonic() < deadline:
@@ -2250,7 +1790,7 @@ def dashboard_router_unreachable(opener, report, address, password):
         assert "Router unreachable" in request(opener, "/admin/fragments/dashboard").read().decode()
     finally:
         report.capture_lab_failure()
-        rcon(password, "/ip service set www-ssl disabled=no")
+        lab.start_router_rest()
     outage = data
     deadline = time.monotonic() + 30
     while time.monotonic() < deadline:
@@ -2265,7 +1805,7 @@ def dashboard_router_unreachable(opener, report, address, password):
                     dashboard_during_outage=outage, outage_html=html, dashboard_after_recovery=data)
 
 
-def admin_dashboard(opener, report, address, password, client_address, device_ip, cookie):
+def admin_dashboard(opener, report, address, password, lab, device_ip, cookie):
     # Sales ranges are date-only inclusive local days: reject anything else, and reversed ranges.
     for query in ("from=not-a-date", "to=2026-13-01", "from=2026-01-01T00:00:00Z&to=2026-01-02",
                   "from=2026-01-02&to=2026-01-01"):
@@ -2287,14 +1827,14 @@ def admin_dashboard(opener, report, address, password, client_address, device_ip
     state = json.load(request(opener, "/admin/state"))
     tc = time_credit_for_device(state, _lab_module.DEVICE_MAC, device_ip)
     detail = request(opener, "/admin/time-credits?tc=" + tc["id"]).read().decode()
-    remaining = portal_state(rebind_fetch(client_address, password, device_ip, cookie=cookie))["time_credit"]["remaining"]
+    remaining = portal_state(rebind_fetch(lab, device_ip, cookie=cookie))["time_credit"]["remaining"]
     listed = int(re.search(r'<progress class="wide" max="\d+" value="(\d+)"', detail).group(1))
     assert abs(listed - remaining) <= 10
     assert detail.count('<li data-kind="rebind">') == 2
     # Date-only input can't isolate a redemption, so compare today's local day before and after
-    # one priced redemption (the sibling code stays unsold). The lab host and Controller share
-    # a timezone, so the host's local date is the Controller's.
-    now = datetime.date.today()
+    # one priced redemption (the sibling code stays unsold). Today is the Controller's, in its
+    # system timezone (the Sales report's default To), which need not be the host's.
+    now = datetime.date.fromisoformat(json.load(request(opener, "/admin/sales?format=json"))["to"])
     today = now.isoformat()
     sales_today_before = sales(opener, today, today)
     dashboard_before = dashboard(opener)
@@ -2308,7 +1848,7 @@ def admin_dashboard(opener, report, address, password, client_address, device_ip
     batch_url = voucher_print_url(response)
     codes = voucher_codes(opener, response)
     assert len(codes) == 2
-    assert_message(portal_state(rebind_fetch(client_address, password, device_ip, "/portal/api/redeem", {"code": codes[0]}, cookie)), "success", "online")
+    assert_message(portal_state(rebind_fetch(lab, device_ip, "/portal/api/redeem", {"code": codes[0]}, cookie)), "success", "online")
     batch_page = request(opener, batch_url).read().decode()
     sheet = json.loads(re.search(r'<script[^>]*data-voucher-batch[^>]*>(.*?)</script>', batch_page, re.S).group(1))
     assert sorted(v["used"] for v in sheet["vouchers"]) == ["", "USED"] and sheet["batch"]["pesos"] == "₱5"
@@ -2385,7 +1925,7 @@ def admin_dashboard(opener, report, address, password, client_address, device_ip
 
 
 def admin_audit_review(controller, args, data_dir, opener, report, address, password,
-                       client_address, device_ip, cookie):
+                       lab, device_ip, cookie):
     before = json.load(request(opener, "/admin/state"))
     rows = before["audit_review"]
     pending = [r for r in rows if r["status"] == "pending-review"]
@@ -2410,7 +1950,7 @@ def admin_audit_review(controller, args, data_dir, opener, report, address, pass
     assert row["status"] == "dismissed" and row["resolved_by"] == "admin" and row["resolved_at"]
     assert row["resolution_reason"] == form["reason"] and row["grant_audit_id"] == 0
     # Compensating a tapped-Paused Device resets its count, not its stop intent.
-    assert portal_state(rebind_fetch(client_address, password, device_ip, "/portal/api/pause", {}))["time_credit"]["paused"]
+    assert portal_state(rebind_fetch(lab, device_ip, "/portal/api/pause", {}))["time_credit"]["paused"]
     grant = {"audit_id": granted_id, "time_credit_id": tc["id"], "seconds": "3",
              "reason": "Coin dispute compensation", "request_id": "e2e-review-grant"}
     assert request(opener, "/admin/grants", "POST", dict(grant, time_credit_id="missing")).status == 404
@@ -2428,9 +1968,9 @@ def admin_audit_review(controller, args, data_dir, opener, report, address, pass
     assert next(r for r in after["audit_review"] if r["id"] == untouched_id)["status"] == "pending-review"
     assert after["vendo_protocol"]["audit"] == before["vendo_protocol"]["audit"], "resolution rewrote original evidence"
     assert not router_rest(address, "admin", password, "/ip/hotspot/active?user=op-" + tc["id"])
-    state = portal_state(rebind_fetch(client_address, password, device_ip, cookie=cookie))
+    state = portal_state(rebind_fetch(lab, device_ip, cookie=cookie))
     assert state["time_credit"]["paused"] and state["time_credit"]["pauses_left"] == 2
-    assert_message(portal_state(rebind_fetch(client_address, password, device_ip, "/portal/api/resume", {}, cookie)), "success", "online")
+    assert_message(portal_state(rebind_fetch(lab, device_ip, "/portal/api/resume", {}, cookie)), "success", "online")
     controller.stop()
     controller = Controller(args.binary, data_dir, initialize=False)
     opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
@@ -2443,49 +1983,51 @@ def admin_audit_review(controller, args, data_dir, opener, report, address, pass
     return controller, opener
 
 
-def resume_code_throttling(opener, report, address, password, client_address, device_ip):
+def resume_code_throttling(opener, report, address, password, lab, device_ip):
     before = json.load(request(opener, "/admin/state"))["purchases"]
     for _ in range(5):
         try:
-            rebind_fetch(client_address, password, device_ip, "/portal/api/recover", {"code": "IIIIIIII"})
+            rebind_fetch(lab, device_ip, "/portal/api/recover", {"code": "IIIIIIII"})
         except urllib.error.HTTPError as error:
             assert "400" in json.load(error).get("detail", "")
+            assert_refused(error, "resume-code-invalid")
         else:
             raise AssertionError("invalid Resume Code accepted")
     try:
-        rebind_fetch(client_address, password, device_ip, "/portal/api/recover?mac=fake", {"code": "ZZZZZZZZ"})
+        rebind_fetch(lab, device_ip, "/portal/api/recover?mac=fake", {"code": "ZZZZZZZZ"})
     except urllib.error.HTTPError as error:
         assert "429" in json.load(error).get("detail", "")
+        assert_refused(error, "too-many-attempts")
     else:
         raise AssertionError("Resume Code guesses were not limited per Device")
-    second_ip = router_rest(client_address, "admin", password, "/ip/address?interface=lan2", scheme="http")[0]["address"].split("/")[0]
+    second_ip = lab.device_ip(second=True)
     try:
-        rebind_fetch(client_address, password, second_ip, "/portal/api/recover", {"code": "IIIIIIII"})
+        rebind_fetch(lab, second_ip, "/portal/api/recover", {"code": "IIIIIIII"})
     except urllib.error.HTTPError as error:
         assert "400" in json.load(error).get("detail", ""), "one Device blocked another Device's guesses"
+        assert_refused(error, "resume-code-invalid")
     else:
         raise AssertionError("invalid Resume Code accepted on second Device")
     assert json.load(request(opener, "/admin/state"))["purchases"] == before
     report.snapshot("resume-code-guesses-rate-limited-per-router-device", address, password, opener)
 
 
-def mac_change_without_rebind(opener, report, address, password, client_address, device_ip):
+def mac_change_without_rebind(opener, report, address, password, lab, device_ip):
     # Select the existing baseline profiles with the lab fixture, not #8's settings.
     response = generate_vouchers(opener, {"seconds": "180", "count": "1"})
     code = voucher_codes(opener, response)[0]
-    assert_message(portal_state(rebind_fetch(client_address, password, device_ip, "/portal/api/redeem", {"code": code})), "success", "online")
+    assert_message(portal_state(rebind_fetch(lab, device_ip, "/portal/api/redeem", {"code": code})), "success", "online")
     state = json.load(request(opener, "/admin/state"))["purchases"]
     time_credit = time_credit_for_device(state, _lab_module.DEVICE_MAC, device_ip)
     name = "op-" + time_credit["id"]
-    interface = router_rest(client_address, "admin", password, "/interface/ethernet?name=lan1", scheme="http")[0]
-    second_ip = router_rest(client_address, "admin", password, "/ip/address?interface=lan2", scheme="http")[0]["address"].split("/")[0]
+    second_ip = lab.device_ip(second=True)
     rebind_count = len(state["rebinds"])
     for profile in ("openpiso-idle", "openpiso-no-idle"):
         for active in router_rest(address, "admin", password, "/ip/hotspot/active?user=" + name):
             router_rest(address, "admin", password, "/ip/hotspot/active/" + active[".id"], "DELETE")
         user = router_rest(address, "admin", password, "/ip/hotspot/user?name=" + name)[0]
         router_rest(address, "admin", password, "/ip/hotspot/user/" + user[".id"], "PATCH", {"profile": profile})
-        rebind_fetch(client_address, password, device_ip)
+        rebind_fetch(lab, device_ip)
         # Fixture re-login selects the baseline profile without building site settings.
         # The Router password is used privately and is never included in evidence.
         router_rest(address, "admin", password, "/ip/hotspot/active/login", "POST", {
@@ -2498,10 +2040,8 @@ def mac_change_without_rebind(opener, report, address, password, client_address,
         assert profile_state["keepalive-timeout"] == "none"
         used_before = duration_seconds(user["uptime"])
         started = time.monotonic()
-        router_rest(client_address, "admin", password, "/interface/ethernet/" + interface[".id"], "PATCH",
-                    {"disabled": "yes"}, scheme="http")
         try:
-            second_ip = rebind_wait_device(client_address, password, "lan2")
+            second_ip = lab.change_mac()
             bound = idle_period if idle_period is not None else remaining_at_departure
             deadline = started + bound + 10
             while time.monotonic() < deadline:
@@ -2529,48 +2069,31 @@ def mac_change_without_rebind(opener, report, address, password, client_address,
                             fixture_profile_selection=True, rebind_performed=False)
         finally:
             report.capture_lab_failure()
-            router_rest(client_address, "admin", password, "/interface/ethernet/" + interface[".id"], "PATCH",
-                        {"disabled": "no"}, scheme="http")
-        device_ip = rebind_wait_device(client_address, password)
+            lab.restore_mac()
+        device_ip = lab.wait_device()
 
     return device_ip
 
 
-def ambiguous_device_host(opener, report, address, password, client_address, device_ip, cookie):
+def ambiguous_device_host(opener, report, address, password, lab, device_ip, cookie):
     before = json.load(request(opener, "/admin/state"))["purchases"]
-    interface = router_rest(client_address, "admin", password, "/interface/ethernet?name=lan1", scheme="http")[0]
-    second_mac = router_rest(client_address, "admin", password, "/interface/ethernet?name=lan2", scheme="http")[0]["mac-address"]
-    rules = router_rest(client_address, "admin", password, "/routing/rule?comment=openpiso-e2e-device", scheme="http")
-    rule = next(r for r in rules if r["src-address"] == device_ip + "/32")
-    rebind_fetch(client_address, password, device_ip)
-    router_rest(client_address, "admin", password, "/interface/ethernet/" + interface[".id"], "PATCH",
-                {"disabled": "yes"}, scheme="http")
+    second_mac = lab.second_device_mac()
+    rebind_fetch(lab, device_ip)
     try:
-        # Send from the same IP on the other real MAC. Observe Router host rows,
-        # including host-dead-time, rather than inventing the ambiguity in a mock.
-        router_rest(client_address, "admin", password, "/ip/address", "PUT", {
-            "address": device_ip + "/32", "interface": "lan2", "comment": "openpiso-e2e-ambiguous"}, scheme="http")
-        router_rest(client_address, "admin", password, "/routing/rule/" + rule[".id"], "PATCH",
-                    {"table": "openpiso-e2e-device2"}, scheme="http")
-        router_rest(client_address, "admin", password, "/ping", "POST", {
-            "address": "10.5.50.1", "src-address": device_ip, "interface": "lan2", "count": "1"}, scheme="http")
+        lab.share_ip(device_ip)
         hosts = router_rest(address, "admin", password, "/ip/hotspot/host?address=" + device_ip)
         observed = [{key: h.get(key, "") for key in ("address", "to-address", "mac-address", "host-dead-time")} for h in hosts]
         report.snapshot("same-ip-two-mac-host-observation", address, password, opener, observed_hosts=observed)
         assert len(hosts) >= 2 and len({h["mac-address"] for h in hosts}) >= 2, "lab did not produce ambiguous host entries"
         # The second host is translated by HotSpot's address pool. Send the
         # assertion from the original NIC so the TCP peer remains device_ip.
-        router_rest(client_address, "admin", password, "/routing/rule/" + rule[".id"], "PATCH",
-                    {"table": rule["table"]}, scheme="http")
-        for alias in router_rest(client_address, "admin", password, "/ip/address?comment=openpiso-e2e-ambiguous", scheme="http"):
-            router_rest(client_address, "admin", password, "/ip/address/" + alias[".id"], "DELETE", scheme="http")
-        router_rest(client_address, "admin", password, "/interface/ethernet/" + interface[".id"], "PATCH",
-                    {"disabled": "no"}, scheme="http")
-        assert rebind_wait_device(client_address, password, url="http://10.5.50.1/") == device_ip, "ambiguity fixture lost the original IP"
+        lab.unshare_ip()
+        assert lab.wait_device(url="http://10.5.50.1/") == device_ip, "ambiguity fixture lost the original IP"
         try:
-            rebind_fetch(client_address, password, device_ip, "/portal/api/connect", {}, cookie)
+            rebind_fetch(lab, device_ip, "/portal/api/connect", {}, cookie)
         except urllib.error.HTTPError as error:
             assert "503" in json.load(error).get("detail", "")
+            assert_refused(error, "device-joining")
         else:
             raise AssertionError("Controller guessed an identity from ambiguous host entries")
         assert json.load(request(opener, "/admin/state"))["purchases"] == before
@@ -2578,15 +2101,10 @@ def ambiguous_device_host(opener, report, address, password, client_address, dev
                         observed_hosts=observed, host_dead_time_used_as_identity=False)
     finally:
         report.capture_lab_failure()
-        router_rest(client_address, "admin", password, "/routing/rule/" + rule[".id"], "PATCH",
-                    {"table": rule["table"]}, scheme="http")
-        for alias in router_rest(client_address, "admin", password, "/ip/address?comment=openpiso-e2e-ambiguous", scheme="http"):
-            router_rest(client_address, "admin", password, "/ip/address/" + alias[".id"], "DELETE", scheme="http")
+        lab.unshare_ip()
         for host in router_rest(address, "admin", password, "/ip/hotspot/host?address=" + device_ip):
             if host["mac-address"] == second_mac:
                 router_rest(address, "admin", password, "/ip/hotspot/host/" + host[".id"], "DELETE")
-        router_rest(client_address, "admin", password, "/interface/ethernet/" + interface[".id"], "PATCH",
-                    {"disabled": "no"}, scheme="http")
 
 
 def portal_files(opener, prefix="/admin/portal/default/"):
@@ -2615,9 +2133,9 @@ def portal_versions(opener):
     return {slot: (portal[slot] or {}).get("version") for slot in ("draft", "published", "previous")}
 
 
-def device_portal(client_address, password, device_ip, path="/portal"):
+def device_portal(lab, device_ip, path="/portal"):
     """What a Device on the HotSpot gets for a Portal file: (body, Content-Security-Policy)."""
-    result = pause_device_fetch(client_address, password, device_ip, path)
+    result = pause_device_fetch(lab, device_ip, path)
     policy = re.search(r"(?:^|,)Content-Security-Policy: ([^,]+)", result.get("http-headers", ""), re.I)
     return result.get("data", ""), policy and policy.group(1).strip()
 
@@ -2649,11 +2167,11 @@ def portal_images(opener, prefix="/portal/"):
     return images
 
 
-def custom_portal(opener, report, address, password, client_address, device_ip):
+def custom_portal(opener, report, address, password, lab, device_ip):
     """An Operator edits, checks, publishes, reverts and resets the Portal; Devices get only what is published."""
     default = portal_files(opener)
     assert "<h1>OpenPiso WiFi</h1>" in default["index.html"] and 'src="/portal/core.js"' in default["index.html"]
-    assert default["index.html"] == device_portal(client_address, password, device_ip)[0]
+    assert default["index.html"] == device_portal(lab, device_ip)[0]
     assert portal_versions(opener) == {"draft": None, "published": None, "previous": None}
     for action in ("publish", "revert"):  # nothing saved yet: nothing to publish or revert to
         assert request(opener, "/admin/portal/" + action, "POST").status == 409, action
@@ -2743,9 +2261,9 @@ def custom_portal(opener, report, address, password, client_address, device_ip):
     status, page, failures = save_portal_draft(opener, first)
     assert status == 200 and "Draft saved" in page and not failures, failures
     assert portal_versions(opener) == {"draft": 1, "published": None, "previous": None}
-    body, _ = device_portal(client_address, password, device_ip)
+    body, _ = device_portal(lab, device_ip)
     assert "<h1>OpenPiso WiFi</h1>" in body and "Kanto" not in body, "a Device saw the unpublished draft"
-    assert "kanto" not in device_portal(client_address, password, device_ip, "/portal/portal.css")[0]
+    assert "kanto" not in device_portal(lab, device_ip, "/portal/portal.css")[0]
     # A logo at exactly the cap is a new draft carrying the saved files; Devices still get the built-in.
     logo1 = webp(b"logo v1", IMAGE_CAPS["logo"])
     assert upload_image(opener, "logo", logo1)[0] == 200
@@ -2754,16 +2272,16 @@ def custom_portal(opener, report, address, password, client_address, device_ip):
     assert portal_images(opener) == builtin, "a Device saw an unpublished image"
 
     # Publish: Devices get the Custom Portal under the same Portal CSP, with the embedded core.js.
-    default_policy = device_portal(client_address, password, device_ip)[1]
+    default_policy = device_portal(lab, device_ip)[1]
     assert request(opener, "/admin/portal/publish", "POST").status == 200
     assert portal_versions(opener) == {"draft": 2, "published": 2, "previous": None}
     first_images = {"logo": (logo1, "image/webp"), "cover": builtin["cover"]}
     assert portal_images(opener) == first_images
-    body, policy = device_portal(client_address, password, device_ip)
+    body, policy = device_portal(lab, device_ip)
     assert body == first["index.html"] and policy == default_policy == PORTAL_CSP, policy
-    assert device_portal(client_address, password, device_ip, "/portal/portal.css")[0] == first["portal.css"]
-    assert device_portal(client_address, password, device_ip, "/portal/custom.js")[0] == first["custom.js"]
-    assert device_portal(client_address, password, device_ip, "/portal/core.js")[0] == \
+    assert device_portal(lab, device_ip, "/portal/portal.css")[0] == first["portal.css"]
+    assert device_portal(lab, device_ip, "/portal/custom.js")[0] == first["custom.js"]
+    assert device_portal(lab, device_ip, "/portal/core.js")[0] == \
         request(opener, "/portal/core.js").read().decode()
 
     # A second draft keeps the draft's logo and stays unseen until published, images included;
@@ -2773,28 +2291,28 @@ def custom_portal(opener, report, address, password, client_address, device_ip):
     assert portal_images(opener, "/admin/portal/draft/")["logo"] == (logo1, "image/webp")
     cover2, logo2 = webp(b"cover v2", IMAGE_CAPS["cover"]), webp(b"logo v2")
     assert upload_image(opener, "cover", cover2)[0] == 200 and upload_image(opener, "logo", logo2)[0] == 200
-    assert device_portal(client_address, password, device_ip)[0] == first["index.html"]
+    assert device_portal(lab, device_ip)[0] == first["index.html"]
     assert portal_images(opener) == first_images
     assert request(opener, "/admin/portal/publish", "POST").status == 200
     assert portal_versions(opener) == {"draft": 5, "published": 5, "previous": 2}
-    assert device_portal(client_address, password, device_ip)[0] == second["index.html"]
+    assert device_portal(lab, device_ip)[0] == second["index.html"]
     assert portal_images(opener) == {"logo": (logo2, "image/webp"), "cover": (cover2, "image/webp")}
 
     # Revert restores the previous version and its images; Reset to default serves the Default
     # Portal with the built-in images.
     assert request(opener, "/admin/portal/revert", "POST").status == 200
     assert portal_versions(opener) == {"draft": 5, "published": 2, "previous": 5}
-    assert device_portal(client_address, password, device_ip)[0] == first["index.html"]
+    assert device_portal(lab, device_ip)[0] == first["index.html"]
     assert portal_images(opener) == first_images
     assert request(opener, "/admin/portal/reset", "POST").status == 200
     assert portal_versions(opener) == {"draft": 5, "published": None, "previous": 2}
-    assert device_portal(client_address, password, device_ip)[0] == default["index.html"]
-    assert device_portal(client_address, password, device_ip, "/portal/portal.css")[0] == default["portal.css"]
-    assert device_portal(client_address, password, device_ip, "/portal/custom.js")[0] == default["custom.js"]
+    assert device_portal(lab, device_ip)[0] == default["index.html"]
+    assert device_portal(lab, device_ip, "/portal/portal.css")[0] == default["portal.css"]
+    assert device_portal(lab, device_ip, "/portal/custom.js")[0] == default["custom.js"]
     assert portal_images(opener) == builtin
     # Reset is undone by Revert like any publish, and the editor reopens on the draft.
     assert request(opener, "/admin/portal/revert", "POST").status == 200
-    assert device_portal(client_address, password, device_ip)[0] == first["index.html"]
+    assert device_portal(lab, device_ip)[0] == first["index.html"]
     assert portal_images(opener) == first_images
     assert request(opener, "/admin/portal/reset", "POST").status == 200
     editor = html.unescape(request(opener, "/admin/portal").read().decode())
@@ -2804,8 +2322,8 @@ def custom_portal(opener, report, address, password, client_address, device_ip):
                     api_navigation_refused=True, fetch_and_headerless_clients_allowed=True)
 
 
-def sales_report(opener, report, address, password, client_address):
-    device_ip = router_rest(client_address, "admin", password, "/ip/address?interface=lan1", scheme="http")[0]["address"].split("/")[0]
+def sales_report(opener, report, address, password, lab):
+    device_ip = lab.device_ip()
     before = sales(opener)
     assert "rows" in before, "Sales JSON must include paginated rows"
     default_page = request(opener, "/admin/sales").read().decode()
@@ -2823,7 +2341,7 @@ def sales_report(opener, report, address, password, client_address):
                 assert params["q"] == ["needle"] and params["page_size"] == ["50"]
     for invalid in ("grid", "TABLE", "Feed", "a"):
         assert request(opener, "/admin/sales?view=" + invalid).status == 400
-    paired = pair_board(opener, client_address, password, coin_board(client_address, password))
+    paired = pair_board(opener, lab, lab.coin_board())
     vendo = SimulatedVendo(BASE_URL, paired["id"], bytes.fromhex(paired["secret"]), timeout=HTTP_TIMEOUT)
     assert vendo.heartbeat()[0] == 200
     state = json.load(request(opener, "/admin/state"))
@@ -2849,14 +2367,14 @@ def sales_report(opener, report, address, password, client_address):
     vendo.total += 3
     assert vendo.post(vendo.frame())[0] == 200
     for _ in range(26):
-        opened = portal_state(pause_device_fetch(client_address, password, device_ip, "/portal/api/coins/open", {"vendo_id": vendo.id}))
+        opened = portal_state(pause_device_fetch(lab, device_ip, "/portal/api/coins/open", {"vendo_id": vendo.id}))
         window_id = opened["coin_window"]["id"]
         assert vendo.heartbeat()[0] == 200
         vendo.insert(1)
         assert vendo.heartbeat()[0] == 200
         current = sales(opener)
         assert not any(row["id"] == str(window_id) and row["type"] == "coin" for row in current["rows"])
-        pause_device_fetch(client_address, password, device_ip, "/portal/api/coins/done", {"window_id": window_id})
+        pause_device_fetch(lab, device_ip, "/portal/api/coins/done", {"window_id": window_id})
         assert vendo.heartbeat()[0] == 200
         current = sales(opener)
         assert not any(row["id"] == str(window_id) and row["type"] == "coin" for row in current["rows"])
@@ -2889,14 +2407,14 @@ def sales_report(opener, report, address, password, client_address):
         time.sleep(1.1)  # Later purchases must not rewrite earlier sale snapshots.
         form = {"seconds": "60", "count": "1", "pesos": price}
         code = voucher_codes(opener, generate_vouchers(opener, form))[0]
-        redeemed = portal_state(pause_device_fetch(client_address, password, device_ip, "/portal/api/redeem", {"code": code}))
+        redeemed = portal_state(pause_device_fetch(lab, device_ip, "/portal/api/redeem", {"code": code}))
         row = sales(opener)["rows"][0]
         assert row["type"] == "voucher" and row["user"] == code
         assert row["amount"] == int(price) and row["credited_seconds"] == 60
         assert (row["ip"], row["mac"].upper()) == (device_ip, _lab_module.DEVICE_MAC.upper())
         assert datetime.datetime.fromisoformat(row["validity"]).timestamp() == redeemed["time_credit"]["valid_until"]
         voucher_rows.append(row)
-    opened = portal_state(pause_device_fetch(client_address, password, device_ip, "/portal/api/coins/open", {"vendo_id": vendo.id}))
+    opened = portal_state(pause_device_fetch(lab, device_ip, "/portal/api/coins/open", {"vendo_id": vendo.id}))
     assert vendo.heartbeat()[0] == 200
     vendo.insert(2)
     assert vendo.heartbeat()[0] == 200
@@ -3026,35 +2544,35 @@ def sales_report(opener, report, address, password, client_address):
         assert_login_redirect(path)
     empty = sales(opener, "1970-01-01", "1970-01-01")
     assert empty["rows"] == [] and empty["count"] == 0 and empty["page"] == 1
-    today = datetime.date.today().isoformat()
+    today = local_today.isoformat()
     assert dashboard(opener)["sales"]["today"] == sales(opener, today, today)["total_pesos"]
     page = request(opener, "/admin/sales").read().decode()
     assert "Showing 1 to 25 of" in page and "Validity" in page
     assert not contains_secret_key(result)
     report.snapshot("sales-report-rows-late-stray-open-vouchers-pagination-auth", address, password, opener,
                     sales=result, dashboard=dashboard_totals, shortcuts=shortcut_evidence)
-    pause_device_fetch(client_address, password, device_ip, "/portal/api/coins/done", {"window_id": opened["coin_window"]["id"]})
+    pause_device_fetch(lab, device_ip, "/portal/api/coins/done", {"window_id": opened["coin_window"]["id"]})
     assert vendo.heartbeat()[0] == 200
     assert vendo.heartbeat()[0] == 200
     assert request(opener, "/admin/vendos/unpair", "POST", {"id": vendo.id}).status == 204
     historical = json.load(request(opener, filtered_path + "&format=json"))
     assert historical["total_pesos"] == 32 and historical["count"] == 27
     assert all(row["vendo_name"] == "Zone 12 (unpaired)" for row in historical["rows"])
-    paired_second = pair_board(opener, client_address, password, coin_board(client_address, password))
+    paired_second = pair_board(opener, lab, lab.coin_board())
     second = SimulatedVendo(BASE_URL, paired_second["id"], bytes.fromhex(paired_second["secret"]), timeout=HTTP_TIMEOUT)
     assert second.heartbeat()[0] == 200
-    opened_second = portal_state(pause_device_fetch(client_address, password, device_ip, "/portal/api/coins/open", {"vendo_id": second.id}))
+    opened_second = portal_state(pause_device_fetch(lab, device_ip, "/portal/api/coins/open", {"vendo_id": second.id}))
     assert second.heartbeat()[0] == 200
     second.insert(5)
     assert second.heartbeat()[0] == 200
     code = voucher_codes(opener, generate_vouchers(opener, {"seconds": "60", "count": "1"}))[0]
-    pause_device_fetch(client_address, password, device_ip, "/portal/api/coins/done", {"window_id": opened_second["coin_window"]["id"]})
+    pause_device_fetch(lab, device_ip, "/portal/api/coins/done", {"window_id": opened_second["coin_window"]["id"]})
     assert second.heartbeat()[0] == 200
     # Close near the start of a second so a subsequent redemption exercises
     # newest-first ordering without the Validity checks' deliberate delays.
     time.sleep(1 - time.time() % 1)
     assert second.heartbeat()[0] == 200
-    redeemed = portal_state(pause_device_fetch(client_address, password, device_ip, "/portal/api/redeem", {"code": code}))
+    redeemed = portal_state(pause_device_fetch(lab, device_ip, "/portal/api/redeem", {"code": code}))
     assert_message(redeemed, "success", "online")
     newest = sales(opener)["rows"][:2]
     assert newest[0]["type"] == "voucher" and newest[0]["user"] == code, newest
@@ -3173,7 +2691,7 @@ class Report:
             ).stdout.strip()),
             "binary_size_bytes": Path(binary).stat().st_size,
             "binary_sha256": hashlib.sha256(Path(binary).read_bytes()).hexdigest(),
-            "test_seam": "Controller binary via external HTTP against chr-lab and chr-client",
+            "test_seam": "Controller binary via external HTTP against a Docker lab: stock CHR Router and Linux Devices",
             "steps": [],
             "result": "running",
         }
@@ -3213,17 +2731,14 @@ class Report:
         self.data["finished_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
         if error:
             self.data["error"] = error
-        summary = {key: value for key, value in self.data.items() if key not in ("steps", "vlan_hosts", "lab_snapshot", "chr_client_cleanup")}
+        summary = {key: value for key, value in self.data.items() if key not in ("steps", "vlan_hosts", "lab_snapshot", "device_lease")}
         summary["steps"] = [step["name"] for step in self.data["steps"]]
-        if "chr_client_cleanup" in self.data:
-            summary["chr_client_cleanup_removed"] = len(self.data["chr_client_cleanup"].get("removed", []))
         if "execution" in summary:  # the serial tail is a raw log; keep it in the local report only
             summary["execution"] = {key: value for key, value in summary["execution"].items() if key != "serial_console_tail"}
-        lab = load_lab_env()
 
         def encode(data):
             encoded = json.dumps(redact_resume_codes(data), indent=2, ensure_ascii=False)
-            for secret in (lab["CHR_PASSWORD"], ROUTER_ADMIN_PASSWORD, ADMIN_PASSWORD):
+            for secret in (_docker_module.ROUTER_PASSWORD, ROUTER_ADMIN_PASSWORD, ADMIN_PASSWORD):
                 encoded = encoded.replace(secret, "[redacted]")
             return encoded + "\n"
 
@@ -3235,11 +2750,11 @@ class Report:
         print(f"Summary: {summary_path}", flush=True)
 
 
-def coin_window_empty(opener, report, address, password, client_address):
+def coin_window_empty(opener, report, address, password, lab):
     # Use the second unentitled Device so #13 can verify #15's exact sales first.
-    device_ip = router_rest(client_address, "admin", password, "/ip/address?interface=lan2", scheme="http")[0]["address"].split("/")[0]
-    paired = pair_board(opener, client_address, password, coin_board(client_address, password))
-    opened = portal_state(pause_device_fetch(client_address, password, device_ip, "/portal/api/coins/open", {"vendo_id": paired["id"]}))
+    device_ip = lab.device_ip(second=True)
+    paired = pair_board(opener, lab, lab.coin_board())
+    opened = portal_state(pause_device_fetch(lab, device_ip, "/portal/api/coins/open", {"vendo_id": paired["id"]}))
     assert_message(opened, "success", "coins-insert")
     assert opened["time_credit"]["bought"] == 0
     state = json.load(request(opener, "/admin/state"))
@@ -3248,13 +2763,13 @@ def coin_window_empty(opener, report, address, password, client_address):
     tc = next(tc for tc in state["purchases"]["time_credits"] if tc["id"] == window["time_credit_id"])
     assert tc["bought_seconds"] == 0
     assert not any(i["time_credit_id"] == tc["id"] for i in state["credit_intents"])
-    connected = portal_state(pause_device_fetch(client_address, password, device_ip, "/portal/api/connect", {}))
+    connected = portal_state(pause_device_fetch(lab, device_ip, "/portal/api/connect", {}))
     assert connected["message"] is None or connected["message"]["code"] != "online"
     assert not connected["time_credit"]["online"]
     assert not router_rest(address, "admin", password, "/ip/hotspot/user?name=op-" + tc["id"])
     vendo = SimulatedVendo(BASE_URL, paired["id"], bytes.fromhex(paired["secret"]), timeout=HTTP_TIMEOUT)
     assert vendo.heartbeat()[0] == 200
-    pause_device_fetch(client_address, password, device_ip, "/portal/api/coins/done", {"window_id": window["id"]})
+    pause_device_fetch(lab, device_ip, "/portal/api/coins/done", {"window_id": window["id"]})
     assert vendo.heartbeat()[0] == 200 and vendo.closing
     assert vendo.heartbeat()[0] == 200
     state = json.load(request(opener, "/admin/state"))
@@ -3266,19 +2781,19 @@ def coin_window_empty(opener, report, address, password, client_address):
                     zero_bought_seconds=True, zero_router_users=True)
 
 
-def coin_window_open(opener, report, address, password, client_address, device_ip):
+def coin_window_open(opener, report, address, password, lab, device_ip):
     assert request(opener, "/admin/rates", "POST", {"tiers": "1=10\n5=60"}).status == 200
     for invalid in ("5=60", "1=10\n1=20", "1=10\n5=40", "1=-1"):
         assert request(opener, "/admin/rates", "POST", {"tiers": invalid}).status == 400
     assert 'data-cost="5" data-seconds="60"' in request(opener, "/admin/rates").read().decode()
-    state = portal_state(pause_device_fetch(client_address, password, device_ip, "/portal/api/state"))
+    state = portal_state(pause_device_fetch(lab, device_ip, "/portal/api/state"))
     assert [(r["pesos"], r["seconds"]) for r in state["rates"]] == [(1, 10), (5, 60)]
-    paired = pair_board(opener, client_address, password, coin_board(client_address, password))
+    paired = pair_board(opener, lab, lab.coin_board())
     barrier = threading.Barrier(2)
     def insert(_):
         barrier.wait()
         try:
-            result = pause_device_fetch(client_address, password, device_ip, "/portal/api/coins/open", {"vendo_id": paired["id"]})
+            result = pause_device_fetch(lab, device_ip, "/portal/api/coins/open", {"vendo_id": paired["id"]})
             assert portal_state(result)["coin_window"]["status"] == "open"
             return "opened"
         except urllib.error.HTTPError as error:
@@ -3289,9 +2804,9 @@ def coin_window_open(opener, report, address, password, client_address, device_i
     state = json.load(request(opener, "/admin/state"))
     windows = [w for w in state["coin_windows"] if w["vendo_id"] == paired["id"]]
     assert len(windows) == 1 and windows[0]["status"] == "open"
-    second_ip = router_rest(client_address, "admin", password, "/ip/address?interface=lan2", scheme="http")[0]["address"].split("/")[0]
+    second_ip = lab.device_ip(second=True)
     try:
-        pause_device_fetch(client_address, password, second_ip, "/portal/api/coins/open", {"vendo_id": paired["id"]})
+        pause_device_fetch(lab, second_ip, "/portal/api/coins/open", {"vendo_id": paired["id"]})
     except urllib.error.HTTPError as error:
         assert "409" in json.load(error).get("detail", "")
     else:
@@ -3316,7 +2831,7 @@ def coin_window_open(opener, report, address, password, client_address, device_i
     return paired, vendo, windows[0]
 
 
-def coin_window_done(opener, report, address, password, client_address, device_ip, vendo, window):
+def coin_window_done(opener, report, address, password, lab, device_ip, vendo, window):
     sales_before = sales(opener)["coin_pesos"]
     before = json.load(request(opener, "/admin/state"))
     tc = next(tc for tc in before["purchases"]["time_credits"] if tc["id"] == window["time_credit_id"])
@@ -3324,12 +2839,12 @@ def coin_window_done(opener, report, address, password, client_address, device_i
     repeated = vendo.frame()
     assert vendo.post(repeated, ignore_ack=True)[0] == 200
     assert vendo.post(repeated)[0] == 200
-    live = portal_state(pause_device_fetch(client_address, password, device_ip, "/portal/api/state"))["coin_window"]
+    live = portal_state(pause_device_fetch(lab, device_ip, "/portal/api/state"))["coin_window"]
     assert live["id"] == window["id"] and live["coins"] == 4 and live["status"] == "open"
     assert time.time() < live["closes_at"] <= time.time() + 61, live
     # A fifth pulse was accepted before Done, but its burst has not reported yet.
     vendo.insert(1)
-    closing = portal_state(pause_device_fetch(client_address, password, device_ip, "/portal/api/coins/done", {"window_id": window["id"]}))
+    closing = portal_state(pause_device_fetch(lab, device_ip, "/portal/api/coins/done", {"window_id": window["id"]}))
     assert_message(closing, "success", "coins-closing")
     assert closing["coin_window"]["status"] == "closing" and closing["coin_window"]["closes_at"] == 0
     assert vendo.heartbeat()[0] == 200 and vendo.closing
@@ -3360,7 +2875,7 @@ def coin_window_done(opener, report, address, password, client_address, device_i
     assert router_rest(address, "admin", password, "/ip/hotspot/active?user=op-" + tc["id"])
     sales_after = sales(opener)["coin_pesos"]
     assert sales_after == sales_before + 5
-    internet_target, internet = device_internet(client_address, password, device_ip)
+    internet_target, internet = lab.internet(device_ip)
     assert "/portal" not in internet
     report.snapshot("coin-done-in-flight-tiered-top-up-and-replayed-closed", address, password, opener,
                     live_coins_before_done=4, final_coins=5, bought_seconds_added=60,
@@ -3379,18 +2894,18 @@ def coin_window_wait(opener, window_id, predicate, timeout=20):
     raise AssertionError(f"Coin Window {window_id} did not reach expected state: {window}")
 
 
-def coin_window_grace(opener, report, address, password, client_address, device_ip, vendo):
-    pause_device_fetch(client_address, password, device_ip, "/portal/api/coins/open", {"vendo_id": vendo.id})
+def coin_window_grace(opener, report, address, password, lab, device_ip, vendo):
+    pause_device_fetch(lab, device_ip, "/portal/api/coins/open", {"vendo_id": vendo.id})
     assert vendo.heartbeat()[0] == 200
     window_id = vendo.window_id
     vendo.insert(4)
     assert vendo.heartbeat()[0] == 200
-    pause_device_fetch(client_address, password, device_ip, "/portal/api/coins/done", {"window_id": window_id})
+    pause_device_fetch(lab, device_ip, "/portal/api/coins/done", {"window_id": window_id})
     assert vendo.heartbeat()[0] == 200 and vendo.closing
     state, window = coin_window_wait(opener, window_id, lambda w: w["status"] == "settled")
     assert window["coins"] == 4 and window["credited_seconds"] == 40 and window["closed_at"] == 0
     try:
-        pause_device_fetch(client_address, password, device_ip, "/portal/api/coins/open", {"vendo_id": vendo.id})
+        pause_device_fetch(lab, device_ip, "/portal/api/coins/open", {"vendo_id": vendo.id})
     except urllib.error.HTTPError as error:
         assert "409" in json.load(error).get("detail", "")
     else:
@@ -3420,8 +2935,8 @@ def coin_window_grace(opener, report, address, password, client_address, device_
                     grace_credit=40, late_tier_credit=20, later_credit=12, rates_snapshot_preserved=True)
 
 
-def coin_window_boot(controller, args, data_dir, opener, report, address, password, client_address, device_ip, vendo):
-    pause_device_fetch(client_address, password, device_ip, "/portal/api/coins/open", {"vendo_id": vendo.id})
+def coin_window_boot(controller, args, data_dir, opener, report, address, password, lab, device_ip, vendo):
+    pause_device_fetch(lab, device_ip, "/portal/api/coins/open", {"vendo_id": vendo.id})
     assert vendo.heartbeat()[0] == 200
     window_id = vendo.window_id
     vendo.insert(1)
@@ -3448,8 +2963,8 @@ def coin_window_boot(controller, args, data_dir, opener, report, address, passwo
         raise
 
 
-def coin_window_idle(opener, report, address, password, client_address, device_ip, vendo):
-    pause_device_fetch(client_address, password, device_ip, "/portal/api/coins/open", {"vendo_id": vendo.id})
+def coin_window_idle(opener, report, address, password, lab, device_ip, vendo):
+    pause_device_fetch(lab, device_ip, "/portal/api/coins/open", {"vendo_id": vendo.id})
     assert vendo.heartbeat()[0] == 200
     window_id = vendo.window_id
     vendo.insert(1)
@@ -3469,15 +2984,15 @@ def coin_window_idle(opener, report, address, password, client_address, device_i
                     real_idle_seconds=time.monotonic() - started)
 
 
-def coin_credit_after_expiry(opener, report, address, password, client_address, device_ip, vendo):
+def coin_credit_after_expiry(opener, report, address, password, lab, device_ip, vendo):
     assert request(opener, "/admin/validity", "POST", {"value": "15", "unit": "seconds"}).status == 200
     # The tier, not the 15-second site Validity, sets the replacement's deadline.
     assert request(opener, "/admin/rates", "POST", {"tiers": "1=10,2592000,3"}).status == 200
     response = generate_vouchers(opener, {"seconds": "120", "count": "1"})
     code = voucher_codes(opener, response)[0]
-    purchase = pause_device_fetch(client_address, password, device_ip, "/portal/api/redeem", {"code": code})
+    purchase = pause_device_fetch(lab, device_ip, "/portal/api/redeem", {"code": code})
     cookie = re.search(r"(?:^|,)Set-Cookie: (openpiso_time_credit=[^;,\r\n]+)", purchase.get("http-headers", ""), re.I).group(1)
-    pause_device_fetch(client_address, password, device_ip, "/portal/api/coins/open", {"vendo_id": vendo.id}, cookie)
+    pause_device_fetch(lab, device_ip, "/portal/api/coins/open", {"vendo_id": vendo.id}, cookie)
     assert vendo.heartbeat()[0] == 200
     window_id = vendo.window_id
     before = json.load(request(opener, "/admin/state"))
@@ -3489,7 +3004,7 @@ def coin_credit_after_expiry(opener, report, address, password, client_address, 
     # now would let the five-second grace settlement legitimately Top-up early.
     vendo.insert(1)
     assert request(opener, "/admin/validity", "POST", {"value": "30", "unit": "days"}).status == 200
-    pause_device_fetch(client_address, password, device_ip, "/portal/api/coins/done", {"window_id": window_id}, cookie)
+    pause_device_fetch(lab, device_ip, "/portal/api/coins/done", {"window_id": window_id}, cookie)
     # Done still has a valid identity; delay the Vendo's final count past its deadline.
     time.sleep(max(0, validity["valid_until"] - time.time()))
     pending = json.load(request(opener, "/admin/state"))
@@ -3515,7 +3030,7 @@ def coin_credit_after_expiry(opener, report, address, password, client_address, 
     assert vendo.post(closed)[0] == 200
     replay = json.load(request(opener, "/admin/state"))
     assert replay["purchases"] == after["purchases"], "Closed replay credited expired-target coins twice"
-    portal = pause_device_fetch(client_address, password, device_ip, "/portal/api/state", cookie=cookie)
+    portal = pause_device_fetch(lab, device_ip, "/portal/api/state", cookie=cookie)
     state = portal_state(portal)
     assert state["message"] is None, "old browser cookie hid the replacement Time Credit"
     assert state["time_credit"]["bought"] == 10, "portal did not show the replacement Time Credit"
@@ -3524,7 +3039,7 @@ def coin_credit_after_expiry(opener, report, address, password, client_address, 
     assert re.fullmatch(r"[A-HJ-NP-Z2-9]{8}", state["time_credit"]["resume_code"]), "replacement Resume Code missing"
     refreshed = re.search(r"(?:^|,)Set-Cookie: (openpiso_time_credit=[^;,\r\n]+)", portal.get("http-headers", ""), re.I)
     assert refreshed and refreshed.group(1) != cookie, "portal did not replace the expired cookie"
-    revisit = portal_state(pause_device_fetch(client_address, password, device_ip, "/portal/api/state", cookie=refreshed.group(1)))
+    revisit = portal_state(pause_device_fetch(lab, device_ip, "/portal/api/state", cookie=refreshed.group(1)))
     assert revisit["time_credit"]["bought"] == 10 and revisit["message"] is None
     report.snapshot("coin-credit-to-expired-target-creates-new-time-credit", address, password, opener,
                     old_time_credit_id=old_id, new_time_credit_id=new_id, old_bought_seconds=120,
@@ -3534,15 +3049,12 @@ def coin_credit_after_expiry(opener, report, address, password, client_address, 
                     replacement_remaining_seconds=remaining, replacement_resume_code_shown=True)
 
 
-def coin_window_departure(opener, report, address, password, client_address, device_ip, vendo):
-    opened = pause_device_fetch(client_address, password, device_ip, "/portal/api/coins/open", {"vendo_id": vendo.id})
+def coin_window_departure(opener, report, address, password, lab, device_ip, vendo):
+    opened = pause_device_fetch(lab, device_ip, "/portal/api/coins/open", {"vendo_id": vendo.id})
     cookie = re.search(r"(?:^|,)Set-Cookie: (openpiso_time_credit=[^;,\r\n]+)", opened.get("http-headers", ""), re.I).group(1)
     assert vendo.heartbeat()[0] == 200
     window_id = vendo.window_id
-    def client(path, method="GET", body=None):
-        return router_rest(client_address, "admin", password, path, method, body, scheme="http")
-    nic = client("/interface/ethernet?name=lan1")[0]
-    hotspot = router_rest(address, "admin", password, "/ip/hotspot?name=hs1")[0]
+    hotspot =router_rest(address, "admin", password, "/ip/hotspot?name=hs1")[0]
     profiles = [p for p in router_rest(address, "admin", password, "/ip/hotspot/user/profile")
                 if p["name"].startswith("openpiso-")]
     started = time.monotonic()
@@ -3555,8 +3067,8 @@ def coin_window_departure(opener, report, address, password, client_address, dev
             router_rest(address, "admin", password, "/ip/hotspot/user/profile/" + profile[".id"], "PATCH",
                         {"keepalive-timeout": "5s"})
         # Profile keepalive changes take effect at the next Router login.
-        pause_device_fetch(client_address, password, device_ip, "/portal/api/connect", {}, cookie)
-        client("/interface/ethernet/" + nic[".id"], "PATCH", {"disabled": "yes"})
+        pause_device_fetch(lab, device_ip, "/portal/api/connect", {}, cookie)
+        lab.leave()
         started = time.monotonic()
         while router_rest(address, "admin", password, "/ip/hotspot/host?address=" + device_ip):
             assert time.monotonic() - started < 45, "Router did not naturally drop the departed Device host"
@@ -3573,9 +3085,9 @@ def coin_window_departure(opener, report, address, password, client_address, dev
         for profile in profiles:
             router_rest(address, "admin", password, "/ip/hotspot/user/profile/" + profile[".id"], "PATCH",
                         {"keepalive-timeout": profile["keepalive-timeout"]})
-        client("/interface/ethernet/" + nic[".id"], "PATCH", {"disabled": "no"})
-        device_ip = rebind_wait_device(client_address, password)
-        rebind_fetch(client_address, password, device_ip, "/portal/api/connect", {}, cookie)
+        lab.rejoin()
+        device_ip = lab.wait_device()
+        rebind_fetch(lab, device_ip, "/portal/api/connect", {}, cookie)
     report.snapshot("coin-window-real-device-departure-sends-close", address, password, opener,
                     router_host_expired_naturally=True, departure_seconds=departure_seconds,
                     host_timeout_seconds=5, manual_host_delete=False, final_coins=0)
@@ -3587,7 +3099,7 @@ def vendo_row(page: str, vendo_id) -> str:
     return re.search(rf'<template data-vendo-source="{vendo_id}">(.*?)</article></template>', page, re.S).group(1) + "</article>"
 
 
-def vendo_list_details(opener, report, address, password, client_address):
+def vendo_list_details(opener, report, address, password, lab):
     """Vendo List (#89): rename, Status with Last seen, and the Edit dialog's Details and Unpair."""
     page = request(opener, "/admin/vendos").read().decode()
     assert "<title>Vendo List" in page and '<h3>Vendo List</h3>' in page
@@ -3595,7 +3107,7 @@ def vendo_list_details(opener, report, address, password, client_address):
     for retired in ("/admin/vendos/name", "/admin/vendos/server"):
         assert request(opener, retired, "POST", {"id": "1", "name": "x"}).status in (404, 405)
 
-    paired = pair_board(opener, client_address, password, coin_board(client_address, password))
+    paired = pair_board(opener, lab, lab.coin_board())
     vendo = SimulatedVendo(BASE_URL, paired["id"], bytes.fromhex(paired["secret"]), timeout=HTTP_TIMEOUT)
     assert vendo.heartbeat()[0] == 200
     stored = next(v for v in json.load(request(opener, "/admin/state"))["vendos"] if v["id"] == vendo.id)
@@ -3658,14 +3170,13 @@ def vendo_list_details(opener, report, address, password, client_address):
     report.snapshot("vendo-list-unpair-from-dialog", address, password, opener, browser=browser)
 
 
-def vendo_list_deactivate(opener, report, address, password, client_address):
+def vendo_list_deactivate(opener, report, address, password, lab):
     """Deactivate and Reactivate (#90): Insert Coin refuses with the out-of-service
     message, rule 1 still counts paired Vendos, and Sales never change."""
-    fixture, _, client = vlan_fixture(address, password, client_address)
     paired = []
     try:
-        fixture.setup()
-        ips = route_vlan_devices(fixture, client)
+        lab.vlan_up()
+        ips = lab.vlan_devices()
 
         def windows():
             return json.load(request(opener, "/admin/state"))["coin_windows"]
@@ -3681,32 +3192,31 @@ def vendo_list_deactivate(opener, report, address, password, client_address):
 
         def buy(vlan, vendo):
             """Insert Coin on the VLAN's Device, one coin, Done: one credited Sale on vendo."""
-            opened = portal_state(pause_device_fetch(client_address, password, ips[vlan], "/portal/api/coins/open", {}))
+            opened = portal_state(pause_device_fetch(lab, ips[vlan], "/portal/api/coins/open", {}))
             assert opened["coin_window"]["vendo_id"] == vendo.id, opened
             window_id = opened["coin_window"]["id"]
             assert vendo.heartbeat()[0] == 200 and vendo.window_id == window_id
             vendo.insert(1)
             assert vendo.heartbeat()[0] == 200
-            pause_device_fetch(client_address, password, ips[vlan], "/portal/api/coins/done", {"window_id": window_id})
+            pause_device_fetch(lab, ips[vlan], "/portal/api/coins/done", {"window_id": window_id})
             assert vendo.heartbeat()[0] == 200
             assert vendo.heartbeat()[0] == 200
             coin_window_wait(opener, window_id, lambda w: w["status"] == "settled")
             assert str(window_id) in coin_sales()
 
-        def refused(vlan, status):
-            """Insert Coin is refused with this HTTP status and reserves nothing.
-            The Device's /tool/fetch reports only the status: 503 is the
-            out-of-service refusal, 400 is "No Vendo serves this network"."""
+        def refused(vlan, status, refusal):
+            """Insert Coin is refused with this HTTP status and Portal message code, and reserves nothing."""
             before = windows()
             try:
-                pause_device_fetch(client_address, password, ips[vlan], "/portal/api/coins/open", {})
+                pause_device_fetch(lab, ips[vlan], "/portal/api/coins/open", {})
             except urllib.error.HTTPError as error:
                 detail = json.load(error).get("detail", "")
                 assert str(status) in detail, detail
+                assert_refused(error, refusal)
             else:
                 raise AssertionError(f"Insert Coin on VLAN {vlan} was accepted")
             assert windows() == before, "a refused Insert Coin reserved a Vendo"
-            assert portal_state(pause_device_fetch(client_address, password, ips[vlan], "/portal/api/state"))["vendos"] == []
+            assert portal_state(pause_device_fetch(lab, ips[vlan], "/portal/api/state"))["vendos"] == []
 
         def set_active(vendo, active, htmx):
             form = {"id": vendo.id, "active": "1" if active else "0"}
@@ -3722,7 +3232,7 @@ def vendo_list_deactivate(opener, report, address, password, client_address):
         def stored(vendo):
             return next(v for v in json.load(request(opener, "/admin/state"))["vendos"] if v["id"] == vendo.id)
 
-        board = pair_board(opener, client_address, password, fixture.board(10, 1))
+        board = pair_board(opener, lab, lab.vlan_board(10, 1))
         paired.append(board)
         first = SimulatedVendo(BASE_URL, board["id"], bytes.fromhex(board["secret"]), timeout=HTTP_TIMEOUT)
         assert first.heartbeat()[0] == 200
@@ -3736,7 +3246,7 @@ def vendo_list_deactivate(opener, report, address, password, client_address):
         assert 'data-vendo-action="power"' in row and re.search(r'\bReactivate</button>', row), row
         assert stored(first)["status"] == "paired" and stored(first)["active"] is False
         for vlan in (10, 20):
-            refused(vlan, 503)
+            refused(vlan, 503, "vendo-out-of-service")
         # Its reports are still accepted, and the Status stays Deactivated while it is Online.
         assert first.heartbeat()[0] == 200
         row = vendo_row(request(opener, "/admin/vendos").read().decode(), first.id)
@@ -3754,13 +3264,13 @@ def vendo_list_deactivate(opener, report, address, password, client_address):
 
         # Two Vendos: deactivating one leaves its network out of service, and the
         # other keeps serving only its own HotSpot server.
-        second_board = pair_board(opener, client_address, password, fixture.board(20, 2))
+        second_board = pair_board(opener, lab, lab.vlan_board(20, 2))
         paired.append(second_board)
         second = SimulatedVendo(BASE_URL, second_board["id"], bytes.fromhex(second_board["secret"]), timeout=HTTP_TIMEOUT)
         assert second.heartbeat()[0] == 200
         set_active(first, False, htmx=False)
-        refused(10, 503)
-        state = portal_state(pause_device_fetch(client_address, password, ips[20], "/portal/api/state"))
+        refused(10, 503, "vendo-out-of-service")
+        state = portal_state(pause_device_fetch(lab, ips[20], "/portal/api/state"))
         assert vendo_ids(state) == [second.id], state
         buy(20, second)
         assert_sales_kept(history)
@@ -3780,23 +3290,21 @@ def vendo_list_deactivate(opener, report, address, password, client_address):
         report.capture_lab_failure()
         for board in paired:
             assert request(opener, "/admin/vendos/unpair", "POST", {"id": board["id"]}).status == 204
-        unroute_vlan_devices(client)
-        fixture.teardown()
+        lab.vlan_down()
 
 
-def vendo_list_rates(opener, report, address, password, client_address):
+def vendo_list_rates(opener, report, address, password, lab):
     """Per-Vendo Rates tab and Portal rates (#95): each Device's Portal shows,
     and is charged, the rates of the Vendo serving it; the picker carries each
     Vendo's rates; "Use Shop tiers" brings site pricing back on the next Coin
     Window; the Edit dialog's tabs work from the keyboard."""
-    fixture, _, client = vlan_fixture(address, password, client_address)
     paired = []
     site = [{"pesos": 1, "seconds": 60, "validity_seconds": 3600, "pause_limit": 1}]
     own = [{"pesos": 1, "seconds": 120, "validity_seconds": 7200, "pause_limit": 2},
            {"pesos": 5, "seconds": 900, "validity_seconds": 86400, "pause_limit": 5}]
     try:
-        fixture.setup()
-        ips = route_vlan_devices(fixture, client)
+        lab.vlan_up()
+        ips = lab.vlan_devices()
         assert request(opener, "/admin/rates", "POST", {"tiers": "1=60,3600,1"}).status == 200
 
         def stored(vendo):
@@ -3809,11 +3317,11 @@ def vendo_list_rates(opener, report, address, password, client_address):
                 assert urllib.parse.urlsplit(response.url).path == "/admin/vendos", response.url
 
         def portal(vlan):
-            return portal_state(pause_device_fetch(client_address, password, ips[vlan], "/portal/api/state"))
+            return portal_state(pause_device_fetch(lab, ips[vlan], "/portal/api/state"))
 
         def buy(vlan, vendo, pesos, before_done=None):
             """A fresh Device on the VLAN opens a Coin Window on vendo and pays: its credited seconds."""
-            opened = portal_state(pause_device_fetch(client_address, password, ips[vlan], "/portal/api/coins/open", {"vendo_id": vendo.id}))
+            opened = portal_state(pause_device_fetch(lab, ips[vlan], "/portal/api/coins/open", {"vendo_id": vendo.id}))
             window_id = opened["coin_window"]["id"]
             assert opened["coin_window"]["vendo_id"] == vendo.id, opened
             assert vendo.heartbeat()[0] == 200 and vendo.window_id == window_id
@@ -3821,12 +3329,12 @@ def vendo_list_rates(opener, report, address, password, client_address):
                 before_done()
             vendo.insert(pesos)
             assert vendo.heartbeat()[0] == 200
-            pause_device_fetch(client_address, password, ips[vlan], "/portal/api/coins/done", {"window_id": window_id})
+            pause_device_fetch(lab, ips[vlan], "/portal/api/coins/done", {"window_id": window_id})
             assert vendo.heartbeat()[0] == 200
             assert vendo.heartbeat()[0] == 200
             return coin_window_wait(opener, window_id, lambda w: w["status"] == "settled")[1]["credited_seconds"]
 
-        boards = [pair_board(opener, client_address, password, fixture.board(vlan, n)) for n, vlan in ((1, 10), (2, 20))]
+        boards = [pair_board(opener, lab, lab.vlan_board(vlan, n)) for n, vlan in ((1, 10), (2, 20))]
         paired.extend(boards)
         first, second = (SimulatedVendo(BASE_URL, b["id"], bytes.fromhex(b["secret"]), timeout=HTTP_TIMEOUT) for b in boards)
         for vendo in (first, second):
@@ -3895,11 +3403,10 @@ def vendo_list_rates(opener, report, address, password, client_address):
         report.capture_lab_failure()
         for board in paired:
             assert request(opener, "/admin/vendos/unpair", "POST", {"id": board["id"]}).status == 204
-        unroute_vlan_devices(client)
-        fixture.teardown()
+        lab.vlan_down()
 
 
-def vendo_list_points_tab(opener, report, address, password, client_address):
+def vendo_list_points_tab(opener, report, address, password, lab):
     """Per-Vendo Points tab (#98): a Vendo uses the site Points table until the
     Operator customizes it; a Device redeems from the table of the Vendo serving
     its HotSpot server, or the site's when none does (a Deactivated Vendo serves
@@ -3911,14 +3418,13 @@ def vendo_list_points_tab(opener, report, address, password, client_address):
                             for t in found["rate_tiers"])
     saved_points = "\n".join(f'{milli(t["points_milli"])}={t["seconds"]},{t["validity_seconds"]},{t["pause_limit"]}'
                              for t in found["points_tiers"])
-    fixture, _, client = vlan_fixture(address, password, client_address)
     paired = []
     site = [{"points_milli": 1000, "seconds": 60, "validity_seconds": 3600, "pause_limit": 1}]
     own = [{"points_milli": 2000, "seconds": 300, "validity_seconds": 7200, "pause_limit": 3}]
     other = [{"points_milli": 1500, "seconds": 120, "validity_seconds": 3600, "pause_limit": 2}]
     try:
-        fixture.setup()
-        ips = route_vlan_devices(fixture, client)
+        lab.vlan_up()
+        ips = lab.vlan_devices()
         # 1 Point per ₱1, and a site Points table of 1 Point for a minute.
         assert request(opener, "/admin/rates", "POST", {"tiers": "1=60,3600,1,1"}).status == 200
         assert request(opener, "/admin/points", "POST", {"tiers": "1=60,3600,1"}).status == 200
@@ -3936,16 +3442,16 @@ def vendo_list_points_tab(opener, report, address, password, client_address):
             return vendo_row(request(opener, "/admin/vendos").read().decode(), vendo.id)
 
         def portal(vlan):
-            return portal_state(pause_device_fetch(client_address, password, ips[vlan], "/portal/api/state"))
+            return portal_state(pause_device_fetch(lab, ips[vlan], "/portal/api/state"))
 
         def earn(vlan, vendo, pesos):
             """The VLAN's Device pays pesos at vendo: its Time Credit's balance afterwards."""
-            opened = portal_state(pause_device_fetch(client_address, password, ips[vlan], "/portal/api/coins/open", {"vendo_id": vendo.id}))
+            opened = portal_state(pause_device_fetch(lab, ips[vlan], "/portal/api/coins/open", {"vendo_id": vendo.id}))
             window_id = opened["coin_window"]["id"]
             assert vendo.heartbeat()[0] == 200 and vendo.window_id == window_id
             vendo.insert(pesos)
             assert vendo.heartbeat()[0] == 200
-            pause_device_fetch(client_address, password, ips[vlan], "/portal/api/coins/done", {"window_id": window_id})
+            pause_device_fetch(lab, ips[vlan], "/portal/api/coins/done", {"window_id": window_id})
             assert vendo.heartbeat()[0] == 200
             assert vendo.heartbeat()[0] == 200
             coin_window_wait(opener, window_id, lambda w: w["status"] == "settled")
@@ -3954,7 +3460,7 @@ def vendo_list_points_tab(opener, report, address, password, client_address):
         def redeem(vlan, tier):
             form = {"points_milli": tier["points_milli"], "seconds": tier["seconds"]}
             before = portal(vlan)["time_credit"]
-            after = portal_state(pause_device_fetch(client_address, password, ips[vlan], "/portal/api/points/redeem", form))["time_credit"]
+            after = portal_state(pause_device_fetch(lab, ips[vlan], "/portal/api/points/redeem", form))["time_credit"]
             assert after["points_milli"] == before["points_milli"] - tier["points_milli"], (before, after)
             assert after["bought"] == before["bought"] + tier["seconds"] and after["pause_limit"] == tier["pause_limit"], (before, after)
 
@@ -3963,17 +3469,18 @@ def vendo_list_points_tab(opener, report, address, password, client_address):
             form = {"points_milli": tier["points_milli"], "seconds": tier["seconds"]}
             before = portal(vlan)["time_credit"]
             try:
-                pause_device_fetch(client_address, password, ips[vlan], "/portal/api/points/redeem", form)
+                pause_device_fetch(lab, ips[vlan], "/portal/api/points/redeem", form)
             except urllib.error.HTTPError as error:
                 detail = json.load(error).get("detail", "")
-                assert "400" in detail, detail  # /tool/fetch reports only the status: points-row-unknown
+                assert "400" in detail, detail
+                assert_refused(error, "points-row-unknown")
                 after = portal(vlan)["time_credit"]
                 kept = ("bought", "points_milli", "pause_limit", "pauses_left", "valid_until")
                 assert {k: after[k] for k in kept} == {k: before[k] for k in kept}, (before, after)
                 return
             raise AssertionError(f"VLAN {vlan} redeemed a row outside its Points table")
 
-        boards = [pair_board(opener, client_address, password, fixture.board(vlan, n)) for n, vlan in ((1, 10), (2, 20))]
+        boards = [pair_board(opener, lab, lab.vlan_board(vlan, n)) for n, vlan in ((1, 10), (2, 20))]
         paired.extend(boards)
         first, second = (SimulatedVendo(BASE_URL, b["id"], bytes.fromhex(b["secret"]), timeout=HTTP_TIMEOUT) for b in boards)
         for vendo in (first, second):
@@ -4033,13 +3540,12 @@ def vendo_list_points_tab(opener, report, address, password, client_address):
         report.capture_lab_failure()
         for board in paired:
             assert request(opener, "/admin/vendos/unpair", "POST", {"id": board["id"]}).status == 204
-        unroute_vlan_devices(client)
-        fixture.teardown()
+        lab.vlan_down()
         assert request(opener, "/admin/rates", "POST", {"tiers": saved_rates}).status == 200
         assert request(opener, "/admin/points", "POST", {"tiers": saved_points}).status == 200
 
 
-def shop_defaults_vendo_list(opener, report, address, password, client_address):
+def shop_defaults_vendo_list(opener, report, address, password, lab):
     """Vendo List in Shop wording (#107): a Vendo that follows the Shop reads
     "Shop tiers" / "Shop table" with no badge; Customize for this Vendo starts
     from a copy of the Shop set and adds the "Custom tiers" / "Custom Points"
@@ -4052,14 +3558,13 @@ def shop_defaults_vendo_list(opener, report, address, password, client_address):
                             for t in found["rate_tiers"])
     saved_points = "\n".join(f'{milli(t["points_milli"])}={t["seconds"]},{t["validity_seconds"]},{t["pause_limit"]}'
                              for t in found["points_tiers"])
-    fixture, _, client = vlan_fixture(address, password, client_address)
     paired = []
     shop_rates = [{"pesos": 1, "seconds": 60, "validity_seconds": 3600, "pause_limit": 1, "points_milli": 1000}]
     shop_points = [{"points_milli": 1000, "seconds": 60, "validity_seconds": 3600, "pause_limit": 1}]
     own_points = [{"points_milli": 2000, "seconds": 300, "validity_seconds": 7200, "pause_limit": 3}]
     try:
-        fixture.setup()
-        ips = route_vlan_devices(fixture, client)
+        lab.vlan_up()
+        ips = lab.vlan_devices()
         # Shop: ₱1 for a minute earning 1 Point, and 1 Point redeems a minute.
         assert request(opener, "/admin/rates", "POST", {"tiers": "1=60,3600,1,1"}).status == 200
         assert request(opener, "/admin/points", "POST", {"tiers": "1=60,3600,1"}).status == 200
@@ -4086,17 +3591,17 @@ def shop_defaults_vendo_list(opener, report, address, password, client_address):
             return re.sub(r"<[^>]+>", " ", html)
 
         def portal(vlan):
-            return portal_state(pause_device_fetch(client_address, password, ips[vlan], "/portal/api/state"))
+            return portal_state(pause_device_fetch(lab, ips[vlan], "/portal/api/state"))
 
         def buy(vlan, vendo, pesos):
             """The VLAN's Device opens a Coin Window on vendo and pays: its credited seconds."""
-            opened = portal_state(pause_device_fetch(client_address, password, ips[vlan], "/portal/api/coins/open", {"vendo_id": vendo.id}))
+            opened = portal_state(pause_device_fetch(lab, ips[vlan], "/portal/api/coins/open", {"vendo_id": vendo.id}))
             window_id = opened["coin_window"]["id"]
             assert opened["coin_window"]["vendo_id"] == vendo.id, opened
             assert vendo.heartbeat()[0] == 200 and vendo.window_id == window_id
             vendo.insert(pesos)
             assert vendo.heartbeat()[0] == 200
-            pause_device_fetch(client_address, password, ips[vlan], "/portal/api/coins/done", {"window_id": window_id})
+            pause_device_fetch(lab, ips[vlan], "/portal/api/coins/done", {"window_id": window_id})
             assert vendo.heartbeat()[0] == 200
             assert vendo.heartbeat()[0] == 200
             return coin_window_wait(opener, window_id, lambda w: w["status"] == "settled")[1]["credited_seconds"]
@@ -4104,7 +3609,7 @@ def shop_defaults_vendo_list(opener, report, address, password, client_address):
         def redeem(vlan, tier):
             form = {"points_milli": tier["points_milli"], "seconds": tier["seconds"]}
             before = portal(vlan)["time_credit"]
-            after = portal_state(pause_device_fetch(client_address, password, ips[vlan], "/portal/api/points/redeem", form))["time_credit"]
+            after = portal_state(pause_device_fetch(lab, ips[vlan], "/portal/api/points/redeem", form))["time_credit"]
             assert after["points_milli"] == before["points_milli"] - tier["points_milli"], (before, after)
             assert after["bought"] == before["bought"] + tier["seconds"], (before, after)
 
@@ -4113,14 +3618,15 @@ def shop_defaults_vendo_list(opener, report, address, password, client_address):
             form = {"points_milli": tier["points_milli"], "seconds": tier["seconds"]}
             before = portal(vlan)["time_credit"]
             try:
-                pause_device_fetch(client_address, password, ips[vlan], "/portal/api/points/redeem", form)
+                pause_device_fetch(lab, ips[vlan], "/portal/api/points/redeem", form)
             except urllib.error.HTTPError as error:
                 assert "400" in json.load(error).get("detail", "")
+                assert_refused(error, "points-row-unknown")
                 assert portal(vlan)["time_credit"]["points_milli"] == before["points_milli"]
                 return
             raise AssertionError(f"VLAN {vlan} redeemed a row outside its Points table")
 
-        boards = [pair_board(opener, client_address, password, fixture.board(vlan, n)) for n, vlan in ((1, 10), (2, 20))]
+        boards = [pair_board(opener, lab, lab.vlan_board(vlan, n)) for n, vlan in ((1, 10), (2, 20))]
         paired.extend(boards)
         custom, follower = (SimulatedVendo(BASE_URL, b["id"], bytes.fromhex(b["secret"]), timeout=HTTP_TIMEOUT) for b in boards)
         for vendo in (custom, follower):
@@ -4190,17 +3696,16 @@ def shop_defaults_vendo_list(opener, report, address, password, client_address):
         report.capture_lab_failure()
         for board in paired:
             assert request(opener, "/admin/vendos/unpair", "POST", {"id": board["id"]}).status == 204
-        unroute_vlan_devices(client)
-        fixture.teardown()
+        lab.vlan_down()
         assert request(opener, "/admin/rates", "POST", {"tiers": saved_rates}).status == 200
         assert request(opener, "/admin/points", "POST", {"tiers": saved_points}).status == 200
 
 
-def vendo_list_coins_out(opener, report, address, password, client_address, device_ip):
+def vendo_list_coins_out(opener, report, address, password, lab, device_ip):
     """Sales columns and Coins Out (#91): coins in and out of a Coin Window raise
     Current and Total Sales; Coins Out records the confirmed amount, zeroes
     Current Sales and leaves Total Sales; an unpaired row keeps Coins Out."""
-    paired = pair_board(opener, client_address, password, coin_board(client_address, password))
+    paired = pair_board(opener, lab, lab.coin_board())
     vendo = SimulatedVendo(BASE_URL, paired["id"], bytes.fromhex(paired["secret"]), timeout=HTTP_TIMEOUT)
     assert vendo.heartbeat()[0] == 200
 
@@ -4231,7 +3736,7 @@ def vendo_list_coins_out(opener, report, address, password, client_address, devi
 
     assert columns(row()) == ("No Coins Out yet", "₱0", "₱0"), columns(row())
     # ₱5 through a Coin Window and ₱2 outside one: Current Sales matches the box.
-    fetch = lambda path, form=None: pause_device_fetch(client_address, password, device_ip, path, form)
+    fetch = lambda path, form=None: pause_device_fetch(lab, device_ip, path, form)
     fetch("/portal/api/coins/open", {"vendo_id": paired["id"]})
     assert vendo.heartbeat()[0] == 200 and vendo.window_id
     window_id = vendo.window_id
@@ -4285,17 +3790,16 @@ def vendo_list_coins_out(opener, report, address, password, client_address, devi
     report.snapshot("vendo-coins-out-unpaired-row", address, password, opener, row=(last, current, total))
 
 
-def vendo_list_online_devices_up_since(opener, report, address, password, client_address):
+def vendo_list_online_devices_up_since(opener, report, address, password, lab):
     """Online Devices (server) and Up since (#92): a Device online on one Vendo's
     HotSpot server counts on that row only, and a new boot nonce resets Up since."""
-    fixture, _, client = vlan_fixture(address, password, client_address)
     paired = []
     try:
-        fixture.setup()
-        ips = route_vlan_devices(fixture, client)
+        lab.vlan_up()
+        ips = lab.vlan_devices()
         vendos = {}
         for vlan, number in ((10, 1), (20, 2)):
-            board = pair_board(opener, client_address, password, fixture.board(vlan, number))
+            board = pair_board(opener, lab, lab.vlan_board(vlan, number))
             paired.append(board)
             vendos[vlan] = SimulatedVendo(BASE_URL, board["id"], bytes.fromhex(board["secret"]), timeout=HTTP_TIMEOUT)
             assert vendos[vlan].heartbeat()[0] == 200
@@ -4321,13 +3825,13 @@ def vendo_list_online_devices_up_since(opener, report, address, password, client
 
         # A phone Device on VLAN 10 buys time from that server's Vendo and goes online.
         vendo = vendos[10]
-        opened = portal_state(pause_device_fetch(client_address, password, ips[10], "/portal/api/coins/open", {}))
+        opened = portal_state(pause_device_fetch(lab, ips[10], "/portal/api/coins/open", {}))
         window_id = opened["coin_window"]["id"]
         assert opened["coin_window"]["vendo_id"] == vendo.id, opened
         assert vendo.heartbeat()[0] == 200 and vendo.window_id == window_id
         vendo.insert(1)
         assert vendo.heartbeat()[0] == 200
-        pause_device_fetch(client_address, password, ips[10], "/portal/api/coins/done", {"window_id": window_id})
+        pause_device_fetch(lab, ips[10], "/portal/api/coins/done", {"window_id": window_id})
         assert vendo.heartbeat()[0] == 200
         assert vendo.heartbeat()[0] == 200
         coin_window_wait(opener, window_id, lambda w: w["status"] == "settled")
@@ -4358,11 +3862,10 @@ def vendo_list_online_devices_up_since(opener, report, address, password, client
         report.capture_lab_failure()
         for board in paired:
             assert request(opener, "/admin/vendos/unpair", "POST", {"id": board["id"]}).status == 204
-        unroute_vlan_devices(client)
-        fixture.teardown()
+        lab.vlan_down()
 
 
-def vendo_list_rate_tier_validity(opener, report, address, password, client_address, device_ip):
+def vendo_list_rate_tier_validity(opener, report, address, password, lab, device_ip):
     """#94: each coin Top-up takes Validity and Pause Limit from its Rate tier;
     Validity never shortens, the latest Top-up sets the Pause Limit, Vouchers
     use the site values, and a live Coin Window keeps its rate snapshot."""
@@ -4381,11 +3884,11 @@ def vendo_list_rate_tier_validity(opener, report, address, password, client_addr
     tiers = json.load(request(opener, "/admin/state"))["rate_tiers"]
     assert tiers[2]["validity_seconds"] == 36500 * day, tiers  # "No limit" is the ledger's maximum Validity
 
-    paired = pair_board(opener, client_address, password, coin_board(client_address, password))
+    paired = pair_board(opener, lab, lab.coin_board())
     vendo = SimulatedVendo(BASE_URL, paired["id"], bytes.fromhex(paired["secret"]), timeout=HTTP_TIMEOUT)
 
     def fetch(path, form=None, cookie=""):
-        return pause_device_fetch(client_address, password, device_ip, path, form, cookie)
+        return pause_device_fetch(lab, device_ip, path, form, cookie)
 
     def open_window(cookie=""):
         opened = fetch("/portal/api/coins/open", {"vendo_id": paired["id"]}, cookie)
@@ -4458,7 +3961,7 @@ def vendo_list_rate_tier_validity(opener, report, address, password, client_addr
                     long_deadline=long_deadline, site_pause_limit=4)
 
 
-def vendo_list_hotspot_profile(opener, report, address, password, client_address, device_ip):
+def vendo_list_hotspot_profile(opener, report, address, password, lab, device_ip):
     """HotSpot profile per Vendo (#93): coins put the Time Credit on the Controller's
     copy of the Vendo's Router profile; Idle Pause keeps it in that family; a
     Voucher leaves it; a deleted P keeps its copies with a warning; an unused
@@ -4485,12 +3988,12 @@ def vendo_list_hotspot_profile(opener, report, address, password, client_address
 
     def settle(pesos):
         """Coins on this Vendo for the Device, projected to the Router."""
-        pause_device_fetch(client_address, password, device_ip, "/portal/api/coins/open", {"vendo_id": paired["id"]})
+        pause_device_fetch(lab, device_ip, "/portal/api/coins/open", {"vendo_id": paired["id"]})
         assert vendo.heartbeat()[0] == 200 and vendo.window_id
         window_id = vendo.window_id
         vendo.insert(pesos)
         assert vendo.heartbeat()[0] == 200
-        pause_device_fetch(client_address, password, device_ip, "/portal/api/coins/done", {"window_id": window_id})
+        pause_device_fetch(lab, device_ip, "/portal/api/coins/done", {"window_id": window_id})
         assert vendo.heartbeat()[0] == 200 and vendo.closing
         assert vendo.heartbeat()[0] == 200
         state, window = coin_window_wait(opener, window_id, lambda w: w["closed_at"] != 0)
@@ -4512,7 +4015,7 @@ def vendo_list_hotspot_profile(opener, report, address, password, client_address
         # P is the Operator's: a rate limit to copy, and fields the copy must never take.
         router("/ip/hotspot/user/profile", "PUT", {"name": plan, "rate-limit": "2M/4M", "shared-users": "5",
                                                   "session-timeout": "1h", "on-login": ":log info e2e-plan"})
-        paired = pair_board(opener, client_address, password, coin_board(client_address, password))
+        paired = pair_board(opener, lab, lab.coin_board())
         vendo = SimulatedVendo(BASE_URL, paired["id"], bytes.fromhex(paired["secret"]), timeout=HTTP_TIMEOUT)
         assert vendo.heartbeat()[0] == 200
 
@@ -4558,7 +4061,7 @@ def vendo_list_hotspot_profile(opener, report, address, password, client_address
         # A Voucher Top-up leaves the profile; so does changing the Vendo's Profile (future coins only).
         response = generate_vouchers(opener, {"seconds": "30", "count": "1"})
         code = voucher_codes(opener, response)[0]
-        portal_state(pause_device_fetch(client_address, password, device_ip, "/portal/api/redeem", {"code": code}))
+        portal_state(pause_device_fetch(lab, device_ip, "/portal/api/redeem", {"code": code}))
         assert user_profile(time_credit_id) == copies[1], "a Voucher changed the HotSpot profile"
         report.snapshot("hotspot-profile-idle-pause-and-voucher-keep-the-family", address, password, opener,
                         time_credit_id=time_credit_id)
@@ -4595,7 +4098,7 @@ def vendo_list_hotspot_profile(opener, report, address, password, client_address
         remove_profiles({plan, *copies})
 
 
-def vendo_list_points(opener, report, address, password, client_address, device_ip):
+def vendo_list_points(opener, report, address, password, lab, device_ip):
     """#96: coins earn Points (thousandths) that survive Validity: they follow a
     Rebind, carry to the replacement Time Credit, and keep an expired Resume
     Code usable. Vouchers earn none. Leaves the site rates and Validity as found."""
@@ -4604,7 +4107,7 @@ def vendo_list_points(opener, report, address, password, client_address, device_
                             for t in site["rate_tiers"])
 
     def fetch(ip, path, form=None, cookie=""):
-        return pause_device_fetch(client_address, password, ip, path, form, cookie)
+        return pause_device_fetch(lab, ip, path, form, cookie)
 
     def refused(ip, path, form, status):
         try:
@@ -4624,8 +4127,8 @@ def vendo_list_points(opener, report, address, password, client_address, device_
                 if row["time_credit_id"] == time_credit_id]
 
     # Move any live Time Credit off lan1, so this Device starts with none.
-    second_device_up(client_address, password)
-    second_ip = rebind_wait_device(client_address, password, "lan2")
+    lab.second_device_up()
+    second_ip = lab.wait_device(second=True)
     held = portal_state(fetch(device_ip, "/portal/api/state"))["time_credit"]
     if held:
         assert_message(portal_state(fetch(second_ip, "/portal/api/recover", {"code": held["resume_code"]})), "success", "online")
@@ -4647,7 +4150,7 @@ def vendo_list_points(opener, report, address, password, client_address, device_
     page = request(opener, "/admin/rates").read().decode()
     assert "Points" in page and "0.1" in page, page
 
-    paired = pair_board(opener, client_address, password, coin_board(client_address, password))
+    paired = pair_board(opener, lab, lab.coin_board())
     vendo = SimulatedVendo(BASE_URL, paired["id"], bytes.fromhex(paired["secret"]), timeout=HTTP_TIMEOUT)
 
     # ₱4 earns 0.4 Points. A late fifth coin re-prices the window at the ₱5 tier
@@ -4764,7 +4267,7 @@ def vendo_list_points(opener, report, address, password, client_address, device_
     assert request(opener, "/admin/rates", "POST", {"tiers": saved_tiers}).status == 200
 
 
-def vendo_list_points_redeem(opener, report, address, password, client_address, device_ip):
+def vendo_list_points_redeem(opener, report, address, password, lab, device_ip):
     """#97: the site Points table buys time on the Portal. A redemption is a
     Top-up with the row's Validity and Pause Limit, never Sales, and leaves the
     HotSpot profile alone; on an expired Time Credit it first takes the
@@ -4775,7 +4278,7 @@ def vendo_list_points_redeem(opener, report, address, password, client_address, 
     assert site["points_tiers"] == [], site["points_tiers"]  # no Points table until the Operator sets one
 
     def fetch(path, form=None, cookie=""):
-        return pause_device_fetch(client_address, password, device_ip, path, form, cookie)
+        return pause_device_fetch(lab, device_ip, path, form, cookie)
 
     def ledger_state():
         state = json.load(request(opener, "/admin/state"))
@@ -4801,7 +4304,8 @@ def vendo_list_points_redeem(opener, report, address, password, client_address, 
             fetch("/portal/api/points/redeem", {"points_milli": points_milli, "seconds": seconds})
         except urllib.error.HTTPError as error:
             detail = json.load(error).get("detail", "")
-            assert "409" in detail, detail  # /tool/fetch reports only the status
+            assert "409" in detail, detail
+            assert_refused(error, "points-too-low")
             return detail
         raise AssertionError("a redemption above the balance was accepted")
 
@@ -4818,16 +4322,16 @@ def vendo_list_points_redeem(opener, report, address, password, client_address, 
     # 1 Point per ₱1, with a short Validity so this Time Credit expires soon.
     assert request(opener, "/admin/rates", "POST", {"tiers": "1=10,20,3,1"}).status == 200
 
-    paired = pair_board(opener, client_address, password, coin_board(client_address, password))
+    paired = pair_board(opener, lab, lab.coin_board())
     vendo = SimulatedVendo(BASE_URL, paired["id"], bytes.fromhex(paired["secret"]), timeout=HTTP_TIMEOUT)
 
     # Move a live Time Credit off lan1, so the coins below buy one that expires
     # after the tier's 20 seconds rather than topping up a long-lived one.
     held = portal_state(fetch("/portal/api/state"))["time_credit"]
     if held and not held["expired"]:
-        second_device_up(client_address, password)
-        second_ip = rebind_wait_device(client_address, password, "lan2")
-        moved = pause_device_fetch(client_address, password, second_ip, "/portal/api/recover", {"code": held["resume_code"]})
+        lab.second_device_up()
+        second_ip = lab.wait_device(second=True)
+        moved = pause_device_fetch(lab, second_ip, "/portal/api/recover", {"code": held["resume_code"]})
         assert_message(portal_state(moved), "success", "online")
 
     # ₱11 earns 11 Points on top of whatever this Device already holds.
@@ -4943,7 +4447,7 @@ def shop_rows(body, name):
                                             shop_group(body, name), re.S)]
 
 
-def shop_defaults_rate_tiers(opener, report, address, password, client_address):
+def shop_defaults_rate_tiers(opener, report, address, password, lab):
     """Shop › Rate tiers (#104): the Shop sidebar group and palette entries, the
     page's breadcrumb, scope line, coverage counts and structured editor, and
     saves from the editor and from the old textarea form, both through the shared
@@ -5008,14 +4512,13 @@ def shop_defaults_rate_tiers(opener, report, address, password, client_address):
 
     # Counts: paired Vendos using Shop tiers vs having Custom tiers; Deactivated
     # Vendos still count, unpaired ones do not.
-    fixture, _, client = vlan_fixture(address, password, client_address)
     paired = []
     try:
-        fixture.setup()
-        ips = route_vlan_devices(fixture, client)
+        lab.vlan_up()
+        ips = lab.vlan_devices()
         base_shop, base_custom = counts(page()[1])
         assert (base_shop, base_custom) == expected_counts()
-        boards = [pair_board(opener, client_address, password, fixture.board(vlan, n)) for n, vlan in ((1, 10), (2, 20))]
+        boards = [pair_board(opener, lab, lab.vlan_board(vlan, n)) for n, vlan in ((1, 10), (2, 20))]
         paired.extend(boards)
         first, second = (SimulatedVendo(BASE_URL, b["id"], bytes.fromhex(b["secret"]), timeout=HTTP_TIMEOUT) for b in boards)
         for vendo in (first, second):
@@ -5034,8 +4537,7 @@ def shop_defaults_rate_tiers(opener, report, address, password, client_address):
         report.capture_lab_failure()
         for board in paired:
             assert request(opener, "/admin/vendos/unpair", "POST", {"id": board["id"]}).status == 204
-        unroute_vlan_devices(client)
-        fixture.teardown()
+        lab.vlan_down()
 
     try:
         def editor(rows):
@@ -5077,7 +4579,7 @@ def shop_defaults_rate_tiers(opener, report, address, password, client_address):
         assert request(opener, "/admin/rates", "POST", {"tiers": saved_rates}).status == 200
 
 
-def shop_defaults_pill_lists(opener, report, address, password, client_address):
+def shop_defaults_pill_lists(opener, report, address, password, lab):
     """Shop › Rate tiers pill lists (#105): each pill's count agrees in number
     and its list holds the paired Vendos (Deactivated with status, unpaired
     left out) by name; Open and Edit tiers link into the Vendo List, Edit tiers
@@ -5091,7 +4593,6 @@ def shop_defaults_pill_lists(opener, report, address, password, client_address):
     milli = lambda m: f"{m // 1000}.{m % 1000:03d}".rstrip("0").rstrip(".")
     saved_rates = "\n".join(f'{t["pesos"]}={t["seconds"]},{t["validity_seconds"]},{t["pause_limit"]},{milli(t.get("points_milli", 0))}'
                             for t in found["rate_tiers"])
-    fixture, _, client = vlan_fixture(address, password, client_address)
     paired = []
     seen = set()  # pill wordings and empty-group sentences the scenario has met
 
@@ -5136,8 +4637,8 @@ def shop_defaults_pill_lists(opener, report, address, password, client_address):
         return body
 
     try:
-        fixture.setup()
-        ips = route_vlan_devices(fixture, client)
+        lab.vlan_up()
+        ips = lab.vlan_devices()
         assert request(opener, "/admin/rates", "POST", {"tiers": "1=60,3600,1"}).status == 200
 
         def stored(vendo):
@@ -5145,19 +4646,19 @@ def shop_defaults_pill_lists(opener, report, address, password, client_address):
 
         def buy(vlan, vendo, pesos):
             """The VLAN's Device opens a Coin Window on vendo and pays: its credited seconds."""
-            opened = portal_state(pause_device_fetch(client_address, password, ips[vlan], "/portal/api/coins/open", {"vendo_id": vendo.id}))
+            opened = portal_state(pause_device_fetch(lab, ips[vlan], "/portal/api/coins/open", {"vendo_id": vendo.id}))
             window_id = opened["coin_window"]["id"]
             assert vendo.heartbeat()[0] == 200 and vendo.window_id == window_id
             vendo.insert(pesos)
             assert vendo.heartbeat()[0] == 200
-            pause_device_fetch(client_address, password, ips[vlan], "/portal/api/coins/done", {"window_id": window_id})
+            pause_device_fetch(lab, ips[vlan], "/portal/api/coins/done", {"window_id": window_id})
             assert vendo.heartbeat()[0] == 200
             assert vendo.heartbeat()[0] == 200
             return coin_window_wait(opener, window_id, lambda w: w["status"] == "settled")[1]["credited_seconds"]
 
         # Before pairing: an empty Custom group still shows its pill and a sentence.
         check({})
-        boards = [pair_board(opener, client_address, password, fixture.board(vlan, n)) for n, vlan in ((1, 10), (2, 20))]
+        boards = [pair_board(opener, lab, lab.vlan_board(vlan, n)) for n, vlan in ((1, 10), (2, 20))]
         paired.extend(boards)
         custom, follower = (SimulatedVendo(BASE_URL, b["id"], bytes.fromhex(b["secret"]), timeout=HTTP_TIMEOUT) for b in boards)
         for vendo in (custom, follower):
@@ -5194,13 +4695,13 @@ def shop_defaults_pill_lists(opener, report, address, password, client_address):
         # Pricing: the follower pays Shop tiers, the Custom Vendo its own.
         assert buy(20, follower, 1) == 60 and buy(10, custom, 1) == 120
         # A window open on the follower during a Shop edit keeps its snapshotted tiers, through a late coin.
-        opened = portal_state(pause_device_fetch(client_address, password, ips[20], "/portal/api/coins/open", {"vendo_id": follower.id}))
+        opened = portal_state(pause_device_fetch(lab, ips[20], "/portal/api/coins/open", {"vendo_id": follower.id}))
         window_id = opened["coin_window"]["id"]
         assert follower.heartbeat()[0] == 200 and follower.window_id == window_id
         follower.insert(1)
         assert follower.heartbeat()[0] == 200
         assert request(opener, "/admin/rates", "POST", {"tiers": "1=90,3600,1"}).status == 200
-        pause_device_fetch(client_address, password, ips[20], "/portal/api/coins/done", {"window_id": window_id})
+        pause_device_fetch(lab, ips[20], "/portal/api/coins/done", {"window_id": window_id})
         assert follower.heartbeat()[0] == 200 and follower.closing
         state, window = coin_window_wait(opener, window_id, lambda w: w["status"] == "settled")
         assert window["coins"] == 1 and window["credited_seconds"] == 60 and window["closed_at"] == 0, window
@@ -5231,12 +4732,11 @@ def shop_defaults_pill_lists(opener, report, address, password, client_address):
         report.capture_lab_failure()
         for board in paired:
             assert request(opener, "/admin/vendos/unpair", "POST", {"id": board["id"]}).status == 204
-        unroute_vlan_devices(client)
-        fixture.teardown()
+        lab.vlan_down()
         assert request(opener, "/admin/rates", "POST", {"tiers": saved_rates}).status == 200
 
 
-def shop_defaults_points_table(opener, report, address, password, client_address):
+def shop_defaults_points_table(opener, report, address, password, lab):
     """Shop › Points table (#106): breadcrumb, scope line, the shared Points row
     editor and the two coverage pills, whose counts and lists follow the Rate
     tiers membership rule and count rows; Edit table links to the Vendo's Points
@@ -5250,7 +4750,6 @@ def shop_defaults_points_table(opener, report, address, password, client_address
                             for t in found["rate_tiers"])
     saved_points = "\n".join(f'{milli(t["points_milli"])}={t["seconds"]},{t["validity_seconds"]},{t["pause_limit"]}'
                              for t in found["points_tiers"])
-    fixture, _, client = vlan_fixture(address, password, client_address)
     paired = []
     seen = set()  # pill wordings, row counts and empty-group sentences the scenario has met
 
@@ -5322,23 +4821,23 @@ def shop_defaults_points_table(opener, report, address, password, client_address
     own_points = [{"points_milli": 2000, "seconds": 300, "validity_seconds": 7200, "pause_limit": 3},
                   {"points_milli": 3000, "seconds": 600, "validity_seconds": 7200, "pause_limit": 3}]
     try:
-        fixture.setup()
-        ips = route_vlan_devices(fixture, client)
+        lab.vlan_up()
+        ips = lab.vlan_devices()
         # Shop: ₱1 for a minute earning 1 Point, and 1 Point redeems a minute.
         assert request(opener, "/admin/rates", "POST", {"tiers": "1=60,3600,1,1"}).status == 200
         assert request(opener, "/admin/points", "POST", {"tiers": "1=60,3600,1"}).status == 200
 
         def portal(vlan):
-            return portal_state(pause_device_fetch(client_address, password, ips[vlan], "/portal/api/state"))
+            return portal_state(pause_device_fetch(lab, ips[vlan], "/portal/api/state"))
 
         def buy(vlan, vendo, pesos):
             """The VLAN's Device opens a Coin Window on vendo and pays: its credited seconds."""
-            opened = portal_state(pause_device_fetch(client_address, password, ips[vlan], "/portal/api/coins/open", {"vendo_id": vendo.id}))
+            opened = portal_state(pause_device_fetch(lab, ips[vlan], "/portal/api/coins/open", {"vendo_id": vendo.id}))
             window_id = opened["coin_window"]["id"]
             assert vendo.heartbeat()[0] == 200 and vendo.window_id == window_id
             vendo.insert(pesos)
             assert vendo.heartbeat()[0] == 200
-            pause_device_fetch(client_address, password, ips[vlan], "/portal/api/coins/done", {"window_id": window_id})
+            pause_device_fetch(lab, ips[vlan], "/portal/api/coins/done", {"window_id": window_id})
             assert vendo.heartbeat()[0] == 200
             assert vendo.heartbeat()[0] == 200
             return coin_window_wait(opener, window_id, lambda w: w["status"] == "settled")[1]["credited_seconds"]
@@ -5346,7 +4845,7 @@ def shop_defaults_points_table(opener, report, address, password, client_address
         def redeem(vlan, tier):
             form = {"points_milli": tier["points_milli"], "seconds": tier["seconds"]}
             before = portal(vlan)["time_credit"]
-            after = portal_state(pause_device_fetch(client_address, password, ips[vlan], "/portal/api/points/redeem", form))["time_credit"]
+            after = portal_state(pause_device_fetch(lab, ips[vlan], "/portal/api/points/redeem", form))["time_credit"]
             assert after["points_milli"] == before["points_milli"] - tier["points_milli"], (before, after)
             assert after["bought"] == before["bought"] + tier["seconds"], (before, after)
 
@@ -5355,16 +4854,17 @@ def shop_defaults_points_table(opener, report, address, password, client_address
             form = {"points_milli": tier["points_milli"], "seconds": tier["seconds"]}
             before = portal(vlan)["time_credit"]
             try:
-                pause_device_fetch(client_address, password, ips[vlan], "/portal/api/points/redeem", form)
+                pause_device_fetch(lab, ips[vlan], "/portal/api/points/redeem", form)
             except urllib.error.HTTPError as error:
                 assert "400" in json.load(error).get("detail", "")
+                assert_refused(error, "points-row-unknown")
                 assert portal(vlan)["time_credit"]["points_milli"] == before["points_milli"]
                 return
             raise AssertionError(f"VLAN {vlan} redeemed a row outside its Points table")
 
         # Before pairing: an empty Custom group still shows its pill and a sentence.
         check([])
-        boards = [pair_board(opener, client_address, password, fixture.board(vlan, n)) for n, vlan in ((1, 10), (2, 20))]
+        boards = [pair_board(opener, lab, lab.vlan_board(vlan, n)) for n, vlan in ((1, 10), (2, 20))]
         paired.extend(boards)
         custom, follower = (SimulatedVendo(BASE_URL, b["id"], bytes.fromhex(b["secret"]), timeout=HTTP_TIMEOUT) for b in boards)
         for vendo in (custom, follower):
@@ -5437,89 +4937,59 @@ def shop_defaults_points_table(opener, report, address, password, client_address
         report.capture_lab_failure()
         for board in paired:
             assert request(opener, "/admin/vendos/unpair", "POST", {"id": board["id"]}).status == 204
-        unroute_vlan_devices(client)
-        fixture.teardown()
+        lab.vlan_down()
         assert request(opener, "/admin/rates", "POST", {"tiers": saved_rates}).status == 200
         assert request(opener, "/admin/points", "POST", {"tiers": saved_points}).status == 200
 
 
-def vlan_fixture(address, password, client_address):
-    router = lambda path, method="GET", body=None: router_rest(address, "admin", password, path, method, body)
-    client = lambda path, method="GET", body=None: router_rest(client_address, "admin", password, path, method, body, scheme="http")
-    return _vlan_module.VlanLab(router, client), router, client
-
-
-def route_vlan_devices(fixture, client):
-    """Route each set-up VLAN Device out its own VLAN on the client router: {vlan: Device IP}.
-    Undo with unroute_vlan_devices."""
-    ips = {item["vlan"]: item["host_rows"][0]["address"] for item in fixture.hosts()}
-    for vlan, ip in ips.items():
-        name = f"opnw-vlan{vlan}"
-        if not client(f"/routing/table?name={name}"):
-            client("/routing/table", "PUT", {"name": name, "fib": "yes"})
-        client("/ip/route", "PUT", {"dst-address": "0.0.0.0/0", "gateway": f"10.5.{vlan}.1%{name}", "routing-table": name, "comment": name})
-        client("/routing/rule", "PUT", {"src-address": ip + "/32", "action": "lookup-only-in-table", "table": name, "comment": name})
-    return ips
-
-
-def unroute_vlan_devices(client):
-    """Remove the routes and rules route_vlan_devices added."""
-    for vlan in (10, 20):
-        name = f"opnw-vlan{vlan}"
-        for path in ("/routing/rule", "/ip/route"):
-            for row in client(f"{path}?comment={name}"):
-                client(f"{path}/{row['.id']}", "DELETE")
-
-
-def close_and_settle(opener, client_address, password, ip, board, window, cookie=""):
+def close_and_settle(opener, lab, ip, board, window, cookie=""):
     vendo = SimulatedVendo(BASE_URL, board["id"], bytes.fromhex(board["secret"]), timeout=HTTP_TIMEOUT)
     assert vendo.heartbeat()[0] == 200 and vendo.window_id == window["id"]
-    pause_device_fetch(client_address, password, ip, "/portal/api/coins/done", {"window_id": window["id"]}, cookie)
+    pause_device_fetch(lab, ip, "/portal/api/coins/done", {"window_id": window["id"]}, cookie)
     assert vendo.heartbeat()[0] == 200
     assert vendo.heartbeat()[0] == 200
     coin_window_wait(opener, window["id"], lambda w: w["status"] == "settled")
 
 
-def vendo_auto_select(opener, address, password, client_address, report):
-    fixture, router, client = vlan_fixture(address, password, client_address)
+def vendo_auto_select(opener, address, password, lab, report):
     paired = []
     try:
-        fixture.setup()
-        ips = route_vlan_devices(fixture, client)
-        board = pair_board(opener, client_address, password, fixture.board(10, 1))
+        lab.vlan_up()
+        ips = lab.vlan_devices()
+        board = pair_board(opener, lab, lab.vlan_board(10, 1))
         paired.append(board)
         for vlan in (10, 20):
-            state = portal_state(pause_device_fetch(client_address, password, ips[vlan], "/portal/api/state"))
+            state = portal_state(pause_device_fetch(lab, ips[vlan], "/portal/api/state"))
             assert vendo_ids(state) == [board["id"]], state
-            opened = portal_state(pause_device_fetch(client_address, password, ips[vlan], "/portal/api/coins/open", {}))
+            opened = portal_state(pause_device_fetch(lab, ips[vlan], "/portal/api/coins/open", {}))
             assert opened["coin_window"]["vendo_id"] == board["id"]
             window = next(w for w in json.load(request(opener, "/admin/state"))["coin_windows"] if w["status"] == "open")
             assert window["vendo_id"] == board["id"]
-            close_and_settle(opener, client_address, password, ips[vlan], board, window)
+            close_and_settle(opener, lab, ips[vlan], board, window)
         report.snapshot("single-vendo-auto-select-from-either-vlan", address, password, opener)
-        second = pair_board(opener, client_address, password, fixture.board(20, 2))
+        second = pair_board(opener, lab, lab.vlan_board(20, 2))
         paired.append(second)
         state = json.load(request(opener, "/admin/state"))
         for board, vlan in ((paired[0], 10), (second, 20)):
             stored = next(v for v in state["vendos"] if v["id"] == board["id"])
             assert stored.get("hotspot_server") == f"opnw-vlan{vlan}", stored
-            portal = portal_state(pause_device_fetch(client_address, password, ips[vlan], "/portal/api/state"))
+            portal = portal_state(pause_device_fetch(lab, ips[vlan], "/portal/api/state"))
             assert vendo_ids(portal) == [board["id"]], portal
-            pause_device_fetch(client_address, password, ips[vlan], "/portal/api/coins/open", {})
+            pause_device_fetch(lab, ips[vlan], "/portal/api/coins/open", {})
             window = next(w for w in json.load(request(opener, "/admin/state"))["coin_windows"] if w["status"] == "open")
             assert window["vendo_id"] == board["id"]
-            close_and_settle(opener, client_address, password, ips[vlan], board, window)
+            close_and_settle(opener, lab, ips[vlan], board, window)
         report.snapshot("one-vendo-per-vlan-learned-and-auto-selected", address, password, opener)
-        third = pair_board(opener, client_address, password, fixture.board(10, 3))
+        third = pair_board(opener, lab, lab.vlan_board(10, 3))
         paired.append(third)
-        state = portal_state(pause_device_fetch(client_address, password, ips[10], "/portal/api/state"))
+        state = portal_state(pause_device_fetch(lab, ips[10], "/portal/api/state"))
         assert vendo_ids(state) == [paired[0]["id"], third["id"]], state
         def windows():
             return json.load(request(opener, "/admin/state"))["coin_windows"]
         def rejected(vlan, form):
             before = windows()
             try:
-                pause_device_fetch(client_address, password, ips[vlan], "/portal/api/coins/open", form)
+                pause_device_fetch(lab, ips[vlan], "/portal/api/coins/open", form)
             except urllib.error.HTTPError as error:
                 assert "400" in json.load(error).get("detail", "")
             else:
@@ -5527,24 +4997,23 @@ def vendo_auto_select(opener, address, password, client_address, report):
             assert windows() == before, "rejected selection reserved a Vendo"
         rejected(10, {"vendo_id": second["id"]})
         rejected(10, {})
-        result = pause_device_fetch(client_address, password, ips[10], "/portal/api/coins/open", {"vendo_id": third["id"]})
+        result = pause_device_fetch(lab, ips[10], "/portal/api/coins/open", {"vendo_id": third["id"]})
         cookie = re.search(r"(?:^|,)Set-Cookie: (openpiso_time_credit=[^;,\r\n]+)", result.get("http-headers", ""), re.I).group(1)
         window = next(w for w in windows() if w["status"] == "open")
         assert window["vendo_id"] == third["id"]
         report.snapshot("picker-is-limited-to-network-and-forged-id-reserves-nothing", address, password, opener)
         # The customer's browser moves to lan2/VLAN 20 with its ownership cookie.
-        interface = client("/interface/vlan?name=opnw-vlan10")[0]
-        client(f"/interface/vlan/{interface['.id']}", "PATCH", {"disabled": "yes"})
+        lab.vlan_leave(10)
         # The cookie arrives on a new Device: state only flags the Rebind; POST connect does it.
-        unbound = portal_state(pause_device_fetch(client_address, password, ips[20], "/portal/api/state", cookie=cookie))
+        unbound = portal_state(pause_device_fetch(lab, ips[20], "/portal/api/state", cookie=cookie))
         assert unbound["rebind"] and unbound["coin_window"] is None, unbound
-        rebound = portal_state(pause_device_fetch(client_address, password, ips[20], "/portal/api/connect", {}, cookie))
+        rebound = portal_state(pause_device_fetch(lab, ips[20], "/portal/api/connect", {}, cookie))
         assert not rebound["rebind"], rebound
-        moved = portal_state(pause_device_fetch(client_address, password, ips[20], "/portal/api/state", cookie=cookie))
+        moved = portal_state(pause_device_fetch(lab, ips[20], "/portal/api/state", cookie=cookie))
         assert moved["coin_window"]["vendo_id"] == third["id"] and moved["coin_window"]["status"] == "open", moved
         assert next(w for w in windows() if w["id"] == window["id"])["vendo_id"] == third["id"]
-        close_and_settle(opener, client_address, password, ips[20], third, window, cookie)
-        client(f"/interface/vlan/{interface['.id']}", "PATCH", {"disabled": "no"})
+        close_and_settle(opener, lab, ips[20], third, window, cookie)
+        lab.vlan_rejoin(10)
         report.snapshot("coin-window-keeps-reserved-vendo-after-vlan-move", address, password, opener)
         page = request(opener, "/admin/vendos").read().decode()
         assert 'select name="hotspot_server"' in page
@@ -5553,7 +5022,7 @@ def vendo_auto_select(opener, address, password, client_address, report):
         assert request(opener, "/admin/vendos/edit", "POST", {"id": second["id"], "name": "", "location": "", "hotspot_server": "opnw-vlan10"}).status == 200
         state = json.load(request(opener, "/admin/state"))
         assert next(v for v in state["vendos"] if v["id"] == second["id"])["hotspot_server"] == "opnw-vlan10"
-        state = portal_state(pause_device_fetch(client_address, password, ips[20], "/portal/api/state"))
+        state = portal_state(pause_device_fetch(lab, ips[20], "/portal/api/state"))
         assert state["vendos"] == [], state
         rejected(20, {})
         rejected(20, {"vendo_id": second["id"]})
@@ -5562,26 +5031,20 @@ def vendo_auto_select(opener, address, password, client_address, report):
         report.capture_lab_failure()
         for board in paired:
             assert request(opener, "/admin/vendos/unpair", "POST", {"id": board["id"]}).status == 204
-        unroute_vlan_devices(client)
-        fixture.teardown()
+        lab.vlan_down()
 
 
-def vlan_host_evidence(address, password, client_address, report, write_hosts):
-    fixture, _, _ = vlan_fixture(address, password, client_address)
+def vlan_host_evidence(lab, report):
     try:
-        fixture.setup()
-        evidence = fixture.hosts()
-        if write_hosts:
-            destination = ROOT / "docs/research/results/2026-10-29-chr-vlan-autoselect/hosts.json"
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            destination.write_text(json.dumps(evidence, indent=2) + "\n")
+        lab.vlan_up()
+        evidence = lab.vlan_hosts()
         report.data["vlan_hosts"] = evidence
         for item in evidence:
             assert len(item["host_rows"]) == 1, item
             assert item["host_rows"][0].get("server") == f"opnw-vlan{item['vlan']}", item
     finally:
         report.capture_lab_failure()
-        fixture.teardown()
+        lab.vlan_down()
 
 
 def hotspot_tree(address, password):
@@ -5815,12 +5278,13 @@ def shared_profile(controller, args, data_dir, report, address, password, existi
 SPARE = "opnw-spare"
 SPARE_VLAN = "40"
 ALONGSIDE = "openpiso-" + SPARE
-# Edited from the suggestion: the lab host routes 10.5.20.0/24 back via the Router (configure_device_routing).
+# Edited from the suggestion: the Controller's container routes 10.5.0.0/16 back via the Router (lab/docker/compose.yml).
 ALONGSIDE_RANGE = "10.5.20.0/24"
 EXEMPTION = "openpiso-controller-" + ALONGSIDE  # the Controller's NAT exemption for the new server (item 8)
 TAKEN = "openpiso-e2e-taken"  # comment on disabled routes that take a whole private block, which carry no traffic
-OLD_DEVICE = "opnw-old"  # the Device on the server that is not Adopted: VLAN 30 on lan1
-NEW_DEVICE = "opnw-new"  # the Device on the new server: VLAN 40 on lan2
+OLD_DEVICE = "opnw-old"  # the Device container on the server that is not Adopted: VLAN 30
+NEW_DEVICE = "opnw-new"  # the Device container on the new server: VLAN 40
+ONBOARDING_MACS = {OLD_DEVICE: "02:00:00:00:0C:40", NEW_DEVICE: "02:00:00:00:0C:41", "opnw-vlan-new": "02:00:00:00:0C:42"}
 
 
 def network_tree(address, password):
@@ -5829,66 +5293,50 @@ def network_tree(address, password):
             for path in ("/ip/address", "/ip/pool", "/ip/dhcp-server", "/ip/dhcp-server/network", "/interface/vlan")}
 
 
-def remove_alongside(address, password, client_address):
-    """Remove Add alongside's server, its network and the spare VLAN, and the Devices' VLANs on chr-client."""
+def remove_alongside(address, password, lab):
+    """Remove Add alongside's server, its network and the spare VLAN, and the Devices on its VLANs."""
     def remove(rest, path, query):
         for row in rest(f"{path}?{query}"):
             rest(f"{path}/{row['.id']}", "DELETE")
     router = lambda path, method="GET", body=None: router_rest(address, "admin", password, path, method, body)
-    client = lambda path, method="GET", body=None: router_rest(client_address, "admin", password, path, method, body, scheme="http")
     for path, query in (("/ip/hotspot", f"name={ALONGSIDE}"), ("/ip/hotspot/profile", f"name={ALONGSIDE}"),
                         ("/ip/dhcp-server/lease", f"server={ALONGSIDE}"), ("/ip/dhcp-server", f"name={ALONGSIDE}"),
                         ("/ip/dhcp-server/network", f"comment={ALONGSIDE}"), ("/ip/pool", f"name={ALONGSIDE}"),
                         ("/ip/address", f"interface={SPARE}"), ("/interface/vlan", f"name={SPARE}"),
                         ("/ip/firewall/nat", f"comment={EXEMPTION}"), ("/ip/route", f"comment={TAKEN}")):
         remove(router, path, query)
-    for name in (OLD_DEVICE, NEW_DEVICE):
-        for path, query in (("/routing/rule", f"comment={name}"), ("/ip/route", f"comment={name}"),
-                            ("/routing/table", f"name={name}"), ("/ip/dhcp-client", f"interface={name}"),
-                            ("/ip/address", f"interface={name}"), ("/interface/vlan", f"name={name}")):
-            remove(client, path, query)
+    lab.remove_devices(OLD_DEVICE, NEW_DEVICE)
 
 
-def vlan_device(client, name, nic, vlan, gateway, static=None):
-    """A Device on chr-client: VLAN vlan on nic with a static address, or a DHCP lease, routed via gateway.
-    Returns its address."""
-    client("/interface/vlan", "PUT", {"name": name, "interface": nic, "vlan-id": vlan})
-    if static:
-        client("/ip/address", "PUT", {"address": static, "interface": name})
-    else:
-        client("/ip/dhcp-client", "PUT", {"interface": name, "add-default-route": "no", "use-peer-dns": "no", "disabled": "no"})
-    deadline = time.monotonic() + 30
-    while not (addresses := client(f"/ip/address?interface={name}")):
-        assert time.monotonic() < deadline, f"{name}: no address"
-        time.sleep(1)
-    ip = addresses[0]["address"].split("/")[0]
-    client("/routing/table", "PUT", {"name": name, "fib": "yes"})
-    client("/ip/route", "PUT", {"dst-address": "0.0.0.0/0", "gateway": f"{gateway}%{name}", "routing-table": name, "comment": name})
-    client("/routing/rule", "PUT", {"src-address": ip + "/32", "action": "lookup-only-in-table", "table": name, "comment": name})
-    return ip
-
-
-# What a new Device fetches first to be sent to its login page. RouterOS applies the rule above seconds after REST
-# reports it, even after the route reads active; until then a fetch from the Device leaves by chr-client's main table.
-# The main table sends 1.1.1.1 out lan1 onto hs1, which records a second HotSpot host for the Device's address that
-# the Portal rightly answers as ambiguous (503). It sends 1.0.0.1 out mgmt, off the HotSpot LAN, so an early fetch
-# misses the login page and fetch_until tries again until the rule applies.
-FIRST_FETCH = "http://1.0.0.1/"
-
-
-def fetch_until(client, ip, url, marker):
+def fetch_until(lab, ip, url, marker):
     """The page a Device at ip gets for url, retried until it contains marker while a new server or lease settles."""
     deadline, detail = time.monotonic() + 30, ""
     while time.monotonic() < deadline:
         try:
-            data = client("/tool/fetch", "POST", {"url": url, "output": "user", "src-address": ip})[-1].get("data", "")
+            data = lab.fetch(ip, url, headers=False)["data"]
             if marker in data:
                 return data
             detail = data[:300]
         except urllib.error.HTTPError as error:
             detail = f"HTTP {error.code}: {error.read().decode(errors='replace')[:300]}"
+        except AssertionError as error:  # curl got no reply
+            detail = str(error)[-300:]
         time.sleep(1)
     raise AssertionError(f"Device {ip} fetching {url} never got {marker!r}: {detail}")
+
+
+def nat_takes_effect(lab, rest, comment, device_ip):
+    """RouterOS applies a NAT change to new connections only seconds later: wait until the Device's fetch of a
+    static Portal file (no side effects) is counted by the rule with comment."""
+    rule = f"/ip/firewall/nat/{rest('/ip/firewall/nat?comment=' + comment)[0]['.id']}"
+    deadline = time.monotonic() + 30
+    while True:
+        packets = rest(rule)["packets"]
+        pause_device_fetch(lab, device_ip, "/portal/ready.js")
+        if rest(rule)["packets"] != packets:
+            return
+        assert time.monotonic() < deadline, f"NAT rule {comment} never took effect"
+        time.sleep(2)
 
 
 def add_alongside_card(page):
@@ -5915,19 +5363,18 @@ def add_alongside_vlan_card(page):
 
 # Add alongside on a new VLAN: the Controller creates VLAN <id> on the parent as interface <parent>-vlan<id>
 # (comment openpiso-<parent>-vlan<id>) and its server openpiso-<parent>-vlan<id> on it.
-# Edited from the suggestion: the lab host routes 10.5.10.0/24 back via the Router (configure_device_routing).
+# Edited from the suggestion: the Controller's container routes 10.5.0.0/16 back via the Router (lab/docker/compose.yml).
 VLAN_RANGE = "10.5.10.0/24"
-VLAN_DEVICE = "opnw-vlan-new"  # the Device on the new VLAN, on lan2
+VLAN_DEVICE = "opnw-vlan-new"  # the Device container on the new VLAN
 FILTERING_BRIDGE = "opnw-filtering"  # a bridge with VLAN filtering on and no ports, so it carries nothing
 
 
-def remove_vlan_alongside(address, password, client_address):
+def remove_vlan_alongside(address, password, lab):
     """Remove every server the Controller made on a new VLAN, its network and VLAN, the filtering bridge, and the Device."""
     def remove(rest, path, query):
         for row in rest(f"{path}?{query}"):
             rest(f"{path}/{row['.id']}", "DELETE")
     router = lambda path, method="GET", body=None: router_rest(address, "admin", password, path, method, body)
-    client = lambda path, method="GET", body=None: router_rest(client_address, "admin", password, path, method, body, scheme="http")
     for vlan in router("/interface/vlan"):
         name = vlan.get("comment", "")
         if not re.fullmatch(r"openpiso-.+-vlan\d+", name):
@@ -5939,10 +5386,7 @@ def remove_vlan_alongside(address, password, client_address):
                             ("/interface/vlan", f"name={vlan['name']}")):
             remove(router, path, query)
     remove(router, "/interface/bridge", f"name={FILTERING_BRIDGE}")
-    for path, query in (("/routing/rule", f"comment={VLAN_DEVICE}"), ("/ip/route", f"comment={VLAN_DEVICE}"),
-                        ("/routing/table", f"name={VLAN_DEVICE}"), ("/ip/dhcp-client", f"interface={VLAN_DEVICE}"),
-                        ("/ip/address", f"interface={VLAN_DEVICE}"), ("/interface/vlan", f"name={VLAN_DEVICE}")):
-        remove(client, path, query)
+    lab.remove_devices(VLAN_DEVICE)
 
 
 def carry_vlan_notes(page):
@@ -5951,12 +5395,11 @@ def carry_vlan_notes(page):
             re.findall(r'<p class="carry-vlan" data-server="([^"]+)" data-vlan="(\d+)">', page)}
 
 
-def add_alongside_vlan(opener, report, address, password, client_address, existing):
+def add_alongside_vlan(opener, report, address, password, lab, existing):
     """Router setup's Add alongside on a new VLAN on the interface under hs1, next to hs1 and Add alongside's server
     (both Adopted) and the second server (not Adopted, VLAN 30 on the same parent). add_alongside runs it."""
     server = _hotspot_module.SERVER
     router = lambda path, method="GET", body=None: router_rest(address, "admin", password, path, method, body)
-    client = lambda path, method="GET", body=None: router_rest(client_address, "admin", password, path, method, body, scheme="http")
     load_seconds = []  # Router setup page loads; the Controller gives its Router reads 10 s
     def setup_page():  # the checklist pings the Controller from each Adopted server, about a second each
         started = time.monotonic()
@@ -5964,8 +5407,7 @@ def add_alongside_vlan(opener, report, address, password, client_address, existi
         load_seconds.append(round(time.monotonic() - started, 2))
         assert "Router unavailable" not in page, page
         return page
-    remove_vlan_alongside(address, password, client_address)
-    lan2 = client("/interface/ethernet?name=lan2")[0]
+    remove_vlan_alongside(address, password, lab)
     try:
         router("/interface/bridge", "PUT", {"name": FILTERING_BRIDGE, "vlan-filtering": "yes"})
         other_before, users_before = existing.other(), existing.users()
@@ -6046,26 +5488,17 @@ def add_alongside_vlan(opener, report, address, password, client_address, existi
                         vlan_interface=vlans[0], server=created[0], carry_vlan_note=html.unescape(note))
 
         # A Device on that VLAN gets an address, is sent to the Portal and gets online with a Voucher.
-        client(f"/interface/ethernet/{lan2['.id']}", "PATCH", {"disabled": "no"})
-        device_ip = vlan_device(client, VLAN_DEVICE, "lan2", str(vlan), "10.5.10.1")
+        device_ip = lab.vlan_device(VLAN_DEVICE, ONBOARDING_MACS[VLAN_DEVICE], vlan)
         assert ipaddress.ip_address(device_ip) in ipaddress.ip_network(VLAN_RANGE), device_ip
-        redirect_page = fetch_until(client, device_ip, FIRST_FETCH, f"{PORTAL_URL}/portal")
-        rule = f"/ip/firewall/nat/{router('/ip/firewall/nat?comment=openpiso-controller-' + name)[0]['.id']}"
-        deadline = time.monotonic() + 30
-        while True:  # wait until the Controller's NAT exemption counts the Device's fetch of a static Portal file
-            packets = router(rule)["packets"]
-            pause_device_fetch(client_address, password, device_ip, "/portal/ready.js")
-            if router(rule)["packets"] != packets:
-                break
-            assert time.monotonic() < deadline, "the Controller's NAT exemption never took effect"
-            time.sleep(2)
-        portal_state(pause_device_fetch(client_address, password, device_ip, "/portal/api/state"))
+        redirect_page = fetch_until(lab, device_ip, _docker_module.UPSTREAM_URL, f"{PORTAL_URL}/portal")
+        nat_takes_effect(lab, router, "openpiso-controller-" + name, device_ip)
+        portal_state(pause_device_fetch(lab, device_ip, "/portal/api/state"))
         response = generate_vouchers(opener, {"seconds": "600", "count": "1"})
         assert response.status == 200
         code = voucher_codes(opener, response)[0]
-        state = portal_state(pause_device_fetch(client_address, password, device_ip, "/portal/api/redeem", {"code": code}))
+        state = portal_state(pause_device_fetch(lab, device_ip, "/portal/api/redeem", {"code": code}))
         assert_message(state, "success", "online")
-        target, internet = device_internet(client_address, password, device_ip)
+        target, internet = lab.internet(device_ip)
         assert PORTAL_URL.removeprefix("http://") + "/portal" not in internet
         page = setup_page()
         assert unmet(checklist(page)) == [] and carry_vlan_notes(page) == {}, page
@@ -6076,8 +5509,7 @@ def add_alongside_vlan(opener, report, address, password, client_address, existi
         return name
     finally:
         report.capture_lab_failure()
-        remove_vlan_alongside(address, password, client_address)
-        client(f"/interface/ethernet/{lan2['.id']}", "PATCH", {"disabled": lan2["disabled"]})
+        remove_vlan_alongside(address, password, lab)
 
 
 def taken_blocks(opener, report, address, password):
@@ -6145,13 +5577,11 @@ def foreign_names(opener, report, address, password, existing):
     report.snapshot("add-alongside-refuses-names-held-by-the-operators-objects", address, password, opener, refusals=refusals)
 
 
-def resumed_create(opener, report, address, password, ledger_path):
+def resumed_create(opener, report, address, password, lab):
     """A create whose response was lost once RouterOS had committed the server: the server is on the Router, not
     Adopted, and has no NAT exemption. The same request again finishes it and adds nothing twice."""
     router = lambda path, method="GET", body=None: router_rest(address, "admin", password, path, method, body)
-    with sqlite3.connect(ledger_path) as db:
-        db.execute("DELETE FROM adopted_hotspot_servers WHERE name = ?", (ALONGSIDE,))
-    db.close()
+    lab.ledger("DELETE FROM adopted_hotspot_servers WHERE name = ?", ALONGSIDE)
     for row in router(f"/ip/firewall/nat?comment={EXEMPTION}"):
         router(f"/ip/firewall/nat/{row['.id']}", "DELETE")
     assert json.load(request(opener, "/admin/state"))["router"]["adopted_hotspot_servers"] == [_hotspot_module.SERVER]
@@ -6170,15 +5600,13 @@ def resumed_create(opener, report, address, password, ledger_path):
                     adopted=state["adopted_hotspot_servers"])
 
 
-def add_alongside(opener, report, address, password, client_address, existing, ledger_path):
+def add_alongside(opener, report, address, password, lab, existing):
     """Router setup's Add alongside on a spare interface, next to hs1 (Adopted) and the second server (not Adopted)."""
     server = _hotspot_module.SERVER
     router = lambda path, method="GET", body=None: router_rest(address, "admin", password, path, method, body)
-    client = lambda path, method="GET", body=None: router_rest(client_address, "admin", password, path, method, body, scheme="http")
     def setup_page():  # the checklist pings the Controller from each Adopted server, about a second each
         return request(opener, "/admin", timeout=15).read().decode()
-    remove_alongside(address, password, client_address)
-    lan2 = client("/interface/ethernet?name=lan2")[0]
+    remove_alongside(address, password, lab)
     try:
         existing.setup_other()
         router("/interface/vlan", "PUT", {"name": SPARE, "interface": "ether2", "vlan-id": SPARE_VLAN})
@@ -6189,7 +5617,8 @@ def add_alongside(opener, report, address, password, client_address, existing, l
 
         # The card offers only interfaces with no HotSpot server and suggests a free private range of hs1's size.
         interfaces, suggested = add_alongside_card(setup_page())
-        management = next(row["interface"] for row in router("/ip/address") if row["address"].startswith(address + "/"))
+        management = next(row["interface"] for row in router("/ip/address")
+                          if row["address"].startswith(urllib.parse.urlsplit(lab.router_url).hostname + "/"))
         assert SPARE in interfaces, interfaces
         for taken in [row["interface"] for row in router("/ip/hotspot")] + [management]:
             assert taken not in interfaces, (taken, interfaces)
@@ -6239,7 +5668,7 @@ def add_alongside(opener, report, address, password, client_address, existing, l
         # The Controller's own objects carry its marker: the server's name as their comment.
         assert [row.get("comment") for row in dhcp] == [ALONGSIDE], dhcp
         assert [row.get("comment") for row in router(f"/ip/pool?name={dhcp[0]['address-pool']}")] == [ALONGSIDE]
-        resumed_create(opener, report, address, password, ledger_path)
+        resumed_create(opener, report, address, password, lab)
         # Creating the server also added the Controller's NAT exemption for it, first among the static srcnat rules.
         nat = [row for row in router("/ip/firewall/nat") if row["chain"] == "srcnat" and row.get("dynamic") != "true"]
         exemption = next(row for row in nat if row.get("comment") == EXEMPTION)
@@ -6255,34 +5684,24 @@ def add_alongside(opener, report, address, password, client_address, existing, l
                         server=created[0], server_profile=profile, dhcp_server=dhcp[0])
 
         # A Device on the server that is not Adopted still gets the old login page.
-        old_ip = vlan_device(client, OLD_DEVICE, "lan1", _hotspot_module.OTHER_VLAN, f"{_hotspot_module.OTHER_SUBNET}.1",
-                             static=f"{_hotspot_module.OTHER_SUBNET}.50/24")
-        old_page = fetch_until(client, old_ip, FIRST_FETCH, "opnw-existing-login-page")
+        old_ip = lab.vlan_device(OLD_DEVICE, ONBOARDING_MACS[OLD_DEVICE], int(_hotspot_module.OTHER_VLAN),
+                                 static=f"{_hotspot_module.OTHER_SUBNET}.50/24 {_hotspot_module.OTHER_SUBNET}.1")
+        old_page = fetch_until(lab, old_ip, _docker_module.UPSTREAM_URL, "opnw-existing-login-page")
         assert PORTAL_URL not in old_page, old_page
 
         # A Device joining the new server gets an address, is sent to the Portal and gets online with a Voucher.
-        client(f"/interface/ethernet/{lan2['.id']}", "PATCH", {"disabled": "no"})
-        new_ip = vlan_device(client, NEW_DEVICE, "lan2", SPARE_VLAN, "10.5.20.1")
+        new_ip = lab.vlan_device(NEW_DEVICE, ONBOARDING_MACS[NEW_DEVICE], int(SPARE_VLAN))
         assert ipaddress.ip_address(new_ip) in ipaddress.ip_network(ALONGSIDE_RANGE), new_ip
-        redirect_page = fetch_until(client, new_ip, FIRST_FETCH, f"{PORTAL_URL}/portal")
-        # RouterOS applies a new NAT rule to new connections seconds later: wait until the exemption counts the
-        # Device's fetch of a static Portal file, or the Portal would see the masqueraded address.
-        rule = f"/ip/firewall/nat/{exemption['.id']}"
-        deadline = time.monotonic() + 30
-        while True:
-            packets = router(rule)["packets"]
-            pause_device_fetch(client_address, password, new_ip, "/portal/ready.js")
-            if router(rule)["packets"] != packets:
-                break
-            assert time.monotonic() < deadline, "the Controller's NAT exemption never took effect"
-            time.sleep(2)
-        portal_state(pause_device_fetch(client_address, password, new_ip, "/portal/api/state"))
+        redirect_page = fetch_until(lab, new_ip, _docker_module.UPSTREAM_URL, f"{PORTAL_URL}/portal")
+        # Or the Portal would see the masqueraded address.
+        nat_takes_effect(lab, router, EXEMPTION, new_ip)
+        portal_state(pause_device_fetch(lab, new_ip, "/portal/api/state"))
         response = generate_vouchers(opener, {"seconds": "600", "count": "1"})
         assert response.status == 200
         code = voucher_codes(opener, response)[0]
-        state = portal_state(pause_device_fetch(client_address, password, new_ip, "/portal/api/redeem", {"code": code}))
+        state = portal_state(pause_device_fetch(lab, new_ip, "/portal/api/redeem", {"code": code}))
         assert_message(state, "success", "online")
-        target, internet = device_internet(client_address, password, new_ip)
+        target, internet = lab.internet(new_ip)
         assert PORTAL_URL.removeprefix("http://") + "/portal" not in internet
         assert unmet(checklist(setup_page())) == []
         report.snapshot("add-alongside-old-server-keeps-its-login-page-and-new-server-sends-a-device-online",
@@ -6319,12 +5738,11 @@ def add_alongside(opener, report, address, password, client_address, existing, l
         # While this server is still on the Router: removing it below leaves it Adopted, and the baseline that
         # every create runs refuses an Adopted server that is missing until it is forgotten (forget_missing).
         # This also loads Router setup with three Adopted servers.
-        return add_alongside_vlan(opener, report, address, password, client_address, existing)
+        return add_alongside_vlan(opener, report, address, password, lab, existing)
     finally:
         report.capture_lab_failure()
-        remove_alongside(address, password, client_address)
+        remove_alongside(address, password, lab)
         existing.teardown_other()
-        client(f"/interface/ethernet/{lan2['.id']}", "PATCH", {"disabled": lan2["disabled"]})
 
 
 def forget_offers(page):
@@ -6333,7 +5751,7 @@ def forget_offers(page):
                       r'<input type="hidden" name="server" value="([^"]+)">', page)
 
 
-def forget_missing(opener, report, address, password, client_address, missing):
+def forget_missing(opener, report, address, password, lab, missing):
     """Adopted servers deleted on the Router by hand (Add alongside's cleanup did it over REST): each is reported
     with Forget this server, which only the missing ones offer. Forgetting changes nothing on the Router, and the
     next create finishes its baseline again."""
@@ -6374,13 +5792,13 @@ def forget_missing(opener, report, address, password, client_address, missing):
         state = json.load(request(opener, "/admin/state"))["router"]
         assert state["status"] == "ready" and state["adopted_hotspot_servers"] == sorted([server, created]), state
     finally:
-        remove_vlan_alongside(address, password, client_address)
+        remove_vlan_alongside(address, password, lab)
     forget(created)
     assert json.load(request(opener, "/admin/state"))["router"]["adopted_hotspot_servers"] == [server]
     report.snapshot("create-after-forgetting-finishes-its-baseline", address, password, opener, created=created)
 
 
-def portal_reachability(opener, report, address, password, client_address, device_ip):
+def portal_reachability(opener, report, address, password, lab, device_ip):
     """Item 8: a masquerade that source-NATs hs1's Devices on the way to the Portal is reported, its fix adds one
     Controller rule above it and leaves the other NAT rules as they were, and a lost return route is manual.
     The masquerade stays, so a Device that gets online afterwards does so through the Controller's rule."""
@@ -6393,25 +5811,15 @@ def portal_reachability(opener, report, address, password, client_address, devic
         return [{key: value for key, value in row.items() if key not in ("bytes", "packets")}
                 for row in rest("/ip/firewall/nat") if not owned(row) and row.get("dynamic") != "true"]
     def takes_effect(comment):
-        # RouterOS applies a NAT change to new connections only seconds later, so wait until the Device's
-        # fetch of a static Portal file (no side effects) is counted by the rule with comment.
-        rule = f"/ip/firewall/nat/{rest('/ip/firewall/nat?comment=' + comment)[0]['.id']}"
-        deadline = time.monotonic() + 30
-        while True:
-            packets = rest(rule)["packets"]
-            pause_device_fetch(client_address, password, device_ip, "/portal/ready.js")
-            if rest(rule)["packets"] != packets:
-                return
-            assert time.monotonic() < deadline, f"NAT rule {comment} never took effect"
-            time.sleep(2)
-    # The harness's own exemption would hide the masquerade; the Controller's fix takes its place.
-    for row in rest("/ip/firewall/nat?comment=openpiso-e2e-routing") + rest("/ip/firewall/nat?comment=openpiso-e2e-masquerade"):
+        nat_takes_effect(lab, rest, comment, device_ip)
+    # The Docker lab's Router routes without NAT; the dev lab's may have its own exemption.
+    for row in rest("/ip/firewall/nat?comment=openpiso-e2e-masquerade"):
         rest(f"/ip/firewall/nat/{row['.id']}", "DELETE")
     # Like the masquerade the HotSpot setup wizard adds for the server's network, first so that no exemption
     # already on the Router (such as lab/dev's) hides it.
-    first = next(row for row in rest("/ip/firewall/nat") if row.get("dynamic") != "true")
+    first = next((row for row in rest("/ip/firewall/nat") if row.get("dynamic") != "true"), None)
     rest("/ip/firewall/nat", "PUT", {"chain": "srcnat", "action": "masquerade", "src-address": "10.5.50.0/24",
-                                     "comment": "openpiso-e2e-masquerade", "place-before": first[".id"]})
+                                     "comment": "openpiso-e2e-masquerade", **({"place-before": first[".id"]} if first else {})})
     # Until it applies, RouterOS reads the new rule as invalid; compare the rules from then on.
     takes_effect("openpiso-e2e-masquerade")
     nat_before = others()
@@ -6422,7 +5830,7 @@ def portal_reachability(opener, report, address, password, client_address, devic
     # The masquerade really rewrites the Device's address: the Portal cannot find it and refuses a good Voucher.
     response = generate_vouchers(opener, {"seconds": "600", "count": "1"})
     assert response.status == 200
-    device_redeem_refused(client_address, password, device_ip, voucher_codes(opener, response)[0], 403)
+    device_redeem_refused(lab, device_ip, voucher_codes(opener, response)[0], 403, "not-on-wifi")
     response = request(opener, "/admin/router/fix", "POST", {"check": "portal-reachable", "server": server})
     page = response.read().decode()
     assert response.status == 200 and urllib.parse.urlsplit(response.url).path == "/admin", page
@@ -6440,16 +5848,15 @@ def portal_reachability(opener, report, address, password, client_address, devic
     report.snapshot("masquerade-reported-and-exempted-by-one-controller-rule", address, password, opener,
                     reason=broken["reason"], fix=broken["fix"], exemption=exemption)
 
-    # Without the routing NIC the Controller's replies to 10.5.50.1 have no way back: manual, no fix.
-    nic = rest("/interface/ethernet?mac-address=52:54:00:07:07:07")[0]
-    rest(f"/interface/ethernet/{nic['.id']}", "PATCH", {"disabled": "yes"})
+    # Without its route via the Router the Controller's replies to 10.5.50.1 have no way back: manual, no fix.
+    lab.controller_return_route(False)
     try:
         # The checklist's pings reuse one ICMP id, so they would keep riding a connection masqueraded before the
         # exemption applied, with replies to the Router's management address. Drop those connections.
         for connection in rest("/ip/firewall/connection?protocol=icmp"):
             if connection.get("dst-address", "").split(":")[0] == urllib.parse.urlsplit(PORTAL_URL).hostname:
                 rest(f"/ip/firewall/connection/{connection['.id']}", "DELETE")
-        deadline = time.monotonic() + 20  # the disabled NIC can take a few seconds to stop receiving
+        deadline = time.monotonic() + 20
         while unmet(items := checklist(request(opener, "/admin").read().decode())) != [(server, "device-seen"), (server, "portal-reachable")]:
             assert time.monotonic() < deadline, items
             time.sleep(2)
@@ -6457,7 +5864,7 @@ def portal_reachability(opener, report, address, password, client_address, devic
         assert unroutable["reason"] and unroutable["manual"] and unroutable["fix"] is None, unroutable
         assert request(opener, "/admin/router/fix", "POST", {"check": "portal-reachable", "server": server}).status == 400
     finally:
-        rest(f"/interface/ethernet/{nic['.id']}", "PATCH", {"disabled": "no"})
+        lab.controller_return_route(True)
     assert others() == nat_before
     deadline = time.monotonic() + 30
     while unmet(items := checklist(request(opener, "/admin").read().decode())) != [(server, "device-seen")]:
@@ -6525,7 +5932,7 @@ def restore_rows(address, password, before):
                             {key: value for key, value in row.items() if key not in read_only})
 
 
-def fresh_start(controller, args, data_dir, opener, report, address, password, client_address, existing, started):
+def fresh_start(controller, args, data_dir, opener, report, address, password, lab, existing, started):
     """Fresh start: refused while the ledger holds a Time Credit, then, for a new Shop on someone else's HotSpot,
     refused while a Vendo is pending and without the backup from connecting, and run: the HotSpot tree goes,
     nothing outside it changes, and the new server on hs1's interface and network sends a Device online with a
@@ -6533,7 +5940,6 @@ def fresh_start(controller, args, data_dir, opener, report, address, password, c
     again; started(controller) hands each Controller this starts to the caller."""
     server = _hotspot_module.SERVER
     rest = lambda path, method="GET", body=None: router_rest(address, "admin", password, path, method, body)
-    client = lambda path, method="GET", body=None: router_rest(client_address, "admin", password, path, method, body, scheme="http")
     def setup_page(session):
         return request(session, "/admin", timeout=15).read().decode()
     def refused(session, form, reason):
@@ -6558,15 +5964,14 @@ def fresh_start(controller, args, data_dir, opener, report, address, password, c
     controller.stop()
     existing.setup()
     lab_rows = wipe_rows(address, password)
-    fresh_dir = Path(data_dir) / "fresh-start"
-    fresh_dir.mkdir()
-    controller = Controller(args.binary, str(fresh_dir), initialize=True)
+    lab.controller_data = "/data/fresh-start"  # the Controller's container keeps its ledger
+    controller = Controller(args.binary, data_dir, initialize=True)
     started(controller)
     opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
     assert request(opener, "/admin/login", "POST", {"password": ADMIN_PASSWORD}).status == 200
     def connect():
         assert request(opener, "/admin/router/probe", "POST", {
-            "address": f"https://{address}", "username": ROUTER_ADMIN, "password": ROUTER_ADMIN_PASSWORD}).status == 200
+            "address": lab.router_url, "username": ROUTER_ADMIN, "password": ROUTER_ADMIN_PASSWORD}).status == 200
         response = request(opener, "/admin/router/confirm", "POST", timeout=30)
         assert response.status == 200, response.read().decode()
     # The new Shop connects with an admin of its own, as the first one did; the run deleted that one.
@@ -6576,11 +5981,10 @@ def fresh_start(controller, args, data_dir, opener, report, address, password, c
                             ("/ip/hotspot/walled-garden/ip", {"dst-address": "192.0.2.10", "action": "accept"}),
                             ("/ip/hotspot/ip-binding", {"mac-address": "02:00:00:00:99:99", "type": "bypassed"})):
             rest(path, "PUT", {**entry, "comment": FRESH_EXTRAS})
-        device_ip = client("/ip/address?interface=lan1")[0]["address"].split("/")[0]
-        mac = client("/interface/ethernet?name=lan1")[0]["mac-address"]
+        device_ip, mac = lab.device_ip(), _docker_module.DEVICE_MACS[1]
         for active in rest("/ip/hotspot/active"):  # the old Shop's session, whose user setup() deleted
             rest(f"/ip/hotspot/active/{active['.id']}", "DELETE")
-        old_page = fetch_until(client, device_ip, "http://1.1.1.1/", "opnw-existing-login-page")
+        old_page = fetch_until(lab, device_ip, _docker_module.UPSTREAM_URL, "opnw-existing-login-page")
         user = next(iter(_hotspot_module.USERS))
         rest("/ip/hotspot/active/login", "POST", {"user": user, "password": user, "mac-address": mac, "ip": device_ip})
         connect()
@@ -6684,24 +6088,16 @@ def fresh_start(controller, args, data_dir, opener, report, address, password, c
                         server=new, server_profile=profile[0])
 
         # The Device on hs1's network is sent to the Portal, not the old login page, and gets online with a Voucher.
-        redirect_page = fetch_until(client, device_ip, "http://1.1.1.1/", f"{PORTAL_URL}/portal")
+        redirect_page = fetch_until(lab, device_ip, _docker_module.UPSTREAM_URL, f"{PORTAL_URL}/portal")
         assert "opnw-existing-login-page" not in redirect_page, redirect_page
-        rule = f"/ip/firewall/nat/{rest('/ip/firewall/nat?comment=' + exemption)[0]['.id']}"
-        deadline = time.monotonic() + 30
-        while True:  # RouterOS applies a new NAT rule to new connections seconds later
-            packets = rest(rule)["packets"]
-            pause_device_fetch(client_address, password, device_ip, "/portal/ready.js")
-            if rest(rule)["packets"] != packets:
-                break
-            assert time.monotonic() < deadline, "the Controller's NAT exemption never took effect"
-            time.sleep(2)
-        portal_state(pause_device_fetch(client_address, password, device_ip, "/portal/api/state"))
+        nat_takes_effect(lab, rest, exemption, device_ip)
+        portal_state(pause_device_fetch(lab, device_ip, "/portal/api/state"))
         response = generate_vouchers(opener, {"seconds": "600", "count": "1"})
         assert response.status == 200
-        state = portal_state(pause_device_fetch(client_address, password, device_ip, "/portal/api/redeem",
+        state = portal_state(pause_device_fetch(lab, device_ip, "/portal/api/redeem",
                                                 {"code": voucher_codes(opener, response)[0]}))
         assert_message(state, "success", "online")
-        target, internet = device_internet(client_address, password, device_ip)
+        target, internet = lab.internet(device_ip)
         assert PORTAL_URL.removeprefix("http://") + "/portal" not in internet
         assert unmet(checklist(setup_page(opener))) == []
         report.snapshot("fresh-start-server-sends-a-device-online-with-a-voucher", address, password, opener,
@@ -6726,6 +6122,7 @@ def fresh_start(controller, args, data_dir, opener, report, address, password, c
         for row in rest("/user?name=openpiso-controller"):
             rest(f"/user/{row['.id']}", "DELETE")
         # That ledger Adopts only hs1: forget_missing forgot the servers Add alongside created and removed.
+        lab.controller_data = type(lab).controller_data
         controller = Controller(args.binary, data_dir, initialize=False)
         started(controller)
         opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
@@ -6739,13 +6136,13 @@ def fresh_start(controller, args, data_dir, opener, report, address, password, c
     return controller, opener
 
 
-def next_steps_follow_the_shop(opener, report, address, password, client_address):
+def next_steps_follow_the_shop(opener, report, address, password, lab):
     """Next steps reads each task from the ledger: the Voucher Batch generated above is done, while the Vendo
     pairs and the Voucher sold before the Shop settings and Rate tiers were saved, so nothing waited on them."""
     def steps():
         return next_steps(request(opener, "/admin").read().decode())
     assert steps() == {"shop-settings": False, "rate-tiers": False, "vendo-paired": False, "voucher-batch": True}
-    paired = pair_board(opener, client_address, password, coin_board(client_address, password))
+    paired = pair_board(opener, lab, lab.coin_board())
     try:
         assert steps() == {"shop-settings": False, "rate-tiers": False, "vendo-paired": True, "voucher-batch": True}
         assert request(opener, "/admin/pause", "POST", {"pause_limit": "3", "idle_seconds": "120", "idle_enabled": "off"}).status == 200
@@ -6754,13 +6151,12 @@ def next_steps_follow_the_shop(opener, report, address, password, client_address
         assert steps() == dict.fromkeys(NEXT_STEP_PAGES, True)
     finally:
         assert request(opener, "/admin/vendos/unpair", "POST", {"id": paired["id"]}).status == 204
-        cleanup_coin_board(client_address, password)
     assert steps()["vendo-paired"] is False, "an unpaired Vendo still reads as paired"
     report.snapshot("next-steps-read-done-from-the-ledger-and-block-nothing", address, password, opener,
                     vendo=paired["id"], steps=steps())
 
 
-def onboarding(controller, args, data_dir, opener, report, address, password, client_address, existing, other_before, started):
+def onboarding(controller, args, data_dir, opener, report, address, password, lab, existing, other_before, started):
     """Use existing on someone else's HotSpot, after the shared onboarding Adopted hs1 (see use_existing).
     started(controller) hands each Controller this starts to the caller, which stops it even when a step fails."""
     assert existing.other() == other_before, "Controller boot changed the server that was not ticked"
@@ -6768,13 +6164,13 @@ def onboarding(controller, args, data_dir, opener, report, address, password, cl
     existing.teardown_other()
 
     server = _hotspot_module.SERVER
-    redirect_page, _ = device_redirect(client_address, password)
+    redirect_page, _ = lab.redirect()
     assert f"{PORTAL_URL}/portal" in redirect_page, redirect_page
-    device_ip = router_rest(client_address, "admin", password, "/ip/address?interface=lan1", scheme="http")[0]["address"].split("/")[0]
+    device_ip = lab.device_ip()
     # Item 8 first: the Device below gets online only through the Controller's NAT exemption.
-    portal_reachability(opener, report, address, password, client_address, device_ip)
+    portal_reachability(opener, report, address, password, lab, device_ip)
     # The Portal page reads its state on load, as a Device's browser does.
-    portal_state(pause_device_fetch(client_address, password, device_ip, "/portal/api/state"))
+    portal_state(pause_device_fetch(lab, device_ip, "/portal/api/state"))
     items = checklist(request(opener, "/admin").read().decode())
     assert unmet(items) == [], items
     report.snapshot("device-sent-to-the-portal-meets-the-last-item", address, password, opener,
@@ -6782,20 +6178,18 @@ def onboarding(controller, args, data_dir, opener, report, address, password, cl
     response = generate_vouchers(opener, {"seconds": "600", "count": "2"})
     assert response.status == 200
     codes = voucher_codes(opener, response)
-    state = portal_state(pause_device_fetch(client_address, password, device_ip, "/portal/api/redeem", {"code": codes[0]}))
+    state = portal_state(pause_device_fetch(lab, device_ip, "/portal/api/redeem", {"code": codes[0]}))
     assert_message(state, "success", "online")
-    target, internet = device_internet(client_address, password, device_ip)
+    target, internet = lab.internet(device_ip)
     assert PORTAL_URL.removeprefix("http://") + "/portal" not in internet
     report.snapshot("adopted-server-sends-a-device-online-with-a-voucher", address, password, opener,
                     redirect_html=redirect_page, internet_target=target)
-    next_steps_follow_the_shop(opener, report, address, password, client_address)
+    next_steps_follow_the_shop(opener, report, address, password, lab)
 
     # A ledger from before Router setup: a saved Router connection and no record of Adopted servers.
     # The Router is as that Controller left it, the server profile on the default directory.
     controller.stop()
-    with sqlite3.connect(Path(data_dir) / "openpiso.db") as db:
-        db.execute("DROP TABLE adopted_hotspot_servers")
-    db.close()
+    lab.ledger("DROP TABLE adopted_hotspot_servers")
     profile = router_rest(address, "admin", password, f"/ip/hotspot/profile?name={_hotspot_module.SERVER_PROFILE}")[0]
     router_rest(address, "admin", password, f"/ip/hotspot/profile/{profile['.id']}", "PATCH", {"html-directory": "hotspot"})
     for active in router_rest(address, "admin", password, "/ip/hotspot/active"):
@@ -6813,9 +6207,9 @@ def onboarding(controller, args, data_dir, opener, report, address, password, cl
     assert 'name="server"' not in page, page
     profile = router_rest(address, "admin", password, f"/ip/hotspot/profile?name={_hotspot_module.SERVER_PROFILE}")[0]
     assert profile["html-directory"] == _hotspot_module.CONTROLLER_LOGIN_DIRECTORY, profile
-    connected = portal_state(pause_device_fetch(client_address, password, device_ip, "/portal/api/connect", {}))
+    connected = portal_state(pause_device_fetch(lab, device_ip, "/portal/api/connect", {}))
     assert_message(connected, "success", "online")
-    target, internet = device_internet(client_address, password, device_ip)
+    target, internet = lab.internet(device_ip)
     assert PORTAL_URL.removeprefix("http://") + "/portal" not in internet
     report.snapshot("ledger-from-before-router-setup-starts-adopted-and-brings-a-device-online", address, password, opener,
                     adopted=state["router"]["adopted_hotspot_servers"], internet_target=target)
@@ -6824,8 +6218,8 @@ def onboarding(controller, args, data_dir, opener, report, address, password, cl
     controller, opener = shared_profile(controller, args, data_dir, report, address, password, existing, started)
     # Before the step below, which needs no HotSpot server: Add alongside removes its servers when done,
     # and they stay Adopted until forgotten.
-    vlan_server = add_alongside(opener, report, address, password, client_address, existing, Path(data_dir) / "openpiso.db")
-    forget_missing(opener, report, address, password, client_address, sorted([ALONGSIDE, vlan_server]))
+    vlan_server = add_alongside(opener, report, address, password, lab, existing)
+    forget_missing(opener, report, address, password, lab, sorted([ALONGSIDE, vlan_server]))
 
     # Last: a re-created HotSpot server takes a while before a Device fetch through it works.
     def no_use_existing():
@@ -6835,27 +6229,22 @@ def onboarding(controller, args, data_dir, opener, report, address, password, cl
     without_hotspot_servers(address, password, no_use_existing)
     report.snapshot("use-existing-hidden-without-a-hotspot-server", address, password, opener)
     # After the Use existing Shop has sold time; it goes on as a new Shop with a fresh ledger.
-    return fresh_start(controller, args, data_dir, opener, report, address, password, client_address, existing, started)
+    return fresh_start(controller, args, data_dir, opener, report, address, password, lab, existing, started)
 
 
-def scenario(args, report: Report, lab: dict[str, str]) -> None:
-    address = router_address()
-    configure_router_tls(address, lab["CHR_PASSWORD"])
-    client_address = start_client(lab["CHR_PASSWORD"])
-    client = lambda path, method="GET", body=None: router_rest(client_address, "admin", lab["CHR_PASSWORD"], path, method, body, scheme="http")
-    report.data["chr_client_cleanup"] = {}
-    _lab_module.cleanup(client, report.data["chr_client_cleanup"])
-    cleanup_vendo_router(address, lab["CHR_PASSWORD"])
-    interface = client("/interface/ethernet?name=lan1")[0]
-    client(f"/interface/ethernet/{interface['.id']}", "PATCH", {"disabled": "no"})
-    renew_device_lease(client_address, lab["CHR_PASSWORD"], verify_portal=False)
-    report.data["chr_client_cleanup"]["device_lease"] = client("/ip/dhcp-client?interface=lan1")
-    vlan_host_evidence(address, lab["CHR_PASSWORD"], client_address, report, args.write_vlan_hosts)
+def scenario(args, report: Report, lab) -> None:
+    password = lab.router_password
+    address = lab.router_address
+    lab.new_router_certificate()
+    report.data["device_lease"] = lab.reset_device()
+    vlan_host_evidence(lab, report)
+    if args.only == "onboarding":
+        lab.remove_vlan_hotspots()
     resource = router_rest(address, ROUTER_ADMIN, ROUTER_ADMIN_PASSWORD, "/system/resource")
     assert resource["version"].startswith("7.")
-    original_hotspot_names = {entry["name"] for entry in router_rest(address, "admin", lab["CHR_PASSWORD"], "/ip/hotspot/user")}
+    original_hotspot_names = {entry["name"] for entry in router_rest(address, "admin", password, "/ip/hotspot/user")}
     existing = _hotspot_module.ExistingHotspotLab(
-        lambda path, method="GET", body=None: router_rest(address, "admin", lab["CHR_PASSWORD"], path, method, body))
+        lambda path, method="GET", body=None: router_rest(address, "admin", password, path, method, body))
     try:
         with tempfile.TemporaryDirectory(prefix="openpiso-e2e-") as data_dir:
             def restart_browser_controller():
@@ -6918,7 +6307,7 @@ def scenario(args, report: Report, lab: dict[str, str]) -> None:
                 assert state["database"]["journal_mode"] == "wal"
                 assert state["database"]["synchronous"] == "full"
                 assert not contains_secret_key(state)
-                report.snapshot("boot-admin-password-persisted-and-rate-limited", address, lab["CHR_PASSWORD"], opener,
+                report.snapshot("boot-admin-password-persisted-and-rate-limited", address, password, opener,
                                 login_failures=5, sixth_status=429, journal_mode="wal", synchronous="full")
 
                 response = request(opener, "/admin/routes")
@@ -6934,23 +6323,23 @@ def scenario(args, report: Report, lab: dict[str, str]) -> None:
                         assert request(anonymous, route["path"], "POST").status == 401
                     assert request(opener, route["path"]).status in (200, 405)
                     assert request(opener, route["path"], "POST", headers={"Origin": "http://attacker.invalid"}).status == 403
-                report.snapshot("authenticated-post-route-policy", address, lab["CHR_PASSWORD"], opener, routes=routes)
+                report.snapshot("authenticated-post-route-policy", address, password, opener, routes=routes)
 
                 if args.only == "pairing":
                     provisioned = json.load(request(opener, "/admin/vendos/pair", "POST", {"mac": "02:00:00:42:00:01"}))
                     assert not json.load(request(opener, "/admin/state")).get("router", {}).get("configured", False)
                     assert request(opener, "/admin/vendos/unpair", "POST", {"id": provisioned["id"]}).status == 204
-                    report.snapshot("provisioned-unpair-needs-no-router", address, lab["CHR_PASSWORD"], opener)
+                    report.snapshot("provisioned-unpair-needs-no-router", address, password, opener)
 
-                non_v7_refusal(opener, report, address, lab["CHR_PASSWORD"])
+                non_v7_refusal(opener, report, address, password, lab)
 
                 # Every run connects to someone else's HotSpot (lab/chr/hotspot_lab.py) and Adopts hs1.
                 existing.setup()
-                tree_before_connect = hotspot_tree(address, lab["CHR_PASSWORD"])
+                tree_before_connect = hotspot_tree(address, password)
                 other_before = existing.other()
                 users_before = existing.users()
-                assert router_backups(address, lab["CHR_PASSWORD"]) == []
-                report.snapshot("router-holds-someone-elses-hotspot", address, lab["CHR_PASSWORD"], opener,
+                assert router_backups(address, password) == []
+                report.snapshot("router-holds-someone-elses-hotspot", address, password, opener,
                                 hotspot=tree_before_connect, users=users_before)
 
                 response = request(
@@ -6958,7 +6347,7 @@ def scenario(args, report: Report, lab: dict[str, str]) -> None:
                     "/admin/router/probe",
                     "POST",
                     {
-                        "address": f"https://{address}",
+                        "address": lab.router_url,
                         "username": ROUTER_ADMIN,
                         "password": ROUTER_ADMIN_PASSWORD,
                     },
@@ -6968,10 +6357,10 @@ def scenario(args, report: Report, lab: dict[str, str]) -> None:
                 fingerprint = re.search(r"SHA256:(?:[0-9A-F]{2}:){31}[0-9A-F]{2}", probe_page)
                 assert fingerprint, probe_page
                 assert ROUTER_ADMIN_PASSWORD not in probe_page
-                certificates = router_rest(address, "admin", lab["CHR_PASSWORD"], "/certificate?name=openpiso-e2e-server")
+                certificates = router_rest(address, "admin", password, "/certificate?name=openpiso-e2e-server")
                 router_fingerprint = certificates[0]["fingerprint"].upper()
                 assert fingerprint.group(0).removeprefix("SHA256:").replace(":", "") == router_fingerprint
-                report.snapshot("operator-compares-certificate", address, lab["CHR_PASSWORD"], opener,
+                report.snapshot("operator-compares-certificate", address, password, opener,
                                 displayed_fingerprint=fingerprint.group(0), router_fingerprint=router_fingerprint)
 
                 # Connecting lands on Router setup and changes no HotSpot configuration.
@@ -6980,18 +6369,18 @@ def scenario(args, report: Report, lab: dict[str, str]) -> None:
                 assert response.status == 200, setup_page
                 assert urllib.parse.urlsplit(response.url).path == "/admin", response.url
                 assert "Router setup" in setup_page and "RouterOS 7." in setup_page, setup_page
-                assert hotspot_tree(address, lab["CHR_PASSWORD"]) == tree_before_connect, "connecting changed the HotSpot"
+                assert hotspot_tree(address, password) == tree_before_connect, "connecting changed the HotSpot"
                 assert existing.users() == users_before
-                backups = router_backups(address, lab["CHR_PASSWORD"])
+                backups = router_backups(address, password)
                 assert len(backups) == 1 and backups[0].endswith(".backup"), backups
                 assert router_setup_finished(opener) == (False, True)
-                report.snapshot("connecting-changes-no-hotspot-and-saves-a-backup", address, lab["CHR_PASSWORD"], opener,
+                report.snapshot("connecting-changes-no-hotspot-and-saves-a-backup", address, password, opener,
                                 backups=backups, setup_html=setup_page)
 
                 response = request(opener, "/admin/state")
                 state = json.load(response)
                 assert state["router"] == {
-                    "address": f"https://{address}",
+                    "address": lab.router_url,
                     "adopted_hotspot_servers": [],
                     "configured": True,
                     "fingerprint": fingerprint.group(0),
@@ -7008,23 +6397,23 @@ def scenario(args, report: Report, lab: dict[str, str]) -> None:
                 policies = set(groups[0]["policy"].split(","))
                 assert {"read", "write", "test", "api", "rest-api"} <= policies
                 assert not ({"local", "telnet", "ssh", "ftp", "reboot", "policy", "password", "winbox", "web", "sniff", "sensitive", "romon"} & policies)
-                report.snapshot("onboarded-with-special-character-admin-password", address, lab["CHR_PASSWORD"], opener,
+                report.snapshot("onboarded-with-special-character-admin-password", address, password, opener,
                                 password_contains_ampersand_equals_plus_hash_and_non_ascii=True,
                                 admin_readback_write_only=True)
 
-                use_existing(opener, report, address, lab["CHR_PASSWORD"], existing, tree_before_connect, other_before, users_before)
+                use_existing(opener, report, address, password, existing, tree_before_connect, other_before, users_before)
                 if args.only != "onboarding":
                     existing.teardown_other()  # the onboarding scenario checks it again after a boot
-                baseline_before_restart = capture_baseline(address, lab["CHR_PASSWORD"])
+                baseline_before_restart = capture_baseline(address, password)
                 response = request(opener, "/admin/router/probe", "POST", {
-                    "address": f"https://{address}", "username": ROUTER_ADMIN, "password": ROUTER_ADMIN_PASSWORD,
+                    "address": lab.router_url, "username": ROUTER_ADMIN, "password": ROUTER_ADMIN_PASSWORD,
                 })
                 assert response.status == 200
                 response = request(opener, "/admin/router/confirm", "POST")
                 assert response.status == 200, response.read().decode()
-                assert capture_baseline(address, lab["CHR_PASSWORD"]) == baseline_before_restart
-                report.snapshot("second-onboarding-is-idempotent", address, lab["CHR_PASSWORD"], opener)
-                cleanup_router(lab["CHR_PASSWORD"])
+                assert capture_baseline(address, password) == baseline_before_restart
+                report.snapshot("second-onboarding-is-idempotent", address, password, opener)
+                lab.remove_bootstrap_admin()
             finally:
                 report.capture_lab_failure()
                 controller.stop()
@@ -7038,85 +6427,79 @@ def scenario(args, report: Report, lab: dict[str, str]) -> None:
                 response = request(opener, "/admin/state")
                 state = json.load(response)
                 assert state["router"]["status"] == "ready"
-                baseline_after_restart = capture_baseline(address, lab["CHR_PASSWORD"])
+                baseline_after_restart = capture_baseline(address, password)
                 assert baseline_after_restart == baseline_before_restart
-                report.snapshot("boot-reverified-with-bootstrap-admin-deleted", address, lab["CHR_PASSWORD"], opener)
+                report.snapshot("boot-reverified-with-bootstrap-admin-deleted", address, password, opener)
 
                 if args.only:
-                    configure_device_routing(lab["CHR_PASSWORD"])
                     if args.only == "pairing":
-                        _flash_module.scenario(sys.modules[__name__], opener, address, lab["CHR_PASSWORD"], client_address, report)
+                        _flash_module.scenario(sys.modules[__name__], opener, address, password, lab, report)
                     elif args.only == "vlan":
-                        vendo_auto_select(opener, address, lab["CHR_PASSWORD"], client_address, report)
+                        vendo_auto_select(opener, address, password, lab, report)
                     elif args.only == "sales":
-                        device_redirect(client_address, lab["CHR_PASSWORD"])
-                        sales_report(opener, report, address, lab["CHR_PASSWORD"], client_address)
+                        lab.redirect()
+                        sales_report(opener, report, address, password, lab)
                     elif args.only == "vendo-list":
-                        vendo_list_details(opener, report, address, lab["CHR_PASSWORD"], client_address)
-                        device_redirect(client_address, lab["CHR_PASSWORD"])
-                        device_ip = router_rest(client_address, "admin", lab["CHR_PASSWORD"],
-                                                "/ip/address?interface=lan1", scheme="http")[0]["address"].split("/")[0]
-                        vendo_list_rate_tier_validity(opener, report, address, lab["CHR_PASSWORD"], client_address, device_ip)
-                        vendo_list_points(opener, report, address, lab["CHR_PASSWORD"], client_address, device_ip)
-                        vendo_list_points_redeem(opener, report, address, lab["CHR_PASSWORD"], client_address, device_ip)
-                        vendo_list_hotspot_profile(opener, report, address, lab["CHR_PASSWORD"], client_address, device_ip)
-                        vendo_list_coins_out(opener, report, address, lab["CHR_PASSWORD"], client_address, device_ip)
-                        vendo_list_online_devices_up_since(opener, report, address, lab["CHR_PASSWORD"], client_address)
-                        vendo_list_deactivate(opener, report, address, lab["CHR_PASSWORD"], client_address)
-                        vendo_list_rates(opener, report, address, lab["CHR_PASSWORD"], client_address)
-                        vendo_list_points_tab(opener, report, address, lab["CHR_PASSWORD"], client_address)
+                        vendo_list_details(opener, report, address, password, lab)
+                        lab.redirect()
+                        device_ip = lab.device_ip()
+                        vendo_list_rate_tier_validity(opener, report, address, password, lab, device_ip)
+                        vendo_list_points(opener, report, address, password, lab, device_ip)
+                        vendo_list_points_redeem(opener, report, address, password, lab, device_ip)
+                        vendo_list_hotspot_profile(opener, report, address, password, lab, device_ip)
+                        vendo_list_coins_out(opener, report, address, password, lab, device_ip)
+                        vendo_list_online_devices_up_since(opener, report, address, password, lab)
+                        vendo_list_deactivate(opener, report, address, password, lab)
+                        vendo_list_rates(opener, report, address, password, lab)
+                        vendo_list_points_tab(opener, report, address, password, lab)
                     elif args.only == "shop-defaults":
-                        shop_defaults_rate_tiers(opener, report, address, lab["CHR_PASSWORD"], client_address)
-                        shop_defaults_vendo_list(opener, report, address, lab["CHR_PASSWORD"], client_address)
-                        shop_defaults_pill_lists(opener, report, address, lab["CHR_PASSWORD"], client_address)
-                        shop_defaults_points_table(opener, report, address, lab["CHR_PASSWORD"], client_address)
+                        shop_defaults_rate_tiers(opener, report, address, password, lab)
+                        shop_defaults_vendo_list(opener, report, address, password, lab)
+                        shop_defaults_pill_lists(opener, report, address, password, lab)
+                        shop_defaults_points_table(opener, report, address, password, lab)
                     elif args.only == "vouchers":
-                        vouchers(opener, report, address, lab["CHR_PASSWORD"], client_address)
+                        vouchers(opener, report, address, password, lab)
                     elif args.only == "onboarding":
-                        controller, opener = onboarding(controller, args, data_dir, opener, report, address, lab["CHR_PASSWORD"],
-                                                        client_address, existing, other_before, started_controller)
+                        controller, opener = onboarding(controller, args, data_dir, opener, report, address, password,
+                                                        lab, existing, other_before, started_controller)
                     elif args.only == "browser":
-                        device_redirect(client_address, lab["CHR_PASSWORD"])
-                        device_ip = router_rest(client_address, "admin", lab["CHR_PASSWORD"],
-                                                "/ip/address?interface=lan1", scheme="http")[0]["address"].split("/")[0]
-                        custom_portal(opener, report, address, lab["CHR_PASSWORD"], client_address, device_ip)
-                        _browser_module.scenario(sys.modules[__name__], opener, address, lab["CHR_PASSWORD"], client_address, report, restart_browser_controller)
+                        lab.redirect()
+                        device_ip = lab.device_ip()
+                        custom_portal(opener, report, address, password, lab, device_ip)
+                        _browser_module.scenario(sys.modules[__name__], opener, address, password, lab, report, restart_browser_controller)
                     else:  # time-running-out
-                        device_redirect(client_address, lab["CHR_PASSWORD"])
-                        device_ip = router_rest(client_address, "admin", lab["CHR_PASSWORD"],
-                                                "/ip/address?interface=lan1", scheme="http")[0]["address"].split("/")[0]
+                        lab.redirect()
+                        device_ip = lab.device_ip()
                         response = generate_vouchers(opener, {"seconds": "15", "count": "1"})
                         assert response.status == 200
                         code = voucher_codes(opener, response)[0]
-                        state = portal_state(pause_device_fetch(client_address, lab["CHR_PASSWORD"], device_ip,
+                        state = portal_state(pause_device_fetch(lab, device_ip,
                                                                 "/portal/api/redeem", {"code": code}))
                         assert state["time_credit"]["bought"] == 15
-                        time_running_out(opener, report, address, lab["CHR_PASSWORD"], client_address, device_ip)
+                        time_running_out(opener, report, address, password, lab, device_ip)
                     return
 
                 controller.stop()
-                drift_profile = router_rest(address, "admin", lab["CHR_PASSWORD"], "/ip/hotspot/profile?name=hs-prof")[0]
-                router_rest(address, "admin", lab["CHR_PASSWORD"], f"/ip/hotspot/profile/{drift_profile['.id']}", "PATCH", {"login-by": "cookie,http-pap"})
+                drift_profile = router_rest(address, "admin", password, "/ip/hotspot/profile?name=hs-prof")[0]
+                router_rest(address, "admin", password, f"/ip/hotspot/profile/{drift_profile['.id']}", "PATCH", {"login-by": "cookie,http-pap"})
                 controller = Controller(args.binary, data_dir, initialize=False)
                 cookies = http.cookiejar.CookieJar()
                 opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cookies))
                 assert request(opener, "/admin/login", "POST", {"password": ADMIN_PASSWORD}).status == 200
-                assert capture_baseline(address, lab["CHR_PASSWORD"]) == baseline_before_restart
-                report.snapshot("boot-repairs-router-drift", address, lab["CHR_PASSWORD"], opener, repaired_login_by="http-pap")
+                assert capture_baseline(address, password) == baseline_before_restart
+                report.snapshot("boot-repairs-router-drift", address, password, opener, repaired_login_by="http-pap")
 
-                dashboard_clean_ledger(opener, report, address, lab["CHR_PASSWORD"])
-                validity_settings(opener, report, address, lab["CHR_PASSWORD"])
-                codes = voucher_batch(opener, report, address, lab["CHR_PASSWORD"])
-                configure_device_routing(lab["CHR_PASSWORD"])
-                client_address = start_client(lab["CHR_PASSWORD"])
-                redirect_page, portal_page = device_redirect(client_address, lab["CHR_PASSWORD"])
+                dashboard_clean_ledger(opener, report, address, password)
+                validity_settings(opener, report, address, password)
+                codes = voucher_batch(opener, report, address, password)
+                redirect_page, portal_page = lab.redirect()
                 assert f"{PORTAL_URL}/portal" in redirect_page
                 assert "02%3A00%3A00%3A00%3A0C%3A01" in redirect_page
                 assert "OpenPiso WiFi" in portal_page and "/portal/core.js" in portal_page
-                report.snapshot("customer-device-redirect-and-walled-garden", address, lab["CHR_PASSWORD"], opener,
+                report.snapshot("customer-device-redirect-and-walled-garden", address, password, opener,
                                 redirect_html=redirect_page, portal_page=portal_page, customer_admin_status=403)
-                paired = vendo_pairing(opener, address, lab["CHR_PASSWORD"], client_address, report)
-                vendo = vendo_protocol(opener, paired, address, lab["CHR_PASSWORD"], report)
+                paired = vendo_pairing(opener, address, password, lab, report)
+                vendo = vendo_protocol(opener, paired, address, password, report)
                 before_restart = json.load(request(opener, "/admin/state"))["vendo_protocol"]
                 repeated = vendo.frame()
                 assert vendo.post(repeated, ignore_ack=True)[0] == 200
@@ -7128,72 +6511,73 @@ def scenario(args, report: Report, lab: dict[str, str]) -> None:
                 after_restart = json.load(request(opener, "/admin/state"))["vendo_protocol"]
                 assert after_restart["coin_deltas"] == before_restart["coin_deltas"]
                 assert after_restart["totals"] == before_restart["totals"]
-                report.snapshot("vendo-restart-lost-ack-does-not-credit-twice", address, lab["CHR_PASSWORD"], opener)
-                vendo_unpair(opener, paired, address, lab["CHR_PASSWORD"], report)
-                renew_device_lease(client_address, lab["CHR_PASSWORD"])
+                report.snapshot("vendo-restart-lost-ack-does-not-credit-twice", address, password, opener)
+                vendo_unpair(opener, paired, address, password, report)
+                lab.renew_lease()
                 assert vendo.post(vendo.frame())[0] == 401
-                device_ip, time_credit_cookie = voucher_redemption(opener, report, address, lab["CHR_PASSWORD"], client_address, codes)
+                device_ip, time_credit_cookie = voucher_redemption(opener, report, address, password, lab, codes)
                 controller.stop()
                 controller = Controller(args.binary, data_dir, initialize=False)
                 cookies = http.cookiejar.CookieJar()
                 opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cookies))
                 assert request(opener, "/admin/login", "POST", {"password": ADMIN_PASSWORD}).status == 200
-                cookie_after_restart(client_address, lab["CHR_PASSWORD"], device_ip, time_credit_cookie)
-                report.snapshot("time-credit-cookie-signing-key-persists-on-restart", address, lab["CHR_PASSWORD"], opener,
+                cookie_after_restart(lab, device_ip, time_credit_cookie)
+                report.snapshot("time-credit-cookie-signing-key-persists-on-restart", address, password, opener,
                                 cookie_stable=True)
                 controller, opener = reconciler_restart_outage(controller, args, data_dir, opener, report, address,
-                                                                lab["CHR_PASSWORD"], client_address, device_ip)
-                dashboard_router_unreachable(opener, report, address, lab["CHR_PASSWORD"])
-                tapped_pause(opener, report, address, lab["CHR_PASSWORD"], client_address, device_ip, time_credit_cookie)
-                idle_pause(opener, report, address, lab["CHR_PASSWORD"], client_address, device_ip)
-                top_up_code = top_up_online(opener, report, address, lab["CHR_PASSWORD"], client_address, device_ip, time_credit_cookie)
-                top_up_pause_budget(opener, report, address, lab["CHR_PASSWORD"], client_address, device_ip, time_credit_cookie, top_up_code)
-                time_running_out(opener, report, address, lab["CHR_PASSWORD"], client_address, device_ip)
+                                                                password, lab, device_ip)
+                dashboard_router_unreachable(opener, report, address, password, lab)
+                tapped_pause(opener, report, address, password, lab, device_ip, time_credit_cookie)
+                idle_pause(opener, report, address, password, lab, device_ip)
+                top_up_code = top_up_online(opener, report, address, password, lab, device_ip, time_credit_cookie)
+                top_up_pause_budget(opener, report, address, password, lab, device_ip, time_credit_cookie, top_up_code)
+                time_running_out(opener, report, address, password, lab, device_ip)
                 controller, opener = pending_credit_recovery(controller, args, data_dir, opener, report, address,
-                                                             lab["CHR_PASSWORD"], client_address, device_ip)
-                concurrent_voucher(opener, report, address, lab["CHR_PASSWORD"], client_address, codes[1])
+                                                             password, lab, device_ip)
+                concurrent_voucher(opener, report, address, password, lab, codes[1])
                 controller.stop()
                 controller = Controller(args.binary, data_dir, initialize=False)
                 cookies = http.cookiejar.CookieJar()
                 opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cookies))
                 assert request(opener, "/admin/login", "POST", {"password": ADMIN_PASSWORD}).status == 200
-                device_ip = rebind_recovery(opener, report, address, lab["CHR_PASSWORD"], client_address, device_ip, time_credit_cookie)
-                admin_grant(opener, report, address, lab["CHR_PASSWORD"], client_address, device_ip, time_credit_cookie)
-                admin_dashboard(opener, report, address, lab["CHR_PASSWORD"], client_address, device_ip, time_credit_cookie)
+                device_ip = rebind_recovery(opener, report, address, password, lab, device_ip, time_credit_cookie)
+                admin_grant(opener, report, address, password, lab, device_ip, time_credit_cookie)
+                admin_dashboard(opener, report, address, password, lab, device_ip, time_credit_cookie)
                 controller, opener = admin_audit_review(controller, args, data_dir, opener, report, address,
-                                                        lab["CHR_PASSWORD"], client_address, device_ip, time_credit_cookie)
-                coin_window_empty(opener, report, address, lab["CHR_PASSWORD"], client_address)
-                paired_coins, coin_vendo, coin_window = coin_window_open(opener, report, address, lab["CHR_PASSWORD"], client_address, device_ip)
-                coin_window_done(opener, report, address, lab["CHR_PASSWORD"], client_address, device_ip, coin_vendo, coin_window)
-                coin_window_grace(opener, report, address, lab["CHR_PASSWORD"], client_address, device_ip, coin_vendo)
+                                                        password, lab, device_ip, time_credit_cookie)
+                coin_window_empty(opener, report, address, password, lab)
+                paired_coins, coin_vendo, coin_window = coin_window_open(opener, report, address, password, lab, device_ip)
+                coin_window_done(opener, report, address, password, lab, device_ip, coin_vendo, coin_window)
+                coin_window_grace(opener, report, address, password, lab, device_ip, coin_vendo)
                 controller, opener = coin_window_boot(controller, args, data_dir, opener, report, address,
-                                                      lab["CHR_PASSWORD"], client_address, device_ip, coin_vendo)
-                coin_window_idle(opener, report, address, lab["CHR_PASSWORD"], client_address, device_ip, coin_vendo)
-                device_ip = coin_window_departure(opener, report, address, lab["CHR_PASSWORD"], client_address, device_ip, coin_vendo)
-                resume_code_throttling(opener, report, address, lab["CHR_PASSWORD"], client_address, device_ip)
-                device_ip = mac_change_without_rebind(opener, report, address, lab["CHR_PASSWORD"], client_address, device_ip)
-                ambiguous_device_host(opener, report, address, lab["CHR_PASSWORD"], client_address, device_ip, time_credit_cookie)
+                                                      password, lab, device_ip, coin_vendo)
+                coin_window_idle(opener, report, address, password, lab, device_ip, coin_vendo)
+                device_ip = coin_window_departure(opener, report, address, password, lab, device_ip, coin_vendo)
+                resume_code_throttling(opener, report, address, password, lab, device_ip)
+                device_ip = mac_change_without_rebind(opener, report, address, password, lab, device_ip)
+                ambiguous_device_host(opener, report, address, password, lab, device_ip, time_credit_cookie)
                 expired_id, expired_cookie, validity_code = validity_online_expiry(
-                    opener, report, address, lab["CHR_PASSWORD"], client_address, device_ip)
-                admin_expired_grant(opener, report, address, lab["CHR_PASSWORD"], expired_id)
-                validity_offline_expiry(opener, report, address, lab["CHR_PASSWORD"], client_address,
+                    opener, report, address, password, lab, device_ip)
+                admin_expired_grant(opener, report, address, password, expired_id)
+                validity_offline_expiry(opener, report, address, password, lab,
                                         device_ip, expired_id, expired_cookie, validity_code)
                 # A Top-up never shortens Validity (ADR 0006), so the short-deadline
                 # steps run while the Device holds no live Time Credit.
-                admin_grant_after_deadline(opener, report, address, lab["CHR_PASSWORD"], client_address, device_ip)
-                coin_credit_after_expiry(opener, report, address, lab["CHR_PASSWORD"], client_address, device_ip, coin_vendo)
-                voucher_while_tapped_paused(opener, report, address, lab["CHR_PASSWORD"], client_address, device_ip)
+                admin_grant_after_deadline(opener, report, address, password, lab, device_ip)
+                coin_credit_after_expiry(opener, report, address, password, lab, device_ip, coin_vendo)
+                voucher_while_tapped_paused(opener, report, address, password, lab, device_ip)
                 assert request(opener, "/admin/vendos/unpair", "POST", {"id": paired_coins["id"]}).status == 204
-                sales_report(opener, report, address, lab["CHR_PASSWORD"], client_address)
-                custom_portal(opener, report, address, lab["CHR_PASSWORD"], client_address, device_ip)
-                _browser_module.scenario(sys.modules[__name__], opener, address, lab["CHR_PASSWORD"], client_address, report, restart_browser_controller)
-                _flash_module.scenario(sys.modules[__name__], opener, address, lab["CHR_PASSWORD"], client_address, report)
-                vendo_auto_select(opener, address, lab["CHR_PASSWORD"], client_address, report)
+                sales_report(opener, report, address, password, lab)
+                custom_portal(opener, report, address, password, lab, device_ip)
+                _browser_module.scenario(sys.modules[__name__], opener, address, password, lab, report, restart_browser_controller)
+                _flash_module.scenario(sys.modules[__name__], opener, address, password, lab, report)
+                vendo_auto_select(opener, address, password, lab, report)
+                lab.own_scenarios(opener, report)
             finally:
                 report.capture_lab_failure()
                 controller.stop()
 
-            configure_router_tls(address, lab["CHR_PASSWORD"])
+            lab.new_router_certificate()
             controller = Controller(args.binary, data_dir, initialize=False)
             try:
                 cookies = http.cookiejar.CookieJar()
@@ -7203,25 +6587,16 @@ def scenario(args, report: Report, lab: dict[str, str]) -> None:
                 assert state["router"]["status"] == "error"
                 assert "certificate" in state["router"]["error"].lower()
                 assert state["router"]["fingerprint"] == fingerprint.group(0)
-                report.snapshot("changed-certificate-refused", address, lab["CHR_PASSWORD"], opener)
+                report.snapshot("changed-certificate-refused", address, password, opener)
             finally:
                 report.capture_lab_failure()
                 controller.stop()
     finally:
-        # Finish all Router REST work before hot-unplugging its fixture NIC:
-        # RouterOS management can be briefly unreachable during hot-unplug.
         report.capture_lab_failure()
         cleanup_steps(report, [
-            ("coin board", lambda: cleanup_coin_board(client_address, lab["CHR_PASSWORD"])),
-            ("Vendo Router rules", lambda: cleanup_vendo_router(address, lab["CHR_PASSWORD"])),
-            ("HotSpot users", lambda: cleanup_hotspot_users(address, lab["CHR_PASSWORD"], original_hotspot_names)),
+            ("Vendo Router rules", lambda: cleanup_vendo_router(address, password)),
+            ("HotSpot users", lambda: cleanup_hotspot_users(address, password, original_hotspot_names)),
             ("existing HotSpot fixture", existing.teardown),
-            ("bootstrap admin", lambda: cleanup_router(lab["CHR_PASSWORD"])),
-            ("fixture Router address", lambda: rcon(lab["CHR_PASSWORD"], '/ip address remove [find where comment="openpiso-e2e-routing"]')),
-            ("fixture source NAT", lambda: rcon(lab["CHR_PASSWORD"], '/ip firewall nat remove [find where comment="openpiso-e2e-routing"]')),
-            ("fixture masquerade", lambda: rcon(lab["CHR_PASSWORD"], '/ip firewall nat remove [find where comment="openpiso-e2e-masquerade"]')),
-            ("fixture Router NIC", detach_device_routing),
-            ("fixture network", destroy_device_network),
         ])
 
 
@@ -7257,26 +6632,21 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--only", choices=ONLY_SCENARIOS,
                         help="run onboarding, then one scenario: " + "; ".join(f"{name}: {what}" for name, what in ONLY_SCENARIOS.items()))
-    parser.add_argument("--build", action="store_true", help="build the Controller while holding the lab lock")
+    parser.add_argument("--keep", action="store_true", help="leave the Docker lab (or the --only boot/update ARMv7 guest) running and print how to reach and remove it")
+    parser.add_argument("--build", action="store_true", help="build the Controller first")
     parser.add_argument("--binary", help="Controller binary under test; --only update builds its own")
     parser.add_argument("--report", type=Path)
-    parser.add_argument("--write-vlan-hosts", action="store_true", help="refresh the committed VLAN auto-select research hosts.json")
     parser.add_argument("--armv7", action="store_true", help="run every scenario in a fresh 256 MiB ARM guest")
-    parser.add_argument("--arm-boot-timeout", type=float, default=900, help="ARM boot/cloud-init timeout in seconds (default 900)")
-    parser.add_argument("--http-timeout", type=float, help="HTTP timeout in seconds (native 3, ARM 120)")
-    parser.add_argument("--lock-timeout", type=float, default=2700,
-                        help="seconds to queue for the CHR lab lock before giving up (default 2700)")
+    parser.add_argument("--arm-boot-timeout", type=float, default=1800, help="ARM boot/cloud-init timeout in seconds (default 1800)")
+    parser.add_argument("--http-timeout", type=float, help="HTTP timeout in seconds (Docker 30, ARM 120)")
     args = parser.parse_args()
     if not 0 < args.arm_boot_timeout < float("inf"):
         parser.error("--arm-boot-timeout must be a positive finite number")
-    if not 0 < args.lock_timeout < float("inf"):
-        parser.error("--lock-timeout must be a positive finite number")
     if args.only in ("boot", "update") and not args.armv7:
         parser.error(f"--only {args.only} requires --armv7")
     if args.binary is None and args.only != "update":
         parser.error("--binary is required")
-    with _safety_module.lab_lock(args.lock_timeout):
-        run(args)
+    run(args)
 
 
 def run(args: argparse.Namespace) -> None:
@@ -7284,13 +6654,13 @@ def run(args: argparse.Namespace) -> None:
     boot_only = args.only == "boot"
     update_only = args.only == "update"
     no_lab = boot_only or update_only  # ARM guest only, no CHR
-    HTTP_TIMEOUT = args.http_timeout if args.http_timeout is not None else (120 if args.armv7 else 3)
+    HTTP_TIMEOUT = args.http_timeout if args.http_timeout is not None else (120 if args.armv7 else 30)
     partial_mode = f"armv7-{args.only}" if no_lab else (f"{args.only}-only" if args.only else None)
     if args.report is None:
         name = f"{partial_mode}.json" if no_lab else ("armv7.json" if args.armv7 else "walking-skeleton.json")
         if not args.armv7 and partial_mode:
             name = f"{partial_mode}.json"
-        args.report = Path(__file__).parent / "reports" / name
+        args.report = Path(__file__).parent / "reports" / f"docker-{name}"
     releases = None
     if update_only:
         spec = importlib.util.spec_from_file_location("update_vm", Path(__file__).with_name("update_vm.py"))
@@ -7300,43 +6670,57 @@ def run(args: argparse.Namespace) -> None:
         args.binary = str(releases.binary("v0.1.0"))
     elif args.build:
         subprocess.run(["make", "-C", str(ROOT / "controller"), "armv7" if args.armv7 else "build"], check=True)
-    if not no_lab:
-        lab = load_lab_env()
-        _safety_module.preflight(ROOT)
+    lab = None if no_lab else _docker_module.DockerLab(sys.modules[__name__], Path(args.binary), args.keep)
     report = Report(args.binary, args.report)
-    if not no_lab:
-        report.lab_snapshot = lambda: _lab_module.snapshot(
-            lambda path: router_rest(router_address("chr-client"), "admin", lab["CHR_PASSWORD"], path, scheme="http"),
-            lambda path: router_rest(router_address(), "admin", lab["CHR_PASSWORD"], path))
+    if lab is not None:
+        report.lab_snapshot = lab.snapshot
     if partial_mode:
         report.data["scenario"] = partial_mode
+
+    def arm_headroom():
+        peak = ARM_VM.peak_rss_kib()
+        report.data["execution"]["peak_controller_rss_kib"] = peak
+        report.data["execution"]["rss_target_kib"] = 64 * 1024
+        assert 0 < peak < 64 * 1024, f"Controller peak RSS {peak} KiB; target <65536 KiB"
+
     try:
         if args.armv7:
             spec = importlib.util.spec_from_file_location("arm_vm", Path(__file__).with_name("arm_vm.py"))
             module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(module)
-            ARM_VM = module.ArmVM(Path(args.binary), args.arm_boot_timeout, args.report.with_suffix(".serial.log"))
-            ARM_VM.boot()
-            BASE_URL = PORTAL_URL = f"http://{ARM_VM.address}:18080"
+            serial = args.report.with_suffix(".serial.log")
+            ARM_VM = module.ArmContainer(Path(args.binary), args.arm_boot_timeout, serial, _docker_module)
+            if lab is not None:
+                lab.arm = ARM_VM  # the lab boots it on its WAN, in the Controller's place
+            else:  # no lab to remove the guest: the run does, however it ends, as a lab run does
+                _docker_module.unwind_on_signals()
+                ARM_VM.boot()
+                BASE_URL = PORTAL_URL = ARM_VM.base_url
             if boot_only:
                 evidence = ARM_VM.boot_evidence()
                 assert evidence["machine"] == "armv7l", evidence
                 assert 0 < evidence["memory_total_kib"] <= 256 * 1024, evidence
                 assert evidence["swap_total_kib"] == 0, evidence
                 report.data["execution"] = evidence
+                report.data["test_seam"] = "ARMv7 guest under QEMU (TCG) in a Docker container, over SSH"
             elif update_only:
                 releases.run(ARM_VM, report, ADMIN_PASSWORD)
-            else:
-                ARM_VM.route_customer_network(router_address())
-                ARM_VM.install(ADMIN_PASSWORD)
-                assert_arm_install(ARM_VM, report)
-        if not no_lab:
-            scenario(args, report, lab)
-        if ARM_VM is not None and not no_lab:
-            peak = ARM_VM.peak_rss_kib()
-            report.data["execution"]["peak_controller_rss_kib"] = peak
-            report.data["execution"]["rss_target_kib"] = 64 * 1024
-            assert 0 < peak < 64 * 1024, f"Controller peak RSS {peak} KiB; target <65536 KiB"
+            if no_lab:
+                report.data["execution"].update(ARM_VM.container_memory())
+        if lab is not None:
+            with lab.running(report):
+                if ARM_VM is not None:
+                    ARM_VM.install(ADMIN_PASSWORD)
+                    assert_arm_install(ARM_VM, report)
+                    # The installed daily update check fires at a random time up to an hour after install
+                    # and, offline here, still writes status.json, which gives the Dashboard an update
+                    # notice its scenario rules out. Hold it for this run; the update check covers it.
+                    ARM_VM.ssh("sudo systemctl stop openpiso-update-check.timer; "
+                               "sudo test ! -e /var/lib/openpiso-update/status.json")
+                scenario(args, report, lab)
+                if ARM_VM is not None:  # the guest goes with the lab
+                    arm_headroom()
+                    report.data["execution"].update(ARM_VM.container_memory())
     except Exception as error:
         report.capture_lab_failure()
         if ARM_VM is not None:
@@ -7346,8 +6730,9 @@ def run(args: argparse.Namespace) -> None:
     else:
         report.finish("pass")
     finally:
+        _docker_module.ignore_signals()
         if ARM_VM is not None:
-            ARM_VM.close()
+            ARM_VM.close(args.keep)
         if releases is not None:
             releases.close()
 

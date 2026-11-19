@@ -1,0 +1,103 @@
+{
+  "format_version": 1,
+  "scenario": "onboarding-only",
+  "started_at": "2026-11-19T21:44:30.714517+00:00",
+  "git_commit": "3786e1bfa808400cb4ec9e4527435ae9a8b800f4",
+  "git_tree": "39a0f982551ac671f52baeb20c15d920d76d2b06",
+  "git_dirty": true,
+  "binary_size_bytes": 23415435,
+  "binary_sha256": "f5fd83e390f94fb4436961174858bab3fe709925ecfb0d01396dc2220e4573d5",
+  "test_seam": "Controller binary via external HTTP against a Docker lab: stock CHR Router and Linux Devices",
+  "result": "pass",
+  "lab": {
+    "name": "opnwlab-f721de",
+    "chr_version": "7.23.8",
+    "chr_image": "/home/rgsv/.cache/openpiso/chr/chr-7.23.8.img",
+    "image": "opnwlab-image:5e04c5edc5a0",
+    "router_rest_seconds": 19.9,
+    "stock_router": {
+      "version": "7.23.8 (long-term)",
+      "admin_password": "empty",
+      "hotspot_servers": 0
+    },
+    "vlan_leases": [
+      {
+        "container": "opnwlab-f721de-vlan10-device",
+        "vlan": 10,
+        "mac-address": "02:00:00:00:0C:10",
+        "address": "10.5.10.200",
+        "server": "opnw-vlan10",
+        "status": "bound"
+      },
+      {
+        "container": "opnwlab-f721de-vlan20-device",
+        "vlan": 20,
+        "mac-address": "02:00:00:00:0C:20",
+        "address": "10.5.20.200",
+        "server": "opnw-vlan20",
+        "status": "bound"
+      }
+    ],
+    "vendo_reports": [
+      {
+        "vendo_id": 1,
+        "container": "opnwlab-f721de-coin-board",
+        "ip": "10.5.50.199",
+        "source_address": [
+          "10.5.50.199"
+        ],
+        "source_mac": "02:00:00:00:0C:04",
+        "status": 200
+      }
+    ],
+    "run_seconds": 218.6,
+    "removed": true
+  },
+  "cleanup": {
+    "result": "pass",
+    "failures": []
+  },
+  "finished_at": "2026-11-19T21:48:11.021828+00:00",
+  "steps": [
+    "boot-admin-password-persisted-and-rate-limited",
+    "authenticated-post-route-policy",
+    "non-v7-onboarding-refused-before-any-write",
+    "router-holds-someone-elses-hotspot",
+    "operator-compares-certificate",
+    "connecting-changes-no-hotspot-and-saves-a-backup",
+    "onboarded-with-special-character-admin-password",
+    "use-existing-lists-servers-ticked-and-names-both-changes",
+    "use-existing-adopts-only-the-ticked-server",
+    "second-onboarding-is-idempotent",
+    "boot-reverified-with-bootstrap-admin-deleted",
+    "boot-leaves-the-unticked-server-unchanged",
+    "masquerade-reported-and-exempted-by-one-controller-rule",
+    "missing-return-route-reported-with-manual-steps",
+    "device-sent-to-the-portal-meets-the-last-item",
+    "adopted-server-sends-a-device-online-with-a-voucher",
+    "next-steps-read-done-from-the-ledger-and-block-nothing",
+    "ledger-from-before-router-setup-starts-adopted-and-brings-a-device-online",
+    "drift-login-method-reported-and-cleared-by-its-fix",
+    "drift-server-enabled-reported-and-cleared-by-its-fix",
+    "shared-server-profile-reported-with-manual-steps-and-not-written-by-fix-or-boot",
+    "add-alongside-suggests-a-range-from-any-private-block-and-alone-shows-when-none-is-left",
+    "add-alongside-offers-free-interfaces-and-refuses-a-bad-range",
+    "add-alongside-refuses-names-held-by-the-operators-objects",
+    "add-alongside-retried-after-a-lost-response-adopts-the-server-it-made",
+    "add-alongside-creates-and-adopts-a-server-and-leaves-the-others",
+    "add-alongside-old-server-keeps-its-login-page-and-new-server-sends-a-device-online",
+    "add-alongside-server-network-reported-and-created-by-its-fix",
+    "add-alongside-vlan-suggests-parent-and-id-and-refuses-a-used-id-and-a-filtering-bridge",
+    "add-alongside-vlan-refuses-the-operators-vlan-with-the-controllers-name",
+    "add-alongside-vlan-creates-the-vlan-and-server-and-names-the-vlan-for-an-ssid",
+    "add-alongside-vlan-sends-a-device-on-the-vlan-online",
+    "missing-adopted-servers-reported-and-forgotten-without-a-router-write",
+    "create-after-forgetting-finishes-its-baseline",
+    "use-existing-hidden-without-a-hotspot-server",
+    "fresh-start-refused-while-the-ledger-has-a-time-credit",
+    "fresh-start-counts-what-it-deletes-and-names-the-backup",
+    "fresh-start-refused-before-any-router-write",
+    "fresh-start-deletes-only-the-hotspot-tree-and-creates-the-server-where-the-old-one-was",
+    "fresh-start-server-sends-a-device-online-with-a-voucher"
+  ]
+}

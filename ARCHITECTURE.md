@@ -256,12 +256,14 @@ Two reverse-engineered systems inform the design without being a base:
 ## Build order
 
 Walking skeleton first ([#6](https://github.com/H3atman/openpiso-wifi/issues/6)):
-Go binary + SQLite ledger + Router connect/baseline + CHR E2E harness. Then
+Go binary + SQLite ledger + Router connect/baseline + E2E harness. Then
 the dependency chain: Voucher (#7) → Pause (#8) → Top-up (#9), with Rebind (#10),
 Reconciler (#11), Validity (#12), admin (#13) off those; Vendo pairing (#15) and
 Coin Window (#16) land last. The armv7/256 MB run + install script (#14) gates on
 the skeleton. E2E drives external portal/admin/Vendo interfaces against a real
-CHR Router and a second CHR customer Device — never a fake Router.
+CHR Router, with Linux containers as customer Devices and Vendos, on a throwaway
+Docker lab per run — never a fake Router
+([ADR 0012](docs/adr/0012-e2e-runs-on-a-docker-lab-per-run.md)).
 
 ## Open questions
 

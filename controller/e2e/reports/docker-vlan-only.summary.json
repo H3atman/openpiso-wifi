@@ -1,0 +1,144 @@
+{
+  "format_version": 1,
+  "scenario": "vlan-only",
+  "started_at": "2026-11-19T09:43:38.330782+00:00",
+  "git_commit": "037c7f4beea389f44372ffdeda9030344751eb20",
+  "git_tree": "ec7e97d6d895b60e5fb9c229c3912b7a8a2c7f69",
+  "git_dirty": false,
+  "binary_size_bytes": 23103576,
+  "binary_sha256": "237b74f3fff0e68c930ca95534a81652684429416eb28ea01eb17130539fd018",
+  "test_seam": "Controller binary via external HTTP against a Docker lab: stock CHR Router and Linux Devices",
+  "result": "pass",
+  "lab": {
+    "name": "opnwlab-378c85",
+    "chr_version": "7.23.8",
+    "chr_image": "/home/rgsv/.cache/openpiso/chr/chr-7.23.8.img",
+    "image": "opnwlab-image:00cb97e32920",
+    "router_rest_seconds": 20.0,
+    "stock_router": {
+      "version": "7.23.8 (long-term)",
+      "admin_password": "empty",
+      "hotspot_servers": 0
+    },
+    "vlan_leases": [
+      {
+        "container": "opnwlab-378c85-vlan10-device",
+        "vlan": 10,
+        "mac-address": "02:00:00:00:0C:10",
+        "address": "10.5.10.200",
+        "server": "opnw-vlan10",
+        "status": "bound"
+      },
+      {
+        "container": "opnwlab-378c85-vlan20-device",
+        "vlan": 20,
+        "mac-address": "02:00:00:00:0C:20",
+        "address": "10.5.20.200",
+        "server": "opnw-vlan20",
+        "status": "bound"
+      },
+      {
+        "container": "opnwlab-378c85-vlan10-device",
+        "vlan": 10,
+        "mac-address": "02:00:00:00:0C:10",
+        "address": "10.5.10.200",
+        "server": "opnw-vlan10",
+        "status": "bound"
+      },
+      {
+        "container": "opnwlab-378c85-vlan20-device",
+        "vlan": 20,
+        "mac-address": "02:00:00:00:0C:20",
+        "address": "10.5.20.200",
+        "server": "opnw-vlan20",
+        "status": "bound"
+      },
+      {
+        "container": "opnwlab-378c85-board1",
+        "vlan": 10,
+        "mac-address": "02:00:00:41:00:01",
+        "address": "10.5.10.199",
+        "server": "opnw-vlan10",
+        "status": "bound"
+      },
+      {
+        "container": "opnwlab-378c85-board2",
+        "vlan": 20,
+        "mac-address": "02:00:00:41:00:02",
+        "address": "10.5.20.199",
+        "server": "opnw-vlan20",
+        "status": "bound"
+      },
+      {
+        "container": "opnwlab-378c85-board3",
+        "vlan": 10,
+        "mac-address": "02:00:00:41:00:03",
+        "address": "10.5.10.198",
+        "server": "opnw-vlan10",
+        "status": "bound"
+      },
+      {
+        "container": "opnwlab-378c85-vlan10-device",
+        "vlan": 10,
+        "mac-address": "02:00:00:00:0C:10",
+        "address": "10.5.10.200",
+        "server": "opnw-vlan10",
+        "status": "bound"
+      }
+    ],
+    "vendo_reports": [
+      {
+        "vendo_id": 1,
+        "container": "opnwlab-378c85-board1",
+        "ip": "10.5.10.199",
+        "source_address": [
+          "10.5.10.199"
+        ],
+        "source_mac": "02:00:00:41:00:01",
+        "status": 200
+      },
+      {
+        "vendo_id": 2,
+        "container": "opnwlab-378c85-board2",
+        "ip": "10.5.20.199",
+        "source_address": [
+          "10.5.20.199"
+        ],
+        "source_mac": "02:00:00:41:00:02",
+        "status": 200
+      },
+      {
+        "vendo_id": 3,
+        "container": "opnwlab-378c85-board3",
+        "ip": "10.5.10.198",
+        "source_address": [
+          "10.5.10.198"
+        ],
+        "source_mac": "02:00:00:41:00:03",
+        "status": 200
+      }
+    ],
+    "run_seconds": 67.6,
+    "removed": true
+  },
+  "cleanup": {
+    "result": "pass",
+    "failures": []
+  },
+  "finished_at": "2026-11-19T09:44:46.993058+00:00",
+  "steps": [
+    "boot-admin-password-persisted-and-rate-limited",
+    "authenticated-post-route-policy",
+    "non-v7-onboarding-refused-before-any-write",
+    "operator-compares-certificate",
+    "onboarded-with-special-character-admin-password",
+    "second-onboarding-is-idempotent",
+    "boot-reverified-with-bootstrap-admin-deleted",
+    "single-vendo-auto-select-from-either-vlan",
+    "one-vendo-per-vlan-learned-and-auto-selected",
+    "picker-is-limited-to-network-and-forged-id-reserves-nothing",
+    "coin-window-keeps-reserved-vendo-after-vlan-move",
+    "admin-overrides-network-and-no-match-reserves-nothing"
+  ],
+  "chr_client_cleanup_removed": 0
+}

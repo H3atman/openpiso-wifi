@@ -218,7 +218,7 @@ class Releases:
         vm.reverse_tunnel(GUEST_RELEASE_PORT, self.serve())
         vm.install(password, release_url=RELEASE_URL)
         vm.start_controller()
-        base = f"http://{vm.address}:18080"
+        base = vm.base_url
         wait_healthy(base)
         report.data["execution"] = vm.install_evidence()
         assert_units(vm)

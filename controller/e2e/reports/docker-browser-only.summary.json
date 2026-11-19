@@ -1,0 +1,321 @@
+{
+  "format_version": 1,
+  "scenario": "browser-only",
+  "started_at": "2026-11-19T08:42:54.400224+00:00",
+  "git_commit": "acd1c255ff7ae57b997fbd626b39b04f2eaacea8",
+  "git_tree": "ba33742d4ec480411c09e15886c75aa38393cc49",
+  "git_dirty": true,
+  "binary_size_bytes": 23103568,
+  "binary_sha256": "1342e299e3190de674b43a2fc21335c2aa2aec341280ded207bf066dffbabe3b",
+  "test_seam": "Controller binary via external HTTP against a Docker lab: stock CHR Router and Linux Devices",
+  "result": "pass",
+  "lab": {
+    "name": "opnwlab-30532e",
+    "chr_version": "7.23.8",
+    "chr_image": "/home/rgsv/.cache/openpiso/chr/chr-7.23.8.img",
+    "image": "opnwlab-image:00cb97e32920",
+    "router_rest_seconds": 20.3,
+    "stock_router": {
+      "version": "7.23.8 (long-term)",
+      "admin_password": "empty",
+      "hotspot_servers": 0
+    },
+    "vendo_reports": [
+      {
+        "vendo_id": 1,
+        "container": "opnwlab-30532e-coin-board",
+        "ip": "10.5.50.199",
+        "source_address": [
+          "10.5.50.199"
+        ],
+        "source_mac": "02:00:00:00:0C:04",
+        "status": 200
+      }
+    ],
+    "browsers": [
+      {
+        "container": "opnwlab-30532e-browser-a",
+        "phase": "first",
+        "memory_cap": "1024 MB",
+        "ip": "10.5.50.171",
+        "mac": "02:00:00:00:0E:01",
+        "resolv_conf": "nameserver 10.5.50.1",
+        "router_lease": {
+          "address": "10.5.50.171",
+          "mac-address": "02:00:00:00:0E:01",
+          "server": "hs-dhcp",
+          "status": "bound"
+        }
+      },
+      {
+        "container": "opnwlab-30532e-browser-b",
+        "phase": "rebind",
+        "memory_cap": "1024 MB",
+        "ip": "10.5.50.172",
+        "mac": "02:00:00:00:0E:02",
+        "resolv_conf": "nameserver 10.5.50.1",
+        "router_lease": {
+          "address": "10.5.50.172",
+          "mac-address": "02:00:00:00:0E:02",
+          "server": "hs-dhcp",
+          "status": "bound"
+        }
+      },
+      {
+        "container": "opnwlab-30532e-browser-a",
+        "phase": "out",
+        "memory_cap": "1024 MB",
+        "ip": "10.5.50.171",
+        "mac": "02:00:00:00:0E:01",
+        "resolv_conf": "nameserver 10.5.50.1",
+        "router_lease": {
+          "address": "10.5.50.171",
+          "mac-address": "02:00:00:00:0E:01",
+          "server": "hs-dhcp",
+          "status": "bound"
+        }
+      },
+      {
+        "container": "opnwlab-30532e-browser-c",
+        "phase": "custom",
+        "memory_cap": "1024 MB",
+        "ip": "10.5.50.173",
+        "mac": "02:00:00:00:0E:03",
+        "resolv_conf": "nameserver 10.5.50.1",
+        "router_lease": {
+          "address": "10.5.50.173",
+          "mac-address": "02:00:00:00:0E:03",
+          "server": "hs-dhcp",
+          "status": "bound"
+        }
+      },
+      {
+        "container": "opnwlab-30532e-browser-admin",
+        "phase": "preview",
+        "memory_cap": "1024 MB"
+      },
+      {
+        "container": "opnwlab-30532e-browser-admin",
+        "phase": "upload",
+        "memory_cap": "1024 MB"
+      },
+      {
+        "container": "opnwlab-30532e-browser-d",
+        "phase": "branded",
+        "memory_cap": "1024 MB",
+        "ip": "10.5.50.174",
+        "mac": "02:00:00:00:0E:04",
+        "resolv_conf": "nameserver 10.5.50.1",
+        "router_lease": {
+          "address": "10.5.50.174",
+          "mac-address": "02:00:00:00:0E:04",
+          "server": "hs-dhcp",
+          "status": "bound"
+        }
+      },
+      {
+        "container": "opnwlab-30532e-browser-admin",
+        "phase": "sales",
+        "memory_cap": "1024 MB"
+      },
+      {
+        "container": "opnwlab-30532e-browser-admin",
+        "phase": "signin",
+        "memory_cap": "1024 MB"
+      }
+    ],
+    "run_seconds": 139.6,
+    "removed": true
+  },
+  "not_ported": {
+    "#32": [
+      "vlan-hosts-evidence"
+    ]
+  },
+  "browser_portal": {
+    "browser": "chromium 156.0.8078.4",
+    "device_profile": "Pixel 7",
+    "code_bytes": {
+      "/portal": 6650,
+      "/portal/portal.css": 7905,
+      "/portal/core.js": 13218
+    },
+    "code_budget_bytes": 40960,
+    "csp_violations": 0,
+    "csp_probe_refused": true,
+    "custom_portal_inline_script_refused": true,
+    "custom_js_error_left_core_js_working": true,
+    "preview_reports": {
+      "good": {
+        "read_ok": true,
+        "unknown_markers": [],
+        "states_with_errors": []
+      },
+      "broken-marker": {
+        "read_ok": true,
+        "unknown_markers": [
+          "stauts"
+        ],
+        "states_with_errors": []
+      },
+      "throwing-custom-js": {
+        "read_ok": true,
+        "unknown_markers": [],
+        "states_with_errors": [
+          "new",
+          "online",
+          "coin",
+          "paused",
+          "out",
+          "error"
+        ]
+      }
+    },
+    "signin": {
+      "exact_next_preserved": true,
+      "wrong_password_status": 401,
+      "session_survived_restart": true,
+      "session_not_renewed": true,
+      "logged_out": true,
+      "browser": "chromium 156.0.8078.4",
+      "device_profile": "desktop",
+      "screenshots": [
+        "35-signin-continue-sales",
+        "36-signin-wrong-password",
+        "37-signin-returned-to-sales",
+        "38-signin-survived-restart",
+        "39-signin-logged-out"
+      ],
+      "csp_violations": []
+    },
+    "sales_report": {
+      "shortcuts": {
+        "Today": {
+          "from": "2026-11-19",
+          "to": "2026-11-19",
+          "count": 30,
+          "total_pesos": 57
+        },
+        "This week": {
+          "from": "2026-11-16",
+          "to": "2026-11-19",
+          "count": 30,
+          "total_pesos": 57
+        },
+        "This month": {
+          "from": "2026-11-01",
+          "to": "2026-11-19",
+          "count": 30,
+          "total_pesos": 57
+        },
+        "This year": {
+          "from": "2026-01-01",
+          "to": "2026-11-19",
+          "count": 30,
+          "total_pesos": 57
+        }
+      },
+      "single_vendo_named": true,
+      "search_count": 26,
+      "later_page": 2,
+      "reload_back_forward_restored": true,
+      "csv_rows": 26,
+      "csv_matches_filtered_json": true,
+      "total_pesos": 57,
+      "csp_violations": []
+    },
+    "preview_live_api_requests": 0,
+    "http_only_cookie_survived_fetch_posts": true,
+    "cover_logo_cropped_in_browser": {
+      "logo": {
+        "type": "image/webp",
+        "bytes": 880,
+        "width": 256,
+        "height": 256,
+        "corner": [
+          255,
+          255,
+          255
+        ],
+        "bottom": [
+          255,
+          255,
+          255
+        ]
+      },
+      "cover": {
+        "type": "image/webp",
+        "bytes": 90960,
+        "width": 1200,
+        "height": 400,
+        "corner": [
+          197,
+          41,
+          39
+        ],
+        "bottom": [
+          199,
+          40,
+          39
+        ]
+      }
+    },
+    "cover_logo_on_device_match": true,
+    "screenshots": [
+      "docker-browser-only-browser-portal/01-new.png",
+      "docker-browser-only-browser-portal/02-voucher-error.png",
+      "docker-browser-only-browser-portal/03-online.png",
+      "docker-browser-only-browser-portal/04-paused.png",
+      "docker-browser-only-browser-portal/05-resumed.png",
+      "docker-browser-only-browser-portal/06-coin-window.png",
+      "docker-browser-only-browser-portal/07-coin-done.png",
+      "docker-browser-only-browser-portal/07a-points.png",
+      "docker-browser-only-browser-portal/07b-points-too-low.png",
+      "docker-browser-only-browser-portal/08-rebind.png",
+      "docker-browser-only-browser-portal/09-rebind-online.png",
+      "docker-browser-only-browser-portal/10-out-of-time.png",
+      "docker-browser-only-browser-portal/11-custom-portal-throwing-custom-js.png",
+      "docker-browser-only-browser-portal/12-preview-good.png",
+      "docker-browser-only-browser-portal/13-preview-broken-marker.png",
+      "docker-browser-only-browser-portal/14-preview-throwing-custom-js.png",
+      "docker-browser-only-browser-portal/15-admin-cover-logo.png",
+      "docker-browser-only-browser-portal/16-preview-cover-logo.png",
+      "docker-browser-only-browser-portal/17-device-cover-logo.png",
+      "docker-browser-only-browser-portal/30-sales-all.png",
+      "docker-browser-only-browser-portal/31-sales-single-vendo.png",
+      "docker-browser-only-browser-portal/32-sales-search.png",
+      "docker-browser-only-browser-portal/33-sales-later-page.png",
+      "docker-browser-only-browser-portal/34-sales-mobile-table.png",
+      "docker-browser-only-browser-portal/34-sales-mobile-feed.png",
+      "docker-browser-only-browser-portal/35-signin-continue-sales.png",
+      "docker-browser-only-browser-portal/36-signin-wrong-password.png",
+      "docker-browser-only-browser-portal/37-signin-returned-to-sales.png",
+      "docker-browser-only-browser-portal/38-signin-survived-restart.png",
+      "docker-browser-only-browser-portal/39-signin-logged-out.png"
+    ]
+  },
+  "cleanup": {
+    "result": "pass",
+    "failures": []
+  },
+  "finished_at": "2026-11-19T08:45:15.347282+00:00",
+  "steps": [
+    "boot-admin-password-persisted-and-rate-limited",
+    "authenticated-post-route-policy",
+    "non-v7-onboarding-refused-before-any-write",
+    "operator-compares-certificate",
+    "onboarded-with-special-character-admin-password",
+    "second-onboarding-is-idempotent",
+    "boot-reverified-with-bootstrap-admin-deleted",
+    "custom-portal-save-check-publish-revert-reset",
+    "browser-portal-new-voucher-pause-coin-window",
+    "browser-portal-rebind-to-new-device",
+    "browser-portal-out-of-time",
+    "browser-custom-portal-throwing-custom-js",
+    "browser-custom-portal-preview",
+    "browser-custom-portal-cover-logo",
+    "browser-sales-report",
+    "browser-signin-logout-restart"
+  ],
+  "chr_client_cleanup_removed": 0
+}

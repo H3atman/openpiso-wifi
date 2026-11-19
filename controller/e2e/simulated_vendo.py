@@ -75,17 +75,21 @@ class SimulatedVendo:
         self.rseq = (self.rseq + 1) & 0xFFFFFFFF
         return sign(tag, (self.id, self.epoch, self.total, self.window_id, self.nonce, self.rseq), self.key)
 
-    def post(self, frame: bytes, ignore_ack: bool = False):
+    def send(self, frame: bytes):
+        """POST frame to the Controller; returns (status, body). A lab can send it from elsewhere (DockerLab)."""
         request = urllib.request.Request(self.url, data=frame, headers={"Content-Type": "application/octet-stream"}, method="POST")
         try:
             response = urllib.request.urlopen(request, timeout=self.timeout)
         except urllib.error.HTTPError as error:
             return error.code, error.read()
         with response:
-            body = response.read()
-            if not ignore_ack:
-                self.receive(body)
-            return response.status, body
+            return response.status, response.read()
+
+    def post(self, frame: bytes, ignore_ack: bool = False):
+        status, body = self.send(frame)
+        if 200 <= status < 300 and not ignore_ack:
+            self.receive(body)
+        return status, body
 
     def receive(self, body: bytes):
         for tag, fields in decode_frames(body, self.key):

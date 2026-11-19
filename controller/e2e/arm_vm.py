@@ -1,16 +1,16 @@
-"""Fresh stock armhf guest for run.py; no separate scenario list or fake Router."""
+"""Fresh stock armhf guest for run.py; no separate scenario list or fake Router. ArmContainer runs
+it under QEMU (TCG) in a container on the Docker lab."""
 
+import fcntl
 import hashlib
+import secrets
 import shutil
-import socket
 import subprocess
 import tempfile
-import threading
 import time
 import urllib.request
 import uuid
 from pathlib import Path
-from xml.sax.saxutils import escape
 
 IMAGE_BASE = "https://cloud-images.ubuntu.com/releases/bionic/release-20230607/"
 # Literal hashes from that release's SHA256SUMS and unpacked/SHA256SUMS.
@@ -20,9 +20,6 @@ ARTIFACTS = {
     "unpacked/ubuntu-18.04-server-cloudimg-armhf-initrd-generic-lpae": "4076869995177d12acb9dbae444c8e891857cf24e842a283d499fd2f0499957c",
 }
 
-
-# Gitignored; files are named by their pinned sha256.
-ARTIFACT_CACHE = Path(__file__).resolve().parent / ".cache"
 
 
 def sha256_of(path: Path) -> str:
@@ -38,15 +35,96 @@ def command(*args, **kwargs):
         raise RuntimeError(f"{args[0]} exited {error.returncode}\nstdout:\n{error.stdout}\nstderr:\n{error.stderr}") from None
 
 
-class ArmVM:
-    def __init__(self, binary: Path, boot_timeout: float, serial_report: Path):
+def write_seed(seed: Path, instance: str, public_key: str) -> None:
+    """The cloud-init meta-data and user-data both guests boot with: a new SSH key, no swap."""
+    (seed / "meta-data").write_text(f"instance-id: {instance}\nlocal-hostname: openpiso-armv7\n")
+    (seed / "user-data").write_text(
+        "#cloud-config\n"
+        "users:\n"
+        "  - name: openpiso-e2e\n"
+        "    shell: /bin/sh\n"
+        "    lock_passwd: true\n"
+        "    sudo: ALL=(ALL) NOPASSWD:ALL\n"
+        "    ssh_authorized_keys:\n"
+        f"      - {public_key}\n"
+        "ssh_pwauth: false\n"
+        "disable_root: true\n"
+        "package_update: false\n"
+        "package_upgrade: false\n"
+        "swap:\n  size: 0\n"
+        "bootcmd:\n  - [swapoff, -a]\n"
+        "runcmd:\n  - [touch, /run/openpiso-e2e-ready]\n"
+    )
+
+
+GUEST_ADDRESS = "10.77.7.1"  # the Controller's address on the Docker lab WAN
+ADMIN_ADDRESS = "10.77.7.252"  # armv7.sh's helper address, where the host's SSH and HTTP arrive from
+GUEST_MAC = "02:00:00:77:00:01"  # armv7.sh's guest NIC
+# Static: the Router container's DHCP helper hands out 10.77.7.2 only. Devices are reached via the Router.
+NETWORK_CONFIG = f"""version: 2
+ethernets:
+  lab:
+    match: {{macaddress: "{GUEST_MAC}"}}
+    set-name: eth0
+    addresses: [{GUEST_ADDRESS}/24]
+    routes: [{{to: 10.5.0.0/16, via: 10.77.7.2}}]
+"""
+
+
+def cached_artifacts(cache: Path) -> list[Path]:
+    """The pinned image, kernel and initrd in cache, named by sha256 and shared by every worktree:
+    downloaded on first use, verified on every use. A lock serializes first downloads from parallel
+    runs; a file appears only once verified."""
+    cache.mkdir(parents=True, exist_ok=True)
+    paths = []
+    with (cache / ".lock").open("w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        for name, digest in ARTIFACTS.items():
+            path = cache / digest
+            if not path.exists():
+                print(f"Downloading pinned ARM artifact: {name}", flush=True)
+                partial = cache / f"{digest}.{uuid.uuid4().hex}.part"
+                try:
+                    with urllib.request.urlopen(IMAGE_BASE + name, timeout=120) as response, partial.open("xb") as output:
+                        shutil.copyfileobj(response, output)
+                    if sha256_of(partial) != digest:
+                        raise RuntimeError(f"ARM artifact checksum mismatch: {IMAGE_BASE + name}; nothing was cached")
+                    partial.replace(path)
+                finally:
+                    partial.unlink(missing_ok=True)
+            elif sha256_of(path) != digest:
+                raise RuntimeError(f"ARM artifact checksum mismatch: {path} ({name}); not using it, delete it to download it again")
+            paths.append(path)
+    return paths
+
+
+class ArmContainer:
+    """The guest under QEMU (TCG) in a lab-image container (lab/docker/armv7.sh), at the
+    Controller's lab address on a Docker network. lab is the loaded docker_lab module.
+
+    boot(lab_name) joins that Docker lab's WAN in the Controller's place, and the lab removes the
+    container with the rest of it; boot() makes a WAN network of its own (the boot and update checks),
+    which close() removes with the container unless --keep. The harness reaches the guest's SSH and Controller
+    through the container's published ports; the serial console is the container's log."""
+
+    def __init__(self, binary: Path, boot_timeout: float, serial_report: Path, lab):
+        self.lab = lab
         self.binary = binary.resolve()
         self.boot_timeout = boot_timeout
         self.serial_report = serial_report.resolve()
         self.serial_log = None
-        self.name = f"openpiso-armv7-{uuid.uuid4().hex[:12]}"
+        self.name = ""  # the container, once boot runs it
         self.directory = None
-        self.address = ""
+        self.address = "127.0.0.1"
+        self.ssh_port = 22
+        # Seconds, up to and including sshd's banner. On a busy host the TCG guest's sshd can take over
+        # 5 s to send it (seen at load 18). A guest still booting fails at once instead: socat closes
+        # the published port's connection.
+        self.connect_timeout = 30
+        self.controller_port = ""
+        self.network = None  # the WAN network this guest made for itself
+        self.logs = None
+        self.ssh_options = []  # extra options for every ssh and scp
         self.created = False
         self.installed = False
         self.tunnels = []
@@ -57,171 +135,30 @@ class ArmVM:
             "image_url": IMAGE_BASE + next(iter(ARTIFACTS)),
             "image_sha256": next(iter(ARTIFACTS.values())),
             "boot_artifacts": {IMAGE_BASE + name: digest for name, digest in ARTIFACTS.items()},
+            "container_memory_cap_mib": lab.ARM_MEMORY >> 20,
         }
 
-    def virsh(self, *args):
-        return command("virsh", "-c", "qemu:///system", *args)
+    @property
+    def base_url(self) -> str:
+        """Where the harness reaches the guest's Controller."""
+        return f"http://{self.controller_port}"
 
     def ssh(self, script: str, input=None):
         return command(
-            "ssh", "-i", str(self.work / "id_ed25519"),
-            "-o", "BatchMode=yes", "-o", "ConnectTimeout=5",
+            "ssh", "-p", str(self.ssh_port), "-i", str(self.work / "id_ed25519"),
+            "-o", "BatchMode=yes", "-o", f"ConnectTimeout={self.connect_timeout}",
             "-o", "StrictHostKeyChecking=accept-new",
-            "-o", f"UserKnownHostsFile={self.work / 'known_hosts'}",
+            "-o", f"UserKnownHostsFile={self.work / 'known_hosts'}", *self.ssh_options,
             f"openpiso-e2e@{self.address}", script, input=input,
         )
 
     def copy(self, source: Path, target: str):
         command(
-            "scp", "-O", "-i", str(self.work / "id_ed25519"),
+            "scp", "-O", "-P", str(self.ssh_port), "-i", str(self.work / "id_ed25519"),
             "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
-            "-o", f"UserKnownHostsFile={self.work / 'known_hosts'}",
+            "-o", f"UserKnownHostsFile={self.work / 'known_hosts'}", *self.ssh_options,
             str(source), f"openpiso-e2e@{self.address}:{target}",
         )
-
-    def boot(self):
-        started = time.monotonic()
-        for tool in ("qemu-system-arm", "qemu-img", "virsh", "ssh", "scp", "ssh-keygen"):
-            if shutil.which(tool) is None:
-                raise RuntimeError(f"ARM E2E requires {tool}; install host prerequisites first")
-        iso_tool = next((path for tool in ("xorrisofs", "genisoimage", "mkisofs")
-                         if (path := shutil.which(tool)) is not None), None)
-        if iso_tool is None:
-            raise RuntimeError("ARM E2E requires xorrisofs, genisoimage, or mkisofs; install host prerequisites first")
-        # Never reuse a guest disk or mix downloads with our scripts/seed inputs.
-        self.directory = tempfile.TemporaryDirectory(prefix="openpiso-armv7-", dir="/var/tmp")
-        self.work = Path(self.directory.name)
-        self.work.chmod(0o755)  # libvirt's unprivileged QEMU must traverse this directory.
-        downloads = self.work / "downloads"
-        downloads.mkdir(mode=0o755)
-        artifacts = []
-        for index, (name, digest) in enumerate(ARTIFACTS.items()):
-            artifact_dir = downloads / str(index)
-            artifact_dir.mkdir(mode=0o755)
-            destination = artifact_dir / Path(name).name
-            artifacts.append(destination)
-            # Cached by sha256 and re-verified on every use; each run still gets its own copy
-            # because libvirt's QEMU cannot traverse the repo and the disk backs onto the image.
-            cached = ARTIFACT_CACHE / digest
-            if not cached.is_file() or sha256_of(cached) != digest:
-                print(f"Downloading pinned ARM artifact: {name}", flush=True)
-                ARTIFACT_CACHE.mkdir(parents=True, exist_ok=True)
-                partial = ARTIFACT_CACHE / f"{digest}.{uuid.uuid4().hex}.part"
-                try:
-                    with urllib.request.urlopen(IMAGE_BASE + name, timeout=120) as response, partial.open("xb") as output:
-                        shutil.copyfileobj(response, output)
-                    if sha256_of(partial) != digest:
-                        raise RuntimeError(f"ARM artifact checksum mismatch: {name}")
-                    partial.replace(cached)
-                finally:
-                    partial.unlink(missing_ok=True)
-            else:
-                print(f"Using cached pinned ARM artifact: {name}", flush=True)
-            shutil.copyfile(cached, destination)
-            if sha256_of(destination) != digest:
-                raise RuntimeError(f"ARM artifact checksum mismatch after copy: {name}")
-            destination.chmod(0o644)
-        image, kernel, initrd = artifacts
-        disk = self.work / "guest.qcow2"
-        command("qemu-img", "create", "-f", "qcow2", "-F", "qcow2", "-b", str(image), str(disk), "4G")
-        disk.chmod(0o600)  # libvirt DAC relabels this disk for QEMU, not world-writable.
-        command("ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(self.work / "id_ed25519"))
-        public_key = (self.work / "id_ed25519.pub").read_text().strip()
-        seed = self.work / "seed-input"
-        seed.mkdir(mode=0o700)
-        (seed / "meta-data").write_text(f"instance-id: {self.name}\nlocal-hostname: openpiso-armv7\n")
-        (seed / "user-data").write_text(
-            "#cloud-config\n"
-            "users:\n"
-            "  - name: openpiso-e2e\n"
-            "    shell: /bin/sh\n"
-            "    lock_passwd: true\n"
-            "    sudo: ALL=(ALL) NOPASSWD:ALL\n"
-            "    ssh_authorized_keys:\n"
-            f"      - {public_key}\n"
-            "ssh_pwauth: false\n"
-            "disable_root: true\n"
-            "package_update: false\n"
-            "package_upgrade: false\n"
-            "swap:\n  size: 0\n"
-            "bootcmd:\n  - [swapoff, -a]\n"
-            "runcmd:\n  - [touch, /run/openpiso-e2e-ready]\n"
-        )
-        seed_image = self.work / "seed.iso"
-        command(iso_tool, "-quiet", "-output", str(seed_image), "-volid", "cidata", "-joliet", "-rock",
-                str(seed / "user-data"), str(seed / "meta-data"))
-        seed_image.chmod(0o644)
-        self.serial_log = self.work / "serial.log"
-        self.serial_log.touch(mode=0o600)
-        # libvirt-owned log files are root-only, so stream the console over loopback
-        # TCP into a file this process owns.
-        with socket.socket() as probe:
-            probe.bind(("127.0.0.1", 0))
-            serial_port = probe.getsockname()[1]
-        xml = self.work / "domain.xml"
-        xml.write_text(f"""<domain type='qemu'>
-  <name>{self.name}</name>
-  <memory unit='MiB'>256</memory><currentMemory unit='MiB'>256</currentMemory>
-  <vcpu>1</vcpu>
-  <os><type arch='armv7l' machine='virt'>hvm</type>
-    <kernel>{escape(str(kernel))}</kernel><initrd>{escape(str(initrd))}</initrd>
-    <cmdline>console=ttyAMA0 root=LABEL=cloudimg-rootfs rw</cmdline>
-  </os>
-  <cpu mode='custom' match='exact'><model fallback='forbid'>cortex-a15</model></cpu>
-  <devices>
-    <emulator>{escape(shutil.which('qemu-system-arm'))}</emulator>
-    <disk type='file' device='disk'><driver name='qemu' type='qcow2'/>
-      <source file='{escape(str(disk))}'/><target dev='vda' bus='virtio'/>
-    </disk>
-    <disk type='file' device='disk'><driver name='qemu' type='raw'/>
-      <source file='{escape(str(seed_image))}'/><target dev='vdb' bus='virtio'/><readonly/>
-    </disk>
-    <interface type='network'><source network='default'/><model type='virtio'/></interface>
-    <serial type='tcp'><source mode='bind' host='127.0.0.1' service='{serial_port}'/><protocol type='raw'/><target port='0'/></serial>
-    <console type='pty'><target type='serial' port='0'/></console>
-    <rng model='virtio'><backend model='random'>/dev/urandom</backend></rng>
-    <memballoon model='none'/>
-  </devices>
-</domain>
-""")
-        self.virsh("create", str(xml))
-        self.created = True
-        threading.Thread(target=self.capture_serial, args=(serial_port,), daemon=True).start()
-        deadline = time.monotonic() + self.boot_timeout
-        while time.monotonic() < deadline:
-            addresses = self.virsh("domifaddr", self.name, "--source", "lease")
-            for line in addresses.splitlines():
-                fields = line.split()
-                if len(fields) >= 4 and fields[2] == "ipv4":
-                    self.address = fields[3].split("/")[0]
-            if self.address:
-                try:
-                    self.ssh("test -f /run/openpiso-e2e-ready")
-                    self.evidence["boot_seconds"] = round(time.monotonic() - started, 3)
-                    self.evidence["guest_address"] = self.address
-                    return
-                except (RuntimeError, subprocess.SubprocessError):
-                    pass
-            time.sleep(2)
-        raise RuntimeError(
-            f"ARM guest did not finish boot/cloud-init within {self.boot_timeout:g} seconds\n"
-            f"Serial console tail:\n{self.serial_tail()}"
-        )
-
-    def capture_serial(self, port):
-        deadline = time.monotonic() + 30
-        while True:
-            try:
-                connection = socket.create_connection(("127.0.0.1", port), timeout=2)
-                break
-            except OSError:
-                if time.monotonic() > deadline:
-                    return
-                time.sleep(0.2)
-        connection.settimeout(None)
-        with connection, self.serial_log.open("ab", buffering=0) as log:
-            while chunk := connection.recv(4096):
-                log.write(chunk)
 
     def serial_tail(self):
         if self.serial_log is None or not self.serial_log.exists():
@@ -230,12 +167,6 @@ class ArmVM:
             log.seek(0, 2)
             log.seek(max(0, log.tell() - 16384))
             return log.read().decode("utf-8", errors="replace") or "(serial log empty)"
-
-    def install_command(self, binary: str, release_url: str | None = None) -> str:
-        return ("sudo sh /tmp/openpiso-install/install.sh "
-                f"--binary {binary} --portal-url http://{self.address}:18080 --listen 0.0.0.0:18080 "
-                "--admin-network 192.168.122.1/32 --password-stdin"
-                + (f" --release-url {release_url}" if release_url else ""))
 
     def install(self, password: str, release_url: str | None = None):
         self.ssh("mkdir -m 700 /tmp/openpiso-install")
@@ -282,7 +213,7 @@ done
         """Forwards the guest's 127.0.0.1:guest_port to the host's 127.0.0.1:host_port over SSH;
         the host firewall drops other guest-to-host connections."""
         tunnel = subprocess.Popen(
-            ["ssh", "-N", "-i", str(self.work / "id_ed25519"),
+            ["ssh", "-N", "-p", str(self.ssh_port), "-i", str(self.work / "id_ed25519"),
              "-o", "BatchMode=yes", "-o", "ExitOnForwardFailure=yes",
              "-o", "StrictHostKeyChecking=yes", "-o", f"UserKnownHostsFile={self.work / 'known_hosts'}",
              "-R", f"127.0.0.1:{guest_port}:127.0.0.1:{host_port}", f"openpiso-e2e@{self.address}"],
@@ -296,10 +227,6 @@ done
             if time.monotonic() > deadline:
                 raise RuntimeError("SSH reverse tunnel did not come up within 60 seconds")
             time.sleep(1)
-
-    def route_customer_network(self, router_address: str):
-        # The Router preserves Device source IPs to the guest; replies must return through it.
-        self.ssh(f"sudo ip route replace 10.5.50.0/24 via {router_address}")
 
     def stop_controller(self):
         self.ssh("pid=$(systemctl show --property MainPID --value openpiso); "
@@ -356,6 +283,10 @@ done
         print(f"ARM serial log retained: {self.serial_report}", flush=True)
 
     def failure_evidence(self):
+        try:
+            self.container_memory()
+        except AssertionError:
+            pass  # the container is gone already
         evidence = dict(self.evidence)
         evidence["serial_console_tail"] = self.serial_tail()
         self.retain_serial(evidence)
@@ -365,14 +296,125 @@ done
             evidence["peak_controller_rss_kib"] = None
         return evidence
 
-    def close(self):
+    def boot(self, lab_name: str | None = None):
+        started = time.monotonic()
+        for tool in ("docker", "ssh", "scp", "ssh-keygen"):
+            if shutil.which(tool) is None:
+                raise RuntimeError(f"ARM E2E requires {tool}; install host prerequisites first")
+        guest, kernel, initrd = cached_artifacts(self.lab.CACHE / "armv7")
+        image = self.lab.lab_image()
+        self.directory = tempfile.TemporaryDirectory(prefix="openpiso-armv7-")
+        self.work = Path(self.directory.name)
+        command("ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(self.work / "id_ed25519"))
+        seed = self.work / "seed"
+        seed.mkdir(mode=0o700)
+        write_seed(seed, f"openpiso-armv7-{uuid.uuid4().hex[:12]}", (self.work / "id_ed25519.pub").read_text().strip())
+        (seed / "network-config").write_text(NETWORK_CONFIG)
+        if lab_name is None:
+            lab_name = "opnwlab-" + secrets.token_hex(3)
+            self.network = f"{lab_name}-wan"
+            self.lab.sh("docker", "network", "create", self.network)
+        self.name = f"{lab_name}-armv7"
+        cap = f"{self.lab.ARM_MEMORY >> 20}m"
+        self.lab.sh("docker", "run", "-d", "--name", self.name, "--cap-add", "NET_ADMIN", "--device", "/dev/net/tun",
+                    "--memory", cap, "--memory-swap", cap, "--network", f"{lab_name}-wan",
+                    "-p", "127.0.0.1::2222", "-p", "127.0.0.1::18080",
+                    "-v", f"{guest}:/img/guest.img:ro", "-v", f"{kernel}:/img/vmlinuz:ro", "-v", f"{initrd}:/img/initrd:ro",
+                    "-v", f"{seed}:/seed:ro", "-v", f"{self.lab.LAB_DIR / 'armv7.sh'}:/lab/armv7.sh:ro",
+                    image, "/bin/sh", "/lab/armv7.sh")
+        self.created = True
+        self.serial_log = self.work / "serial.log"
+        with self.serial_log.open("wb") as log:
+            self.logs = subprocess.Popen(["docker", "logs", "-f", self.name], stdout=log, stderr=subprocess.STDOUT)
+        self.ssh_port = int(self.lab.sh("docker", "port", self.name, "2222").split()[0].rpartition(":")[2])
+        self.controller_port = self.lab.sh("docker", "port", self.name, "18080").split()[0]
+        deadline = time.monotonic() + self.boot_timeout
+        while time.monotonic() < deadline:
+            state = self.lab.sh("docker", "inspect", "-f", "{{.State.Status}} oom={{.State.OOMKilled}}", self.name).strip()
+            if not state.startswith("running"):
+                raise RuntimeError(f"ARM guest container {self.name} stopped ({state})\nSerial console tail:\n{self.serial_tail()}")
+            try:
+                self.ssh("test -f /run/openpiso-e2e-ready")
+            except (RuntimeError, subprocess.SubprocessError):
+                time.sleep(2)
+                continue
+            self.evidence["boot_seconds"] = round(time.monotonic() - started, 3)
+            self.evidence["guest_address"] = GUEST_ADDRESS
+            self.share_connection()
+            return
+        raise RuntimeError(
+            f"ARM guest did not finish boot/cloud-init within {self.boot_timeout:g} seconds\n"
+            f"Serial console tail:\n{self.serial_tail()}"
+        )
+
+    def share_connection(self):
+        """Runs every later ssh and scp over one master connection. Under TCG each new connection's
+        handshake costs the guest seconds, and the Router's meter runs on wall time: without this a
+        Controller restart outlasted the scenario's 120-second Time Credit. A command after the master
+        is gone connects on its own (ssh falls back when the socket does not answer)."""
+        control = self.work / "control"
+        master = subprocess.Popen(
+            ["ssh", "-M", "-N", "-p", str(self.ssh_port), "-i", str(self.work / "id_ed25519"),
+             "-o", "BatchMode=yes", "-o", f"ConnectTimeout={self.connect_timeout}", "-o", f"ControlPath={control}",
+             "-o", "StrictHostKeyChecking=yes", "-o", f"UserKnownHostsFile={self.work / 'known_hosts'}",
+             f"openpiso-e2e@{self.address}"],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
+        )
+        self.tunnels.append(master)
+        deadline = time.monotonic() + 60
+        while not control.exists():
+            if master.poll() is not None:
+                raise RuntimeError(f"SSH master connection exited {master.returncode}: {master.stderr.read()}")
+            if time.monotonic() > deadline:
+                raise RuntimeError("SSH master connection did not come up within 60 seconds")
+            time.sleep(0.2)
+        self.ssh_options = ["-o", f"ControlPath={control}"]
+
+    def install_command(self, binary: str, release_url: str | None = None) -> str:
+        return ("sudo sh /tmp/openpiso-install/install.sh "
+                f"--binary {binary} --portal-url http://{GUEST_ADDRESS}:18080 --listen 0.0.0.0:18080 "
+                f"--admin-network {ADMIN_ADDRESS}/32 --password-stdin"
+                + (f" --release-url {release_url}" if release_url else ""))
+
+    def container_memory(self) -> dict:
+        """QEMU's resident high-water mark (guest RAM, translation cache, QEMU itself) and the cgroup's OOM
+        kills, against the container's cap; kept in the evidence. Not the cgroup's own peak: page cache
+        fills that up to any cap."""
+        output = self.lab.sh("docker", "exec", self.name, "sh", "-c",
+                             "awk '/^VmHWM:/ {print $2}' /proc/1/status; awk '$1 == \"oom_kill\" {print $2}' /sys/fs/cgroup/memory.events")
+        peak_kib, oom_kills = output.split()
+        self.evidence["qemu_peak_rss_mib"] = round(int(peak_kib) / 1024, 1)
+        self.evidence["container_oom_kills"] = int(oom_kills)
+        return {key: self.evidence[key] for key in ("container_memory_cap_mib", "qemu_peak_rss_mib", "container_oom_kills")}
+
+    def close(self, keep: bool = False):
+        """Removes the container and the WAN network boot() made, unless keep (--keep), which leaves them
+        and prints how to reach and remove them. A lab's guest goes with the lab instead."""
         for tunnel in self.tunnels:
             tunnel.terminate()
             tunnel.wait(timeout=10)
         self.tunnels = []
-        if self.created:
-            # Only the uniquely named transient guest created by this run.
-            self.virsh("destroy", self.name)
-            self.created = False
+        if self.network is not None:
+            if keep:
+                self._print_kept()
+            else:
+                if self.created:
+                    self.lab.sh("docker", "rm", "-f", "-v", self.name)
+                self.lab.sh("docker", "network", "rm", self.network)
+            self.network = None
+        self.created = False
+        if self.logs is not None:
+            self.logs.terminate()  # ends by itself once the container is gone; not when --keep leaves it
+            self.logs.wait(timeout=10)
         if self.directory is not None:
             self.directory.cleanup()
+
+    def _print_kept(self) -> None:
+        lines = [f"ARMv7 guest left running (--keep) on network {self.network}."]
+        remove = f"docker network rm {self.network}"
+        if self.created:  # its SSH key goes with the run
+            lines += [f"  Controller:   {self.base_url}/admin in the guest, once installed; serial console: docker logs {self.name}",
+                      f"  Container:    docker exec -it {self.name} sh"]
+            remove = f"docker rm -f -v {self.name} && {remove}"
+        lines.append(f"  Remove:       {remove}")
+        print("\n".join(lines), flush=True)

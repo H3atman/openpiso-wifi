@@ -1,0 +1,648 @@
+{
+  "format_version": 1,
+  "scenario": "6-skeleton-7-vouchers-8-pause-9-top-up-10-rebind-11-reconciler-13-admin-dashboard-15-vendo-16-coin-window-41-vlan-auto-select-61-default-portal-62-custom-portal",
+  "started_at": "2026-11-19T13:58:31.242161+00:00",
+  "git_commit": "5dc0c874969b8f1af50e69200258eab7a2fd6e38",
+  "git_tree": "086c99feb9aa5e1c5f585415934362dfb08f7c41",
+  "git_dirty": true,
+  "binary_size_bytes": 22001881,
+  "binary_sha256": "e8c675988d0f8e8284a76567b519e67a761fae1e5897d2cab08e3855b6a006f7",
+  "test_seam": "Controller binary via external HTTP against a Docker lab: stock CHR Router and Linux Devices",
+  "result": "pass",
+  "lab": {
+    "name": "opnwlab-1092f9",
+    "chr_version": "7.23.8",
+    "chr_image": "/home/rgsv/.cache/openpiso/chr/chr-7.23.8.img",
+    "image": "opnwlab-image:5e04c5edc5a0",
+    "router_rest_seconds": 0.3,
+    "stock_router": {
+      "version": "7.23.8 (long-term)",
+      "admin_password": "empty",
+      "hotspot_servers": 0
+    },
+    "vlan_leases": [
+      {
+        "container": "opnwlab-1092f9-vlan10-device",
+        "vlan": 10,
+        "mac-address": "02:00:00:00:0C:10",
+        "address": "10.5.10.200",
+        "server": "opnw-vlan10",
+        "status": "bound"
+      },
+      {
+        "container": "opnwlab-1092f9-vlan20-device",
+        "vlan": 20,
+        "mac-address": "02:00:00:00:0C:20",
+        "address": "10.5.20.200",
+        "server": "opnw-vlan20",
+        "status": "bound"
+      },
+      {
+        "container": "opnwlab-1092f9-vlan10-device",
+        "vlan": 10,
+        "mac-address": "02:00:00:00:0C:10",
+        "address": "10.5.10.200",
+        "server": "opnw-vlan10",
+        "status": "bound"
+      },
+      {
+        "container": "opnwlab-1092f9-vlan20-device",
+        "vlan": 20,
+        "mac-address": "02:00:00:00:0C:20",
+        "address": "10.5.20.200",
+        "server": "opnw-vlan20",
+        "status": "bound"
+      },
+      {
+        "container": "opnwlab-1092f9-board1",
+        "vlan": 10,
+        "mac-address": "02:00:00:41:00:01",
+        "address": "10.5.10.199",
+        "server": "opnw-vlan10",
+        "status": "bound"
+      },
+      {
+        "container": "opnwlab-1092f9-board2",
+        "vlan": 10,
+        "mac-address": "02:00:00:41:00:02",
+        "address": "10.5.10.198",
+        "server": "opnw-vlan10",
+        "status": "bound"
+      },
+      {
+        "container": "opnwlab-1092f9-vlan10-device",
+        "vlan": 10,
+        "mac-address": "02:00:00:00:0C:10",
+        "address": "10.5.10.200",
+        "server": "opnw-vlan10",
+        "status": "bound"
+      },
+      {
+        "container": "opnwlab-1092f9-vlan20-device",
+        "vlan": 20,
+        "mac-address": "02:00:00:00:0C:20",
+        "address": "10.5.20.200",
+        "server": "opnw-vlan20",
+        "status": "bound"
+      },
+      {
+        "container": "opnwlab-1092f9-board1",
+        "vlan": 10,
+        "mac-address": "02:00:00:41:00:01",
+        "address": "10.5.10.199",
+        "server": "opnw-vlan10",
+        "status": "bound"
+      },
+      {
+        "container": "opnwlab-1092f9-board2",
+        "vlan": 20,
+        "mac-address": "02:00:00:41:00:02",
+        "address": "10.5.20.199",
+        "server": "opnw-vlan20",
+        "status": "bound"
+      },
+      {
+        "container": "opnwlab-1092f9-board3",
+        "vlan": 10,
+        "mac-address": "02:00:00:41:00:03",
+        "address": "10.5.10.198",
+        "server": "opnw-vlan10",
+        "status": "bound"
+      },
+      {
+        "container": "opnwlab-1092f9-vlan10-device",
+        "vlan": 10,
+        "mac-address": "02:00:00:00:0C:10",
+        "address": "10.5.10.200",
+        "server": "opnw-vlan10",
+        "status": "bound"
+      }
+    ],
+    "vendo_reports": [
+      {
+        "vendo_id": 1,
+        "container": "opnwlab-1092f9-device1",
+        "ip": "10.5.50.200",
+        "source_address": [
+          "10.5.50.200"
+        ],
+        "source_mac": "02:00:00:00:0C:01",
+        "status": 200
+      },
+      {
+        "vendo_id": 3,
+        "container": "opnwlab-1092f9-coin-board",
+        "ip": "10.5.50.198",
+        "source_address": [
+          "10.5.50.198"
+        ],
+        "source_mac": "02:00:00:00:0C:04",
+        "status": 200
+      },
+      {
+        "vendo_id": 4,
+        "container": "opnwlab-1092f9-coin-board",
+        "ip": "10.5.50.198",
+        "source_address": [
+          "10.5.50.198"
+        ],
+        "source_mac": "02:00:00:00:0C:04",
+        "status": 200
+      },
+      {
+        "vendo_id": 5,
+        "container": "opnwlab-1092f9-coin-board",
+        "ip": "10.5.50.198",
+        "source_address": [
+          "10.5.50.198"
+        ],
+        "source_mac": "02:00:00:00:0C:04",
+        "status": 200
+      },
+      {
+        "vendo_id": 6,
+        "container": "opnwlab-1092f9-coin-board",
+        "ip": "10.5.50.196",
+        "source_address": [
+          "10.5.50.196"
+        ],
+        "source_mac": "02:00:00:00:0C:04",
+        "status": 200
+      },
+      {
+        "vendo_id": 7,
+        "container": "opnwlab-1092f9-coin-board",
+        "ip": "10.5.50.196",
+        "source_address": [
+          "10.5.50.196"
+        ],
+        "source_mac": "02:00:00:00:0C:04",
+        "status": 200
+      },
+      {
+        "vendo_id": 8,
+        "container": "opnwlab-1092f9-board2",
+        "ip": "10.5.10.198",
+        "source_address": [
+          "10.5.10.198"
+        ],
+        "source_mac": "02:00:00:41:00:02",
+        "status": 401
+      },
+      {
+        "vendo_id": 8,
+        "container": "opnwlab-1092f9-board1",
+        "ip": "10.5.10.199",
+        "source_address": [
+          "10.5.10.199"
+        ],
+        "source_mac": "02:00:00:41:00:01",
+        "status": 401
+      },
+      {
+        "vendo_id": 4294967295,
+        "container": "opnwlab-1092f9-board1",
+        "ip": "10.5.10.199",
+        "source_address": [
+          "10.5.10.199"
+        ],
+        "source_mac": "02:00:00:41:00:01",
+        "status": 404
+      },
+      {
+        "vendo_id": 8,
+        "container": "opnwlab-1092f9-board1",
+        "ip": "10.5.10.199",
+        "source_address": [
+          "10.5.10.199"
+        ],
+        "source_mac": "02:00:00:41:00:01",
+        "status": 200
+      },
+      {
+        "vendo_id": 10,
+        "container": "opnwlab-1092f9-board1",
+        "ip": "10.5.10.199",
+        "source_address": [
+          "10.5.10.199"
+        ],
+        "source_mac": "02:00:00:41:00:01",
+        "status": 200
+      },
+      {
+        "vendo_id": 11,
+        "container": "opnwlab-1092f9-board2",
+        "ip": "10.5.20.199",
+        "source_address": [
+          "10.5.20.199"
+        ],
+        "source_mac": "02:00:00:41:00:02",
+        "status": 200
+      },
+      {
+        "vendo_id": 12,
+        "container": "opnwlab-1092f9-board3",
+        "ip": "10.5.10.198",
+        "source_address": [
+          "10.5.10.198"
+        ],
+        "source_mac": "02:00:00:41:00:03",
+        "status": 200
+      }
+    ],
+    "browsers": [
+      {
+        "container": "opnwlab-1092f9-browser-a",
+        "phase": "first",
+        "memory_cap": "1024 MB",
+        "ip": "10.5.50.171",
+        "mac": "02:00:00:00:0E:01",
+        "resolv_conf": "nameserver 10.5.50.1",
+        "router_lease": {
+          "address": "10.5.50.171",
+          "mac-address": "02:00:00:00:0E:01",
+          "server": "hs-dhcp",
+          "status": "bound"
+        }
+      },
+      {
+        "container": "opnwlab-1092f9-browser-b",
+        "phase": "rebind",
+        "memory_cap": "1024 MB",
+        "ip": "10.5.50.172",
+        "mac": "02:00:00:00:0E:02",
+        "resolv_conf": "nameserver 10.5.50.1",
+        "router_lease": {
+          "address": "10.5.50.172",
+          "mac-address": "02:00:00:00:0E:02",
+          "server": "hs-dhcp",
+          "status": "bound"
+        }
+      },
+      {
+        "container": "opnwlab-1092f9-browser-a",
+        "phase": "out",
+        "memory_cap": "1024 MB",
+        "ip": "10.5.50.171",
+        "mac": "02:00:00:00:0E:01",
+        "resolv_conf": "nameserver 10.5.50.1",
+        "router_lease": {
+          "address": "10.5.50.171",
+          "mac-address": "02:00:00:00:0E:01",
+          "server": "hs-dhcp",
+          "status": "bound"
+        }
+      },
+      {
+        "container": "opnwlab-1092f9-browser-c",
+        "phase": "custom",
+        "memory_cap": "1024 MB",
+        "ip": "10.5.50.173",
+        "mac": "02:00:00:00:0E:03",
+        "resolv_conf": "nameserver 10.5.50.1",
+        "router_lease": {
+          "address": "10.5.50.173",
+          "mac-address": "02:00:00:00:0E:03",
+          "server": "hs-dhcp",
+          "status": "bound"
+        }
+      },
+      {
+        "container": "opnwlab-1092f9-browser-admin",
+        "phase": "preview",
+        "memory_cap": "1024 MB"
+      },
+      {
+        "container": "opnwlab-1092f9-browser-admin",
+        "phase": "upload",
+        "memory_cap": "1024 MB"
+      },
+      {
+        "container": "opnwlab-1092f9-browser-d",
+        "phase": "branded",
+        "memory_cap": "1024 MB",
+        "ip": "10.5.50.174",
+        "mac": "02:00:00:00:0E:04",
+        "resolv_conf": "nameserver 10.5.50.1",
+        "router_lease": {
+          "address": "10.5.50.174",
+          "mac-address": "02:00:00:00:0E:04",
+          "server": "hs-dhcp",
+          "status": "bound"
+        }
+      },
+      {
+        "container": "opnwlab-1092f9-browser-admin",
+        "phase": "sales",
+        "memory_cap": "1024 MB"
+      },
+      {
+        "container": "opnwlab-1092f9-browser-admin",
+        "phase": "signin",
+        "memory_cap": "1024 MB"
+      }
+    ],
+    "run_seconds": 2498.4,
+    "removed": true
+  },
+  "execution": {
+    "architecture": "linux/arm/v7",
+    "vm_memory_mib": 256,
+    "boot_timeout_seconds": 900,
+    "image_url": "https://cloud-images.ubuntu.com/releases/bionic/release-20230607/ubuntu-18.04-server-cloudimg-armhf.img",
+    "image_sha256": "d3da9dfdd69857fd35cbfa562be84d013dfd024a72de55a8c6911268f76375c3",
+    "boot_artifacts": {
+      "https://cloud-images.ubuntu.com/releases/bionic/release-20230607/ubuntu-18.04-server-cloudimg-armhf.img": "d3da9dfdd69857fd35cbfa562be84d013dfd024a72de55a8c6911268f76375c3",
+      "https://cloud-images.ubuntu.com/releases/bionic/release-20230607/unpacked/ubuntu-18.04-server-cloudimg-armhf-vmlinuz-lpae": "44678e6f87bc764eb29c022b8b59bb8cb42333232a7e2d3027053bc328d5aba8",
+      "https://cloud-images.ubuntu.com/releases/bionic/release-20230607/unpacked/ubuntu-18.04-server-cloudimg-armhf-initrd-generic-lpae": "4076869995177d12acb9dbae444c8e891857cf24e842a283d499fd2f0499957c"
+    },
+    "container_memory_cap_mib": 512,
+    "boot_seconds": 459.562,
+    "guest_address": "10.77.7.1",
+    "machine": "armv7l",
+    "memory_total_kib": 238140,
+    "swap_total_kib": 0,
+    "service_user": "openpiso",
+    "logs_persistent_capped": true,
+    "binary_size_bytes": 22001881,
+    "peak_controller_rss_kib": 25872,
+    "rss_target_kib": 65536,
+    "qemu_peak_rss_mib": 434.9,
+    "container_oom_kills": 0
+  },
+  "browser_portal": {
+    "browser": "chromium 156.0.8078.4",
+    "device_profile": "Pixel 7",
+    "code_bytes": {
+      "/portal": 6650,
+      "/portal/portal.css": 7905,
+      "/portal/core.js": 13218
+    },
+    "code_budget_bytes": 40960,
+    "csp_violations": 0,
+    "csp_probe_refused": true,
+    "custom_portal_inline_script_refused": true,
+    "custom_js_error_left_core_js_working": true,
+    "preview_reports": {
+      "good": {
+        "read_ok": true,
+        "unknown_markers": [],
+        "states_with_errors": []
+      },
+      "broken-marker": {
+        "read_ok": true,
+        "unknown_markers": [
+          "stauts"
+        ],
+        "states_with_errors": []
+      },
+      "throwing-custom-js": {
+        "read_ok": true,
+        "unknown_markers": [],
+        "states_with_errors": [
+          "new",
+          "online",
+          "coin",
+          "paused",
+          "out",
+          "error"
+        ]
+      }
+    },
+    "signin": {
+      "exact_next_preserved": true,
+      "wrong_password_status": 401,
+      "session_survived_restart": true,
+      "session_not_renewed": true,
+      "logged_out": true,
+      "browser": "chromium 156.0.8078.4",
+      "device_profile": "desktop",
+      "screenshots": [
+        "35-signin-continue-sales",
+        "36-signin-wrong-password",
+        "37-signin-returned-to-sales",
+        "38-signin-survived-restart",
+        "39-signin-logged-out"
+      ],
+      "csp_violations": []
+    },
+    "sales_report": {
+      "shortcuts": {
+        "Today": {
+          "from": "2026-11-19",
+          "to": "2026-11-19",
+          "count": 84,
+          "total_pesos": 4294967743
+        },
+        "This week": {
+          "from": "2026-11-16",
+          "to": "2026-11-19",
+          "count": 84,
+          "total_pesos": 4294967743
+        },
+        "This month": {
+          "from": "2026-11-01",
+          "to": "2026-11-19",
+          "count": 84,
+          "total_pesos": 4294967743
+        },
+        "This year": {
+          "from": "2026-01-01",
+          "to": "2026-11-19",
+          "count": 84,
+          "total_pesos": 4294967743
+        }
+      },
+      "single_vendo_named": true,
+      "search_count": 77,
+      "later_page": 2,
+      "reload_back_forward_restored": true,
+      "csv_rows": 77,
+      "csv_matches_filtered_json": true,
+      "total_pesos": 4294967743,
+      "csp_violations": []
+    },
+    "preview_live_api_requests": 0,
+    "http_only_cookie_survived_fetch_posts": true,
+    "cover_logo_cropped_in_browser": {
+      "logo": {
+        "type": "image/webp",
+        "bytes": 880,
+        "width": 256,
+        "height": 256,
+        "corner": [
+          255,
+          255,
+          255
+        ],
+        "bottom": [
+          255,
+          255,
+          255
+        ]
+      },
+      "cover": {
+        "type": "image/webp",
+        "bytes": 90960,
+        "width": 1200,
+        "height": 400,
+        "corner": [
+          197,
+          41,
+          39
+        ],
+        "bottom": [
+          199,
+          40,
+          39
+        ]
+      }
+    },
+    "cover_logo_on_device_match": true,
+    "screenshots": [
+      "docker-armv7-browser-portal/01-new.png",
+      "docker-armv7-browser-portal/02-voucher-error.png",
+      "docker-armv7-browser-portal/03-online.png",
+      "docker-armv7-browser-portal/04-paused.png",
+      "docker-armv7-browser-portal/05-resumed.png",
+      "docker-armv7-browser-portal/06-coin-window.png",
+      "docker-armv7-browser-portal/07-coin-done.png",
+      "docker-armv7-browser-portal/07a-points.png",
+      "docker-armv7-browser-portal/07b-points-too-low.png",
+      "docker-armv7-browser-portal/08-rebind.png",
+      "docker-armv7-browser-portal/09-rebind-online.png",
+      "docker-armv7-browser-portal/10-out-of-time.png",
+      "docker-armv7-browser-portal/11-custom-portal-throwing-custom-js.png",
+      "docker-armv7-browser-portal/12-preview-good.png",
+      "docker-armv7-browser-portal/13-preview-broken-marker.png",
+      "docker-armv7-browser-portal/14-preview-throwing-custom-js.png",
+      "docker-armv7-browser-portal/15-admin-cover-logo.png",
+      "docker-armv7-browser-portal/16-preview-cover-logo.png",
+      "docker-armv7-browser-portal/17-device-cover-logo.png",
+      "docker-armv7-browser-portal/30-sales-all.png",
+      "docker-armv7-browser-portal/31-sales-single-vendo.png",
+      "docker-armv7-browser-portal/32-sales-search.png",
+      "docker-armv7-browser-portal/33-sales-later-page.png",
+      "docker-armv7-browser-portal/34-sales-mobile-table.png",
+      "docker-armv7-browser-portal/34-sales-mobile-feed.png",
+      "docker-armv7-browser-portal/35-signin-continue-sales.png",
+      "docker-armv7-browser-portal/36-signin-wrong-password.png",
+      "docker-armv7-browser-portal/37-signin-returned-to-sales.png",
+      "docker-armv7-browser-portal/38-signin-survived-restart.png",
+      "docker-armv7-browser-portal/39-signin-logged-out.png"
+    ]
+  },
+  "ipv6": {
+    "how": "Docker sets disable_ipv6=1 on every endpoint of a network without IPv6; a global --sysctl does not undo it, the per-endpoint driver option com.docker.network.endpoint.sysctls=net.ipv6.conf.IFNAME.disable_ipv6=0 does. Link-local only: no prefix or RA.",
+    "default_container_disable_ipv6": "1",
+    "device_link_local": [
+      "fe80::ff:fe00:c22"
+    ],
+    "router_link_local": [
+      "fe80::ff:feaa:1"
+    ],
+    "device_pings_router": true,
+    "router_neighbor_rows": 1,
+    "drop_rule_blocks_device": true,
+    "drop_rule_packets": 6,
+    "global_address_on_device": false,
+    "result": "isolation assertions can run"
+  },
+  "cleanup": {
+    "result": "pass",
+    "failures": []
+  },
+  "finished_at": "2026-11-19T14:40:12.487468+00:00",
+  "steps": [
+    "boot-admin-password-persisted-and-rate-limited",
+    "authenticated-post-route-policy",
+    "non-v7-onboarding-refused-before-any-write",
+    "operator-compares-certificate",
+    "onboarded-with-special-character-admin-password",
+    "second-onboarding-is-idempotent",
+    "boot-reverified-with-bootstrap-admin-deleted",
+    "boot-repairs-router-drift",
+    "dashboard-is-empty-without-sales-or-audit-items",
+    "validity-whole-number-units-and-readable-preview",
+    "voucher-batch-printable-and-validated",
+    "customer-device-redirect-and-walled-garden",
+    "vendo-paired-mac-spoof-restricted-to-controller",
+    "vendo-authenticated-cumulative-reports-and-wire-vectors",
+    "vendo-restart-lost-ack-does-not-credit-twice",
+    "vendo-unpaired-router-rules-removed",
+    "voucher-redeemed-internet-and-cookie-free-remaining",
+    "remaining-includes-committed-and-live-router-uptime",
+    "used-invalid-unknown-vouchers-do-not-credit",
+    "time-credit-cookie-signing-key-persists-on-restart",
+    "controller-outage-retains-router-session",
+    "boot-and-ten-second-poll-preserve-meter-and-ledger",
+    "dashboard-says-router-unreachable-and-keeps-sales",
+    "tapped-pause-preserves-time-1",
+    "tapped-pause-preserves-time-0",
+    "pause-limit-refuses-without-disconnecting",
+    "idle-pause-read-only-state-then-cookie-free-connect-0",
+    "idle-pause-read-only-state-then-cookie-free-connect-1",
+    "idle-pause-disabled-and-profiles-updated",
+    "online-top-up-reuses-time-credit-and-refreshes-countdown",
+    "top-up-restores-pause-budget-and-replay-does-not-reset-it",
+    "router-exhaustion-redirects-with-no-invented-time",
+    "router-error-keeps-committed-credit-pending",
+    "kill-after-credit-commit-replays-one-absolute-limit",
+    "two-devices-concurrently-redeem-exactly-one-winner",
+    "voucher-redemption-rate-limited-per-device",
+    "resume-code-rebind-after-real-mac-change",
+    "failed-vouchers-with-new-device-cookie-do-not-rebind",
+    "cookie-rebind-newest-device-wins-old-device-denied",
+    "admin-grant-is-a-durable-top-up-on-portal-and-router",
+    "dashboard-router-card-reports-chr-resources",
+    "admin-dashboard-sales-periods-time-credit-detail-and-batch-usage",
+    "audit-review-persists-until-explicit-dismissal-or-linked-grant",
+    "empty-coin-window-creates-identity-without-free-router-time",
+    "coin-window-rate-table-and-unique-vendo-reservation",
+    "coin-done-in-flight-tiered-top-up-and-replayed-closed",
+    "coin-grace-holds-busy-and-late-coins-reprice-whole-window",
+    "coin-window-open-at-restart-closes-on-boot",
+    "coin-window-sixty-seconds-without-coins-sends-close",
+    "coin-window-real-device-departure-sends-close",
+    "resume-code-guesses-rate-limited-per-router-device",
+    "mac-change-without-rebind-openpiso-idle",
+    "mac-change-without-rebind-openpiso-no-idle",
+    "same-ip-two-mac-host-observation",
+    "ambiguous-device-host-fails-closed-without-rebind",
+    "top-up-validity-wins-over-old-deadline",
+    "online-validity-forfeits-unused-time-and-removes-router-user",
+    "admin-grant-to-expired-time-credit-refused-without-mutation",
+    "purchase-after-expiry-creates-new-time-credit-then-pauses",
+    "offline-validity-removes-router-user-without-reviving-time",
+    "admin-grant-after-deadline-before-sweep-refused",
+    "coin-credit-to-expired-target-creates-new-time-credit",
+    "voucher-while-tapped-paused-credits-without-resuming",
+    "sales-report-search-ip-mac-user-literal-totals-navigation",
+    "sales-report-rows-late-stray-open-vouchers-pagination-auth",
+    "sales-report-vendo-filter-unpaired-history",
+    "sales-report-csv-export",
+    "custom-portal-save-check-publish-revert-reset",
+    "browser-portal-new-voucher-pause-coin-window",
+    "browser-portal-rebind-to-new-device",
+    "browser-portal-out-of-time",
+    "browser-custom-portal-throwing-custom-js",
+    "browser-custom-portal-preview",
+    "browser-custom-portal-cover-logo",
+    "browser-sales-report",
+    "browser-signin-logout-restart",
+    "flash-pairing-adopted-from-real-vlan-source",
+    "single-vendo-auto-select-from-either-vlan",
+    "one-vendo-per-vlan-learned-and-auto-selected",
+    "picker-is-limited-to-network-and-forged-id-reserves-nothing",
+    "coin-window-keeps-reserved-vendo-after-vlan-move",
+    "admin-overrides-network-and-no-match-reserves-nothing",
+    "device-without-time-credit-cannot-reach-internet",
+    "controller-saw-device-real-address",
+    "device-with-time-credit-pings-and-resolves",
+    "lab-sealed-from-real-internet",
+    "containers-have-memory-caps",
+    "vlan-hotspot-server-logs-device-in",
+    "changed-certificate-refused"
+  ],
+  "chr_client_cleanup_removed": 0
+}

@@ -5603,6 +5603,11 @@ def run(args: argparse.Namespace) -> None:
                 if docker and ARM_VM is not None:
                     ARM_VM.install(ADMIN_PASSWORD)
                     assert_arm_install(ARM_VM, report)
+                    # The installed daily update check fires at a random time up to an hour after install
+                    # and, offline here, still writes status.json, which gives the Dashboard an update
+                    # notice its scenario rules out. Hold it for this run; the update check covers it.
+                    ARM_VM.ssh("sudo systemctl stop openpiso-update-check.timer; "
+                               "sudo test ! -e /var/lib/openpiso-update/status.json")
                 scenario(args, report, lab)
                 if docker and ARM_VM is not None:  # the guest goes with the lab
                     arm_headroom()

@@ -74,6 +74,7 @@ class ArmVM:
         self.address = ""
         self.ssh_port = 22
         self.connect_timeout = 5  # seconds, up to and including sshd's banner
+        self.ssh_options = []  # extra options for every ssh and scp
         self.created = False
         self.installed = False
         self.tunnels = []
@@ -99,7 +100,7 @@ class ArmVM:
             "ssh", "-p", str(self.ssh_port), "-i", str(self.work / "id_ed25519"),
             "-o", "BatchMode=yes", "-o", f"ConnectTimeout={self.connect_timeout}",
             "-o", "StrictHostKeyChecking=accept-new",
-            "-o", f"UserKnownHostsFile={self.work / 'known_hosts'}",
+            "-o", f"UserKnownHostsFile={self.work / 'known_hosts'}", *self.ssh_options,
             f"openpiso-e2e@{self.address}", script, input=input,
         )
 
@@ -107,7 +108,7 @@ class ArmVM:
         command(
             "scp", "-O", "-P", str(self.ssh_port), "-i", str(self.work / "id_ed25519"),
             "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
-            "-o", f"UserKnownHostsFile={self.work / 'known_hosts'}",
+            "-o", f"UserKnownHostsFile={self.work / 'known_hosts'}", *self.ssh_options,
             str(source), f"openpiso-e2e@{self.address}:{target}",
         )
 
@@ -498,15 +499,40 @@ class ArmContainer(ArmVM):
                 raise RuntimeError(f"ARM guest container {self.name} stopped ({state})\nSerial console tail:\n{self.serial_tail()}")
             try:
                 self.ssh("test -f /run/openpiso-e2e-ready")
-                self.evidence["boot_seconds"] = round(time.monotonic() - started, 3)
-                self.evidence["guest_address"] = GUEST_ADDRESS
-                return
             except (RuntimeError, subprocess.SubprocessError):
                 time.sleep(2)
+                continue
+            self.evidence["boot_seconds"] = round(time.monotonic() - started, 3)
+            self.evidence["guest_address"] = GUEST_ADDRESS
+            self.share_connection()
+            return
         raise RuntimeError(
             f"ARM guest did not finish boot/cloud-init within {self.boot_timeout:g} seconds\n"
             f"Serial console tail:\n{self.serial_tail()}"
         )
+
+    def share_connection(self):
+        """Runs every later ssh and scp over one master connection. Under TCG each new connection's
+        handshake costs the guest seconds, and the Router's meter runs on wall time: without this a
+        Controller restart outlasted the scenario's 120-second Time Credit. A command after the master
+        is gone connects on its own (ssh falls back when the socket does not answer)."""
+        control = self.work / "control"
+        master = subprocess.Popen(
+            ["ssh", "-M", "-N", "-p", str(self.ssh_port), "-i", str(self.work / "id_ed25519"),
+             "-o", "BatchMode=yes", "-o", f"ConnectTimeout={self.connect_timeout}", "-o", f"ControlPath={control}",
+             "-o", "StrictHostKeyChecking=yes", "-o", f"UserKnownHostsFile={self.work / 'known_hosts'}",
+             f"openpiso-e2e@{self.address}"],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
+        )
+        self.tunnels.append(master)
+        deadline = time.monotonic() + 60
+        while not control.exists():
+            if master.poll() is not None:
+                raise RuntimeError(f"SSH master connection exited {master.returncode}: {master.stderr.read()}")
+            if time.monotonic() > deadline:
+                raise RuntimeError("SSH master connection did not come up within 60 seconds")
+            time.sleep(0.2)
+        self.ssh_options = ["-o", f"ControlPath={control}"]
 
     def install_command(self, binary: str, release_url: str | None = None) -> str:
         return ("sudo sh /tmp/openpiso-install/install.sh "

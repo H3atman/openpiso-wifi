@@ -2750,7 +2750,7 @@ class Report:
 
         def encode(data):
             encoded = json.dumps(redact_resume_codes(data), indent=2, ensure_ascii=False)
-            for secret in (password, ROUTER_ADMIN_PASSWORD, ADMIN_PASSWORD):
+            for secret in (lab["CHR_PASSWORD"], ROUTER_ADMIN_PASSWORD, ADMIN_PASSWORD):
                 encoded = encoded.replace(secret, "[redacted]")
             return encoded + "\n"
 

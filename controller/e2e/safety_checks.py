@@ -81,7 +81,8 @@ esac''')
         main = self.root / "main checkout"
         main.mkdir()
         for relative in ("controller/e2e/run.py", "controller/e2e/simulated_vendo.py",
-                         "controller/e2e/flash_pairing.py", "controller/e2e/lab_safety.py", "lab/chr/vlan_lab.py"):
+                         "controller/e2e/flash_pairing.py", "controller/e2e/lab_safety.py", "controller/e2e/browser_portal.py",
+                         "controller/e2e/libvirt_lab.py", "lab/chr/vlan_lab.py", "lab/chr/e2e_lab.py"):
             target = main / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT / relative, target)

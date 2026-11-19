@@ -1,4 +1,4 @@
-{{/* Router setup: connect a Router, the checklist of the Router and each Adopted server, then Use existing Adopts the ticked HotSpot servers and Add alongside creates one. */}}
+{{/* Router setup: connect a Router, the checklist of the Router and each Adopted server, the Shop's Next steps once one is Adopted, then Use existing Adopts the ticked HotSpot servers and Add alongside creates one. */}}
 {{define "content"}}
 {{if .Connected}}
 <section class="card narrow">
@@ -16,6 +16,18 @@
   <div class="card-head"><div><h3>Checklist</h3><p class="muted-fg">Each requirement, read from the Router just now. Reload the page to check again.</p></div></div>
   <div class="card-body">{{template "checklist" .Checklist}}</div>
 </section>
+{{end}}
+{{if .NextSteps}}
+<section class="card narrow">
+  <div class="card-head"><div><h3>Next steps</h3><p class="muted-fg">The rest of setting up the Shop, on its own pages and in any order. Skip any of them; nothing waits on them.</p></div></div>
+  <div class="card-body">
+    <ul class="checklist">{{range .NextSteps}}
+      <li class="next-step" data-step="{{.Name}}" data-done="{{.Done}}"><span class="badge"><span class="dot {{if .Done}}good{{else}}warn{{end}}"></span>{{if .Done}}Done{{else}}Not done{{end}}</span> <a href="{{.Href}}">{{.Title}}</a></li>{{end}}
+    </ul>
+  </div>
+</section>
+{{end}}
+{{if not .Error}}
 <section class="card narrow">
   <div class="card-head"><div><h3>Fresh start</h3><p class="muted-fg">Delete the Router's HotSpot configuration and create one HotSpot server. Addresses, DHCP, bridges, the internet connection and firewall rules outside HotSpot are kept.</p></div></div>
   <div class="card-body">

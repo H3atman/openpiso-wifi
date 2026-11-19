@@ -1,19 +1,19 @@
 {
   "format_version": 1,
   "scenario": "onboarding-only",
-  "started_at": "2026-11-19T06:16:19.555927+00:00",
-  "git_commit": "2b4ba8a13df01d90f421e2ff55fad954a88c0176",
-  "git_tree": "bb74ee5c4459fc14c5976b3e7921fec870cb9882",
-  "git_dirty": false,
-  "binary_size_bytes": 23381262,
-  "binary_sha256": "93e7e466e8e70746a1c71eeb6269daf515a7f58b31a9e4365a045f6c6071d925",
+  "started_at": "2026-11-19T06:33:10.874521+00:00",
+  "git_commit": "1bd216073fbccfaab53f07efbf3ec0adf1465a23",
+  "git_tree": "a12cf6d6d7e1a0791e58debb75b4baec50ba6add",
+  "git_dirty": true,
+  "binary_size_bytes": 23393126,
+  "binary_sha256": "9596206e5a8992945b05920de9c76a5dcb8db555e0466eb8909a52757615ea9f",
   "test_seam": "Controller binary via external HTTP against chr-lab and chr-client",
   "result": "pass",
   "cleanup": {
     "result": "pass",
     "failures": []
   },
-  "finished_at": "2026-11-19T06:19:55.185926+00:00",
+  "finished_at": "2026-11-19T06:37:27.768244+00:00",
   "steps": [
     "boot-admin-password-persisted-and-rate-limited",
     "authenticated-post-route-policy",
@@ -31,6 +31,7 @@
     "missing-return-route-reported-with-manual-steps",
     "device-sent-to-the-portal-meets-the-last-item",
     "adopted-server-sends-a-device-online-with-a-voucher",
+    "next-steps-read-done-from-the-ledger-and-block-nothing",
     "ledger-from-before-router-setup-starts-adopted-and-brings-a-device-online",
     "drift-login-method-reported-and-cleared-by-its-fix",
     "drift-server-enabled-reported-and-cleared-by-its-fix",
@@ -41,6 +42,8 @@
     "add-alongside-vlan-suggests-parent-and-id-and-refuses-a-used-id-and-a-filtering-bridge",
     "add-alongside-vlan-creates-the-vlan-and-server-and-names-the-vlan-for-an-ssid",
     "add-alongside-vlan-sends-a-device-on-the-vlan-online",
+    "missing-adopted-servers-reported-and-forgotten-without-a-router-write",
+    "create-after-forgetting-finishes-its-baseline",
     "use-existing-hidden-without-a-hotspot-server",
     "fresh-start-refused-while-the-ledger-has-a-time-credit",
     "fresh-start-counts-what-it-deletes-and-names-the-backup",
@@ -48,5 +51,5 @@
     "fresh-start-deletes-only-the-hotspot-tree-and-creates-the-server-where-the-old-one-was",
     "fresh-start-server-sends-a-device-online-with-a-voucher"
   ],
-  "chr_client_cleanup_removed": 3
+  "chr_client_cleanup_removed": 4
 }

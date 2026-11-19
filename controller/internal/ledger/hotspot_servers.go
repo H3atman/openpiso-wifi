@@ -99,6 +99,22 @@ func (l *Ledger) ForgetHotspotServers() error {
 	return tx.Commit()
 }
 
+// ForgetHotspotServer removes name from the Adopted HotSpot servers, with its
+// Portal arrivals. Router setup calls it only for a server missing on the Router.
+func (l *Ledger) ForgetHotspotServer(name string) error {
+	tx, err := l.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, statement := range []string{"DELETE FROM adopted_hotspot_servers WHERE name = ?", "DELETE FROM portal_arrivals WHERE server = ?"} {
+		if _, err := tx.Exec(statement, name); err != nil {
+			return fmt.Errorf("forget HotSpot server %s: %w", name, err)
+		}
+	}
+	return tx.Commit()
+}
+
 // FreshStartBlocker says why Fresh start must not run, or "" when it may: the
 // wipe deletes the Router users that hold Time Credits' time and the IP
 // bindings that let paired Vendos through.

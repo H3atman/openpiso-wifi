@@ -163,6 +163,7 @@ func Handler(ctx context.Context, store *ledger.Ledger, portalURL, routerStatus,
 		{Method: http.MethodPost, Path: "/admin/router/adopt", StateChanging: true, Authentication: adminSession, Handler: server.adoptServers},
 		{Method: http.MethodPost, Path: "/admin/router/add-alongside", StateChanging: true, Authentication: adminSession, Handler: server.addAlongside},
 		{Method: http.MethodPost, Path: "/admin/router/fix", StateChanging: true, Authentication: adminSession, Handler: server.fixCheck},
+		{Method: http.MethodPost, Path: "/admin/router/forget", StateChanging: true, Authentication: adminSession, Handler: server.forgetServer},
 		{Method: http.MethodPost, Path: "/admin/router/fresh-start", StateChanging: true, Authentication: adminSession, Handler: server.freshStart},
 	}
 

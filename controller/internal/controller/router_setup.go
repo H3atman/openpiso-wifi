@@ -11,7 +11,9 @@ import (
 
 // Router setup: connect a Router, then Use existing Adopts the HotSpot servers
 // the Operator ticks (ADR 0011). Only Adopted servers are ever changed. The
-// checklist reads each requirement on the Router and fixes one on request.
+// checklist reads each requirement on the Router and fixes one on request, an
+// Adopted server deleted on the Router can be forgotten, and Next steps lists
+// the Shop's remaining setup tasks.
 
 // routerSetupTimeout bounds the Router reads behind the Router setup page.
 const routerSetupTimeout = 10 * time.Second
@@ -31,6 +33,28 @@ type routerSetupView struct {
 	AddAlongside addAlongsideView
 	CarryVLANs   []carryVLAN
 	FreshStart   freshStartView
+	NextSteps    []nextStep // shown once a HotSpot server is Adopted
+}
+
+// nextStep is one remaining Shop setup task, read from the ledger and linking
+// to the page where the Operator does it. Router setup adds no form for it.
+type nextStep struct {
+	Name, Title, Href string
+	Done              bool
+}
+
+// readNextSteps lists the Shop's remaining setup tasks, done or not done.
+func (s *Server) readNextSteps() ([]nextStep, error) {
+	steps, err := s.ledger.NextSteps()
+	if err != nil {
+		return nil, err
+	}
+	return []nextStep{
+		{Name: "shop-settings", Title: "Save the Shop settings", Href: "/admin/pause", Done: steps.ShopSettings},
+		{Name: "rate-tiers", Title: "Set your Rate tiers", Href: "/admin/rates", Done: steps.RateTiers},
+		{Name: "vendo-paired", Title: "Pair a Vendo", Href: "/admin/vendos", Done: steps.VendoPaired},
+		{Name: "voucher-batch", Title: "Generate a first Voucher Batch", Href: "/admin/vouchers", Done: steps.VoucherBatch},
+	}, nil
 }
 
 // useExistingView is the review before Adopting Servers, with the ticked
@@ -41,10 +65,13 @@ type useExistingView struct {
 	Checklist []checkGroup
 }
 
-// checkGroup is the checklist of the Router (Server empty) or of one HotSpot server.
+// checkGroup is the checklist of the Router (Server empty) or of one HotSpot
+// server. Missing marks an Adopted server the Router no longer has, which the
+// page offers to forget (POST /admin/router/forget).
 type checkGroup struct {
-	Server string
-	Items  []checkItem
+	Server  string
+	Items   []checkItem
+	Missing bool
 }
 
 // checkItem is one checklist item as read. Fixable says the page offers its
@@ -69,6 +96,12 @@ func (s *Server) admin(response http.ResponseWriter, request *http.Request) {
 		if err != nil {
 			http.Error(response, err.Error(), http.StatusInternalServerError)
 			return
+		}
+		if len(view.Adopted) > 0 {
+			if view.NextSteps, err = s.readNextSteps(); err != nil {
+				http.Error(response, err.Error(), http.StatusInternalServerError)
+				return
+			}
 		}
 		if err := s.readRouterSetup(request.Context(), &view); err != nil {
 			view.Error = err.Error()
@@ -107,8 +140,57 @@ func (s *Server) readRouterSetup(ctx context.Context, view *routerSetupView) err
 	if view.FreshStart, err = s.readFreshStart(ctx, router); err != nil {
 		return err
 	}
-	view.Checklist, err = s.readChecklist(ctx, router, view.Adopted, true)
-	return err
+	if view.Checklist, err = s.readChecklist(ctx, router, view.Adopted, true); err != nil {
+		return err
+	}
+	for i := range view.Checklist {
+		group := &view.Checklist[i]
+		group.Missing = group.Server != "" && !slices.ContainsFunc(servers, func(server routeros.HotspotServer) bool { return server.Name == group.Server })
+	}
+	return nil
+}
+
+// forgetServer serves POST /admin/router/forget with server: an Adopted server
+// deleted on the Router by hand stops being Adopted, so the baseline no longer
+// refuses it. It writes nothing to the Router, and a server the Router still
+// has is refused: releasing a server is out of scope (ADR 0011).
+func (s *Server) forgetServer(response http.ResponseWriter, request *http.Request) {
+	s.voucherMu.Lock()
+	defer s.voucherMu.Unlock()
+	if err := request.ParseForm(); err != nil {
+		http.Error(response, "invalid HotSpot server", http.StatusBadRequest)
+		return
+	}
+	name := request.PostForm.Get("server")
+	adopted, err := s.ledger.AdoptedHotspotServers()
+	if err != nil {
+		http.Error(response, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if !slices.Contains(adopted, name) {
+		http.Error(response, "HotSpot server "+name+" is not Adopted", http.StatusBadRequest)
+		return
+	}
+	router, err := s.router()
+	if err != nil {
+		http.Error(response, err.Error(), http.StatusBadGateway)
+		return
+	}
+	defer router.Close()
+	servers, err := router.ListHotspotServers(request.Context())
+	if err != nil {
+		http.Error(response, err.Error(), http.StatusBadGateway)
+		return
+	}
+	if slices.ContainsFunc(servers, func(server routeros.HotspotServer) bool { return server.Name == name }) {
+		http.Error(response, "HotSpot server "+name+" is on the Router; only a server missing on the Router can be forgotten", http.StatusBadRequest)
+		return
+	}
+	if err := s.ledger.ForgetHotspotServer(name); err != nil {
+		http.Error(response, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(response, request, "/admin", http.StatusSeeOther)
 }
 
 // checklist is every Router setup check on the Router and on each of servers:

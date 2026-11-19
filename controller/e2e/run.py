@@ -5628,6 +5628,25 @@ def unmet(items):
     return sorted(key for key, item in items.items() if not item["met"])
 
 
+# Router setup's Next steps once the Router is ready: each task and the existing page it links to.
+NEXT_STEP_PAGES = {"shop-settings": "/admin/pause", "rate-tiers": "/admin/rates",
+                   "vendo-paired": "/admin/vendos", "voucher-batch": "/admin/vouchers"}
+
+
+def next_steps(page):
+    """The Next steps on Router setup: {step: done}, after asserting each links to its page and offers no form."""
+    card = re.search(r"<h3>Next steps</h3>(.*?)</section>", page, re.S)
+    if not card:
+        return {}
+    assert "<form" not in card.group(1), card.group(1)
+    steps = {}
+    for name, done, href in re.findall(r'<li class="next-step" data-step="([^"]+)" data-done="(true|false)">.*?<a href="([^"]+)"',
+                                       card.group(1), re.S):
+        assert href == NEXT_STEP_PAGES[name], (name, href)
+        steps[name] = done == "true"
+    return steps
+
+
 def use_existing(opener, report, address, password, existing, tree_before, other_before, users_before):
     """Router setup's Use existing: Adopt hs1 and leave the second server unticked."""
     server, other = _hotspot_module.SERVER, _hotspot_module.OTHER
@@ -5636,6 +5655,8 @@ def use_existing(opener, report, address, password, existing, tree_before, other
     for name in (server, other):
         assert f'<input type="checkbox" name="server" value="{name}" checked>' in page, page
     # Before anything is Adopted the checklist reads the Router alone: what someone else's HotSpot lacks.
+    # Next steps waits until the Router is ready: a HotSpot server is Adopted.
+    assert next_steps(page) == {}, page
     router_items = checklist(page)
     assert sorted(router_items) == [("", "base-profiles"), ("", "routeros-v7"), ("", "walled-garden")], router_items
     assert unmet(router_items) == [("", "base-profiles"), ("", "walled-garden")], router_items
@@ -5699,6 +5720,8 @@ def use_existing(opener, report, address, password, existing, tree_before, other
     assert unmet(items) == [(server, "device-seen"), (server, "portal-reachable")], items
     assert items[(server, "device-seen")]["fix"] is None and items[(server, "device-seen")]["reason"], items
     assert not any(key[0] == other for key in items), items
+    # The Router is ready, so Next steps appears; a new Shop has done none of them.
+    assert next_steps(page) == dict.fromkeys(NEXT_STEP_PAGES, False), page
     report.snapshot("use-existing-adopts-only-the-ticked-server", address, password, opener,
                     adopted=[server], unticked=other, server_profile=profile,
                     default_login_page_unchanged=True)
@@ -5986,6 +6009,7 @@ def add_alongside_vlan(opener, report, address, password, client_address, existi
                         device=device_ip, redirect_html=redirect_page, internet_target=target,
                         adopted=json.load(request(opener, "/admin/state"))["router"]["adopted_hotspot_servers"],
                         setup_page_seconds=load_seconds)
+        return name
     finally:
         report.capture_lab_failure()
         remove_vlan_alongside(address, password, client_address)
@@ -6133,14 +6157,67 @@ def add_alongside(opener, report, address, password, client_address, existing):
         report.snapshot("add-alongside-server-network-reported-and-created-by-its-fix", address, password, opener,
                         missing_dhcp=no_dhcp, missing_address=no_address)
         # While this server is still on the Router: removing it below leaves it Adopted, and the baseline that
-        # every create runs refuses an Adopted server that is missing. This also loads Router setup with three
-        # Adopted servers.
-        add_alongside_vlan(opener, report, address, password, client_address, existing)
+        # every create runs refuses an Adopted server that is missing until it is forgotten (forget_missing).
+        # This also loads Router setup with three Adopted servers.
+        return add_alongside_vlan(opener, report, address, password, client_address, existing)
     finally:
         report.capture_lab_failure()
         remove_alongside(address, password, client_address)
         existing.teardown_other()
         client(f"/interface/ethernet/{lan2['.id']}", "PATCH", {"disabled": lan2["disabled"]})
+
+
+def forget_offers(page):
+    """The Adopted HotSpot servers Router setup offers to forget, in page order."""
+    return re.findall(r'<form class="forget-server" method="post" action="/admin/router/forget">'
+                      r'<input type="hidden" name="server" value="([^"]+)">', page)
+
+
+def forget_missing(opener, report, address, password, client_address, missing):
+    """Adopted servers deleted on the Router by hand (Add alongside's cleanup did it over REST): each is reported
+    with Forget this server, which only the missing ones offer. Forgetting changes nothing on the Router, and the
+    next create finishes its baseline again."""
+    server = _hotspot_module.SERVER
+    def setup_page():
+        return request(opener, "/admin", timeout=15).read().decode()
+    def forget(name):
+        response = request(opener, "/admin/router/forget", "POST", {"server": name})
+        page = response.read().decode()
+        assert response.status == 200 and urllib.parse.urlsplit(response.url).path == "/admin", page
+        return page
+    page = setup_page()
+    assert json.load(request(opener, "/admin/state"))["router"]["adopted_hotspot_servers"] == sorted([server, *missing])
+    items = checklist(page)
+    for name in missing:
+        assert not items[(name, "server-enabled")]["met"] and "missing on the Router" in items[(name, "server-enabled")]["reason"], items
+    assert forget_offers(page) == missing, page
+    tree, network = hotspot_tree(address, password), network_tree(address, password)
+    # Refused: no server, a server that is still on the Router, and a server that is not Adopted.
+    for form in ({}, {"server": server}, {"server": "opnw-missing"}):
+        assert request(opener, "/admin/router/forget", "POST", form).status == 400, form
+    for name in missing:
+        page = forget(name)
+    assert forget_offers(page) == [] and not any(key[0] in missing for key in checklist(page)), page
+    assert unmet(checklist(page)) == [], checklist(page)
+    assert json.load(request(opener, "/admin/state"))["router"]["adopted_hotspot_servers"] == [server]
+    assert hotspot_tree(address, password) == tree and network_tree(address, password) == network, "forgetting wrote to the Router"
+    report.snapshot("missing-adopted-servers-reported-and-forgotten-without-a-router-write", address, password, opener,
+                    forgotten=missing, reason=items[(missing[0], "server-enabled")]["reason"])
+
+    # A create runs the baseline over every Adopted server: with the missing ones forgotten it finishes.
+    _, parent, vlan, _ = add_alongside_vlan_card(page)
+    created = f"openpiso-{parent}-vlan{vlan}"
+    try:
+        response = request(opener, "/admin/router/add-alongside", "POST",
+                           {"placement": "vlan", "parent": parent, "vlan": str(vlan), "range": VLAN_RANGE}, timeout=30)
+        assert response.status == 200 and urllib.parse.urlsplit(response.url).path == "/admin", response.read().decode()
+        state = json.load(request(opener, "/admin/state"))["router"]
+        assert state["status"] == "ready" and state["adopted_hotspot_servers"] == sorted([server, created]), state
+    finally:
+        remove_vlan_alongside(address, password, client_address)
+    forget(created)
+    assert json.load(request(opener, "/admin/state"))["router"]["adopted_hotspot_servers"] == [server]
+    report.snapshot("create-after-forgetting-finishes-its-baseline", address, password, opener, created=created)
 
 
 def portal_reachability(opener, report, address, password, client_address, device_ip):
@@ -6473,11 +6550,7 @@ def fresh_start(controller, args, data_dir, opener, report, address, password, c
         controller.stop()
         for row in rest("/user?name=openpiso-controller"):
             rest(f"/user/{row['.id']}", "DELETE")
-        # That ledger still Adopts the servers Add alongside created and removed (there is no un-Adopt yet).
-        names = [row["name"] for row in rest("/ip/hotspot")]
-        with sqlite3.connect(Path(data_dir) / "openpiso.db") as db:
-            db.execute(f"DELETE FROM adopted_hotspot_servers WHERE name NOT IN ({','.join('?' * len(names))})", names)
-        db.close()
+        # That ledger Adopts only hs1: forget_missing forgot the servers Add alongside created and removed.
         controller = Controller(args.binary, data_dir, initialize=False)
         started(controller)
         opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
@@ -6489,6 +6562,27 @@ def fresh_start(controller, args, data_dir, opener, report, address, password, c
         assert state["router"]["status"] == "ready", state["router"]
         assert state["router"]["adopted_hotspot_servers"] == [server] == [row["name"] for row in rest("/ip/hotspot")], state["router"]
     return controller, opener
+
+
+def next_steps_follow_the_shop(opener, report, address, password, client_address):
+    """Next steps reads each task from the ledger: the Voucher Batch generated above is done, while the Vendo
+    pairs and the Voucher sold before the Shop settings and Rate tiers were saved, so nothing waited on them."""
+    def steps():
+        return next_steps(request(opener, "/admin").read().decode())
+    assert steps() == {"shop-settings": False, "rate-tiers": False, "vendo-paired": False, "voucher-batch": True}
+    paired = pair_board(opener, client_address, password, coin_board(client_address, password))
+    try:
+        assert steps() == {"shop-settings": False, "rate-tiers": False, "vendo-paired": True, "voucher-batch": True}
+        assert request(opener, "/admin/pause", "POST", {"pause_limit": "3", "idle_seconds": "120", "idle_enabled": "off"}).status == 200
+        # The shipped ₱1 = 60 s tier is not the Operator's own price yet.
+        assert request(opener, "/admin/rates", "POST", {"tiers": "1=120"}).status == 200
+        assert steps() == dict.fromkeys(NEXT_STEP_PAGES, True)
+    finally:
+        assert request(opener, "/admin/vendos/unpair", "POST", {"id": paired["id"]}).status == 204
+        cleanup_coin_board(client_address, password)
+    assert steps()["vendo-paired"] is False, "an unpaired Vendo still reads as paired"
+    report.snapshot("next-steps-read-done-from-the-ledger-and-block-nothing", address, password, opener,
+                    vendo=paired["id"], steps=steps())
 
 
 def onboarding(controller, args, data_dir, opener, report, address, password, client_address, existing, other_before, started):
@@ -6519,6 +6613,7 @@ def onboarding(controller, args, data_dir, opener, report, address, password, cl
     assert PORTAL_URL.removeprefix("http://") + "/portal" not in internet
     report.snapshot("adopted-server-sends-a-device-online-with-a-voucher", address, password, opener,
                     redirect_html=redirect_page, internet_target=target)
+    next_steps_follow_the_shop(opener, report, address, password, client_address)
 
     # A ledger from before Router setup: a saved Router connection and no record of Adopted servers.
     # The Router is as that Controller left it, the server profile on the default directory.
@@ -6551,8 +6646,10 @@ def onboarding(controller, args, data_dir, opener, report, address, password, cl
                     adopted=state["router"]["adopted_hotspot_servers"], internet_target=target)
 
     drift(opener, report, address, password)
-    # Before the step below, which needs no HotSpot server: Add alongside removes its server when done.
-    add_alongside(opener, report, address, password, client_address, existing)
+    # Before the step below, which needs no HotSpot server: Add alongside removes its servers when done,
+    # and they stay Adopted until forgotten.
+    vlan_server = add_alongside(opener, report, address, password, client_address, existing)
+    forget_missing(opener, report, address, password, client_address, sorted([ALONGSIDE, vlan_server]))
 
     # Last: a re-created HotSpot server takes a while before a Device fetch through it works.
     def no_use_existing():
@@ -6966,7 +7063,7 @@ def assert_arm_install(vm, report: Report) -> None:
 # Partial scenarios for --only: each runs onboarding, then just that scenario, and
 # writes `<name>-only.json` with scenario `<name>-only`. `boot` is the ARMv7 guest boot check.
 ONLY_SCENARIOS = {
-    "onboarding": "Router setup from someone else's HotSpot: Use existing, a Device online, the unticked server, a ledger from before Router setup, Add alongside on a free interface and on a new VLAN, and Fresh start",
+    "onboarding": "Router setup from someone else's HotSpot: Use existing, a Device online, Next steps, the unticked server, a ledger from before Router setup, Add alongside on a free interface and on a new VLAN, forgetting a missing Adopted server, and Fresh start",
     "vouchers": "Voucher batch generation, pricing snapshots, CSV and redemption",
     "pairing": "flash pairing",
     "vlan": "VLAN auto-select",

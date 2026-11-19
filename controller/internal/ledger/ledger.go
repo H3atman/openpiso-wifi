@@ -64,6 +64,7 @@ func Open(path string) (*Ledger, error) {
 		timeCreditProfileSchema,
 		portalSchema,
 		voucherTemplateSchema,
+		portalArrivalSchema,
 	} {
 		if _, err := db.Exec(statement); err != nil {
 			db.Close()

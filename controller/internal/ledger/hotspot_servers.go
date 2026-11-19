@@ -79,3 +79,24 @@ func (l *Ledger) AdoptHotspotServers(names []string) error {
 	}
 	return tx.Commit()
 }
+
+// portalArrivalSchema records each HotSpot server a Device has been sent to the
+// Portal from, the Router setup checklist's last item for that server.
+const portalArrivalSchema = `CREATE TABLE IF NOT EXISTS portal_arrivals (server TEXT PRIMARY KEY)`
+
+// RecordPortalArrival notes that a Device reached the Portal from HotSpot server server.
+func (l *Ledger) RecordPortalArrival(server string) error {
+	if _, err := l.db.Exec("INSERT OR IGNORE INTO portal_arrivals (server) VALUES (?)", server); err != nil {
+		return fmt.Errorf("record Portal arrival from %s: %w", server, err)
+	}
+	return nil
+}
+
+// PortalArrived reports whether a Device has reached the Portal from HotSpot server server.
+func (l *Ledger) PortalArrived(server string) (bool, error) {
+	var arrived bool
+	if err := l.db.QueryRow("SELECT count(*) > 0 FROM portal_arrivals WHERE server = ?", server).Scan(&arrived); err != nil {
+		return false, fmt.Errorf("read Portal arrivals: %w", err)
+	}
+	return arrived, nil
+}

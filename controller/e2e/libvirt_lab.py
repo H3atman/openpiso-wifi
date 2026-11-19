@@ -4,6 +4,7 @@ chr-lab is the Router; chr-client hosts every Device and Vendo board. Device 1
 is lan1, Device 2 is lan2, and a Device acts through chr-client's /tool/fetch
 with source-policy routing. A MAC change switches Device 1 to the lan2 NIC.
 """
+import contextlib
 import functools
 import json
 import re
@@ -225,11 +226,24 @@ class LibvirtLab:
     module; PORTAL_URL is read from it at call time because ARM mode changes it.
     """
 
+    not_ported = frozenset()  # tickets whose scenarios this lab skips (run.ported)
+
     def __init__(self, run, password: str):
         self.run = run
         self.router_password = password
         self._shared_rule = None
         self._vlan = None
+
+    def running(self, report):
+        """The lab for the length of a run: chr-lab and chr-client are long-lived, so nothing to do."""
+        return contextlib.nullcontext()
+
+    def own_scenarios(self, opener, report) -> None:
+        """Scenarios only this lab runs: none."""
+
+    def non_v7_router(self, module):
+        """The RouterOS 6 fixture (module is the loaded non_v7_router.py), served by the harness on the libvirt bridge."""
+        return module.NonV7Router("192.168.122.1")
 
     @functools.cached_property
     def router_address(self) -> str:

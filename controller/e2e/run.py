@@ -33,6 +33,7 @@ BASE_URL = "http://127.0.0.1:18080"
 PORTAL_URL = "http://192.168.122.1:18080"
 PORTAL_CSP = "default-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"  # docs/portal-contract.md
 ARM_VM = None
+CONTROLLER_HOST = None  # a lab that runs the Controller itself (DockerLab); None runs the binary here
 HTTP_TIMEOUT = 3
 ADMIN_PASSWORD = "controller-e2e-password"
 ROUTER_ADMIN = "openpiso-bootstrap"
@@ -63,7 +64,30 @@ _libvirt_module = importlib.util.module_from_spec(_libvirt_spec)
 _libvirt_spec.loader.exec_module(_libvirt_module)
 # --lab choices. Scenarios reach the Router, Devices and Vendos only through
 # the lab object (see LibvirtLab for the interface).
-LABS = {"libvirt": _libvirt_module.LibvirtLab}
+_docker_spec = importlib.util.spec_from_file_location("docker_lab", Path(__file__).with_name("docker_lab.py"))
+_docker_module = importlib.util.module_from_spec(_docker_spec)
+_docker_spec.loader.exec_module(_docker_module)
+LABS = {"libvirt": _libvirt_module.LibvirtLab, "docker": _docker_module.DockerLab}
+
+
+def ported(lab, report, ticket: int, *names: str) -> bool:
+    """Whether this lab runs ticket's scenarios. If not, names them as skipped in the report and the log.
+    Remove each call once its ticket ports the scenarios."""
+    if ticket not in lab.not_ported:
+        return True
+    report.data.setdefault("not_ported", {}).setdefault(f"#{ticket}", []).extend(names)
+    for name in names:
+        print(f"SKIP {name}: not ported to the Docker lab yet (#{ticket})", flush=True)
+    return False
+
+
+def assert_refused(error, code: str) -> None:
+    """A Portal refusal carries the Portal's message. Only labs whose fetch keeps the reply (DockerLab)
+    can check it; RouterOS /tool/fetch drops the body, so there the status is all there is."""
+    reply = getattr(error, "portal_reply", None)
+    if reply is not None:
+        message = reply["message"]
+        assert message["code"] == code and message["text"], (code, message)
 
 
 def load_lab_env() -> dict[str, str]:
@@ -321,7 +345,8 @@ def capture_baseline(address: str, password: str) -> dict:
             for item in walled
             if item.get("comment") == "openpiso-controller"
         ],
-        "login_html": files[0]["contents"],
+        # REST omits contents over 4 KiB, as for a stock Router's login.html before onboarding.
+        "login_html": files[0].get("contents"),
         "login_file": {key: files[0].get(key, "") for key in ("name", "size", "last-modified")},
     }
 
@@ -342,6 +367,10 @@ class Controller:
         if ARM_VM is not None:
             ARM_VM.start_controller()
             wait_for(f"{BASE_URL}/healthz", timeout=120)
+            return
+        if CONTROLLER_HOST is not None:
+            self.process = CONTROLLER_HOST.start_controller(initialize)
+            wait_for(f"{BASE_URL}/healthz", timeout=30)
             return
         env = os.environ.copy()
         if initialize:
@@ -382,7 +411,8 @@ class Controller:
             self.process.wait(timeout=5)
         except subprocess.TimeoutExpired:
             self.process.kill()
-        if self.process.returncode not in (0, -15, -9):
+        # 143 and 137: docker exec reports a signalled Controller the shell way.
+        if self.process.returncode not in (0, -15, -9, 143, 137):
             output = self.process.stdout.read() if self.process.stdout else ""
             raise AssertionError(f"Controller exited {self.process.returncode}:\n{output}")
 
@@ -413,12 +443,12 @@ def sales(opener, start="1970-01-01", end="2100-01-01"):
     return json.load(request(opener, "/admin/sales?" + query))
 
 
-def non_v7_refusal(opener, report, address, password):
+def non_v7_refusal(opener, report, address, password, lab):
     spec = importlib.util.spec_from_file_location("non_v7_router", Path(__file__).with_name("non_v7_router.py"))
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     before = json.load(request(opener, "/admin/state"))
-    with module.NonV7Router() as router:
+    with lab.non_v7_router(module) as router:
         assert request(opener, "/admin/router/probe", "POST", {
             "address": router.address, "username": "fixture", "password": "not-a-router-secret"}).status == 200
         response = request(opener, "/admin/router/confirm", "POST")
@@ -862,12 +892,14 @@ def voucher_redemption(opener, report, address, password, lab, codes):
     assert abs(remaining - duration_seconds(active[0]["session-time-left"])) <= 3
     report.snapshot("remaining-includes-committed-and-live-router-uptime", address, password, opener,
                     committed_seconds=committed, remaining_seconds=remaining, portal_state=state)
-    for code, expected in ((codes[0], "already used"), ("IIIIIIII", "invalid"), ("ZZZZZZZZ", "not found")):
+    for code, expected, refusal in ((codes[0], "already used", "voucher-used"), ("IIIIIIII", "invalid", "voucher-unknown"),
+                                    ("ZZZZZZZZ", "not found", "voucher-unknown")):
         try:
             fetch("/portal/api/redeem", code)
         except urllib.error.HTTPError as error:
             # RouterOS wraps the Controller's status in its own REST error.
             assert error.code == 400
+            assert_refused(error, refusal)
         else:
             raise AssertionError("Voucher failure was accepted: " + expected)
     assert len(json.load(request(opener, "/admin/state"))["purchases"]["audit"]) == 1
@@ -942,11 +974,12 @@ def tapped_pause(opener, report, address, password, lab, device_ip, cookie):
     code = voucher_codes(opener, response)[0]
     assert portal_state(fetch("/portal/api/redeem", {"code": code}, cookie))["time_credit"]["pause_limit"] == 2
 
-    def refused(path, proof=""):
+    def refused(path, refusal, proof=""):
         try:
             fetch(path, {}, proof)
         except urllib.error.HTTPError as error:
             assert error.code == 400  # RouterOS wraps non-2xx HTTP responses.
+            assert_refused(error, refusal)
         else:
             raise AssertionError("Pause ownership/limit check was bypassed: " + path)
 
@@ -964,9 +997,9 @@ def tapped_pause(opener, report, address, password, lab, device_ip, cookie):
             state = portal_state(visit)
             assert state["time_credit"]["paused"] and "resume_code" not in state["time_credit"]
             assert "set-cookie:" not in visit.get("http-headers", "").lower(), "Paused visit minted ownership proof"
-        refused("/portal/api/connect")
-        refused("/portal/api/resume")
-        refused("/portal/api/resume", cookie[:-1] + ("A" if cookie[-1] != "A" else "B"))
+        refused("/portal/api/connect", "paused-needs-resume")
+        refused("/portal/api/resume", "resume-needs-proof")
+        refused("/portal/api/resume", "resume-needs-proof", cookie[:-1] + ("A" if cookie[-1] != "A" else "B"))
         internet = lab.fetch(device_ip, "http://1.1.1.1/", headers=False)
         assert "/portal" in internet.get("data", ""), "Router silently logged paused Device back in"
         time.sleep(3)
@@ -981,7 +1014,7 @@ def tapped_pause(opener, report, address, password, lab, device_ip, cookie):
         assert state["time_credit"]["online"] and not state["time_credit"]["paused"]
         assert state["time_credit"]["resume_code"]
         assert len(router_rest(address, "admin", password, active_path)) == 1
-    refused("/portal/api/pause")
+    refused("/portal/api/pause", "pause-limit")
     assert len(router_rest(address, "admin", password, active_path)) == 1
     report.snapshot("pause-limit-refuses-without-disconnecting", address, password, opener)
 
@@ -1209,6 +1242,7 @@ def top_up_pause_budget(opener, report, address, password, lab, device_ip, cooki
         pause_device_fetch(lab, device_ip, "/portal/api/redeem", {"code": used_code}, cookie)
     except urllib.error.HTTPError as error:
         assert "409" in json.load(error).get("detail", "")
+        assert_refused(error, "voucher-used")
     else:
         raise AssertionError("Top-up Voucher was consumed twice")
     after = json.load(request(opener, "/admin/state"))
@@ -1275,6 +1309,7 @@ def pending_credit_recovery(controller, args, data_dir, opener, report, address,
             pause_device_fetch(lab, device_ip, "/portal/api/redeem", {"code": code})
         except urllib.error.HTTPError as error:
             assert "503" in json.load(error).get("detail", "")
+            assert_refused(error, "connect-failed")
         else:
             raise AssertionError("Router write failure was not surfaced")
         state = json.load(request(opener, "/admin/state"))
@@ -1394,6 +1429,7 @@ def validity_online_expiry(opener, report, address, password, lab, device_ip):
         pause_device_fetch(lab, device_ip, "/portal/api/connect", {}, cookie)
     except urllib.error.HTTPError as error:
         assert "403" in json.load(error).get("detail", "")
+        assert_refused(error, "no-time-credit")
     else:
         raise AssertionError("expired cookie recreated a Router user")
     redirect = lab.fetch(device_ip, "http://1.1.1.1/", headers=False)["data"]
@@ -1457,6 +1493,7 @@ def validity_offline_expiry(opener, report, address, password, lab, device_ip,
         pause_device_fetch(lab, device_ip, "/portal/api/resume", {}, cookie)
     except urllib.error.HTTPError as error:
         assert "403" in json.load(error).get("detail", "")
+        assert_refused(error, "no-time-credit")
     else:
         raise AssertionError("expired offline Time Credit resumed")
     time.sleep(11)
@@ -1542,6 +1579,7 @@ def concurrent_voucher(opener, report, address, password, lab, code):
         except urllib.error.HTTPError as error:
             assert error.code == 400
             assert "409" in json.load(error).get("detail", "")
+            assert_refused(error, "voucher-used")
             return "used"
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
         results = list(pool.map(redeem, ips))
@@ -1561,6 +1599,7 @@ def concurrent_voucher(opener, report, address, password, lab, code):
         lab.fetch(ips[1], PORTAL_URL + "/portal/api/redeem?mac=fake", {"code": "IIIIIIII"}, headers=False)
     except urllib.error.HTTPError as error:
         assert "429" in json.load(error).get("detail", "")
+        assert_refused(error, "too-many-attempts")
     else:
         raise AssertionError("per-Device Voucher rate limit not enforced")
     report.snapshot("voucher-redemption-rate-limited-per-device", address, password, opener)
@@ -1632,11 +1671,13 @@ def rebind_recovery(opener, report, address, password, lab, device_ip, cookie):
         internet = lab.fetch(device_ip, "http://1.1.1.1/", headers=False)["data"]
         assert PORTAL_URL.removeprefix("http://") + "/portal" in internet, "old Device retained Internet access"
         used_code = next(v["code"] for v in before["vouchers"] if v["time_credit_id"] == time_credit["id"])
-        for rejected, status in ((used_code, "409"), ("IIIIIIII", "400"), ("ZZZZZZZZ", "400")):
+        for rejected, status, refusal in ((used_code, "409", "voucher-used"), ("IIIIIIII", "400", "voucher-unknown"),
+                                          ("ZZZZZZZZ", "400", "voucher-unknown")):
             try:
                 rebind_fetch(lab, device_ip, "/portal/api/redeem", {"code": rejected}, cookie)
             except urllib.error.HTTPError as error:
                 assert status in json.load(error).get("detail", "")
+                assert_refused(error, refusal)
             else:
                 raise AssertionError("invalid Voucher was accepted while presenting a new Device cookie")
             assert json.load(request(opener, "/admin/state"))["purchases"] == after, "failed Voucher moved a Time Credit"
@@ -1656,6 +1697,7 @@ def rebind_recovery(opener, report, address, password, lab, device_ip, cookie):
             rebind_fetch(lab, device_ip, "/portal/api/connect", {}, cookie)
         except urllib.error.HTTPError as error:
             assert "403" in json.load(error).get("detail", "")
+            assert_refused(error, "paused-needs-resume")
         else:
             raise AssertionError("automatic cookie Rebind bypassed tapped Pause")
         paused = json.load(request(opener, "/admin/state"))
@@ -2003,12 +2045,14 @@ def resume_code_throttling(opener, report, address, password, lab, device_ip):
             rebind_fetch(lab, device_ip, "/portal/api/recover", {"code": "IIIIIIII"})
         except urllib.error.HTTPError as error:
             assert "400" in json.load(error).get("detail", "")
+            assert_refused(error, "resume-code-invalid")
         else:
             raise AssertionError("invalid Resume Code accepted")
     try:
         rebind_fetch(lab, device_ip, "/portal/api/recover?mac=fake", {"code": "ZZZZZZZZ"})
     except urllib.error.HTTPError as error:
         assert "429" in json.load(error).get("detail", "")
+        assert_refused(error, "too-many-attempts")
     else:
         raise AssertionError("Resume Code guesses were not limited per Device")
     second_ip = lab.device_ip(second=True)
@@ -2016,6 +2060,7 @@ def resume_code_throttling(opener, report, address, password, lab, device_ip):
         rebind_fetch(lab, second_ip, "/portal/api/recover", {"code": "IIIIIIII"})
     except urllib.error.HTTPError as error:
         assert "400" in json.load(error).get("detail", ""), "one Device blocked another Device's guesses"
+        assert_refused(error, "resume-code-invalid")
     else:
         raise AssertionError("invalid Resume Code accepted on second Device")
     assert json.load(request(opener, "/admin/state"))["purchases"] == before
@@ -2103,6 +2148,7 @@ def ambiguous_device_host(opener, report, address, password, lab, device_ip, coo
             rebind_fetch(lab, device_ip, "/portal/api/connect", {}, cookie)
         except urllib.error.HTTPError as error:
             assert "503" in json.load(error).get("detail", "")
+            assert_refused(error, "device-joining")
         else:
             raise AssertionError("Controller guessed an identity from ambiguous host entries")
         assert json.load(request(opener, "/admin/state"))["purchases"] == before
@@ -2685,6 +2731,7 @@ class Report:
     def __init__(self, binary: str, path: Path):
         self.path = path
         self.lab_snapshot = None
+        self.router_password = None  # redacted from the report; None reads it from lab/chr/.env
         self.data = {
             "format_version": 1,
             "scenario": "6-skeleton-7-vouchers-8-pause-9-top-up-10-rebind-11-reconciler-13-admin-dashboard-15-vendo-16-coin-window-41-vlan-auto-select-61-default-portal-62-custom-portal",
@@ -2746,11 +2793,11 @@ class Report:
             summary["chr_client_cleanup_removed"] = len(self.data["chr_client_cleanup"].get("removed", []))
         if "execution" in summary:  # the serial tail is a raw log; keep it in the local report only
             summary["execution"] = {key: value for key, value in summary["execution"].items() if key != "serial_console_tail"}
-        lab = load_lab_env()
+        router_password = self.router_password or load_lab_env()["CHR_PASSWORD"]
 
         def encode(data):
             encoded = json.dumps(redact_resume_codes(data), indent=2, ensure_ascii=False)
-            for secret in (lab["CHR_PASSWORD"], ROUTER_ADMIN_PASSWORD, ADMIN_PASSWORD):
+            for secret in (router_password, ROUTER_ADMIN_PASSWORD, ADMIN_PASSWORD):
                 encoded = encoded.replace(secret, "[redacted]")
             return encoded + "\n"
 
@@ -5068,7 +5115,8 @@ def scenario(args, report: Report, lab) -> None:
     lab.start(report.data["chr_client_cleanup"])
     cleanup_vendo_router(address, password)
     report.data["chr_client_cleanup"]["device_lease"] = lab.reset_device()
-    vlan_host_evidence(lab, report, args.write_vlan_hosts)
+    if ported(lab, report, 32, "vlan-hosts-evidence"):
+        vlan_host_evidence(lab, report, args.write_vlan_hosts)
     resource = router_rest(address, ROUTER_ADMIN, ROUTER_ADMIN_PASSWORD, "/system/resource")
     assert resource["version"].startswith("7.")
     original_hotspot_names = {entry["name"] for entry in router_rest(address, "admin", password, "/ip/hotspot/user")}
@@ -5154,7 +5202,7 @@ def scenario(args, report: Report, lab) -> None:
                     assert request(opener, "/admin/vendos/unpair", "POST", {"id": provisioned["id"]}).status == 204
                     report.snapshot("provisioned-unpair-needs-no-router", address, password, opener)
 
-                non_v7_refusal(opener, report, address, password)
+                non_v7_refusal(opener, report, address, password, lab)
 
                 response = request(
                     opener,
@@ -5321,23 +5369,26 @@ def scenario(args, report: Report, lab) -> None:
                 assert "OpenPiso WiFi" in portal_page and "/portal/core.js" in portal_page
                 report.snapshot("customer-device-redirect-and-walled-garden", address, password, opener,
                                 redirect_html=redirect_page, portal_page=portal_page, customer_admin_status=403)
-                paired = vendo_pairing(opener, address, password, lab, report)
-                vendo = vendo_protocol(opener, paired, address, password, report)
-                before_restart = json.load(request(opener, "/admin/state"))["vendo_protocol"]
-                repeated = vendo.frame()
-                assert vendo.post(repeated, ignore_ack=True)[0] == 200
-                controller.stop()
-                controller = Controller(args.binary, data_dir, initialize=False)
-                opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
-                assert request(opener, "/admin/login", "POST", {"password": ADMIN_PASSWORD}).status == 200
-                assert vendo.post(repeated)[0] == 200
-                after_restart = json.load(request(opener, "/admin/state"))["vendo_protocol"]
-                assert after_restart["coin_deltas"] == before_restart["coin_deltas"]
-                assert after_restart["totals"] == before_restart["totals"]
-                report.snapshot("vendo-restart-lost-ack-does-not-credit-twice", address, password, opener)
-                vendo_unpair(opener, paired, address, password, report)
-                lab.renew_lease()
-                assert vendo.post(vendo.frame())[0] == 401
+                if ported(lab, report, 30, "vendo-paired-mac-spoof-restricted-to-controller",
+                          "vendo-authenticated-cumulative-reports-and-wire-vectors",
+                          "vendo-restart-lost-ack-does-not-credit-twice", "vendo-unpaired-router-rules-removed"):
+                    paired = vendo_pairing(opener, address, password, lab, report)
+                    vendo = vendo_protocol(opener, paired, address, password, report)
+                    before_restart = json.load(request(opener, "/admin/state"))["vendo_protocol"]
+                    repeated = vendo.frame()
+                    assert vendo.post(repeated, ignore_ack=True)[0] == 200
+                    controller.stop()
+                    controller = Controller(args.binary, data_dir, initialize=False)
+                    opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+                    assert request(opener, "/admin/login", "POST", {"password": ADMIN_PASSWORD}).status == 200
+                    assert vendo.post(repeated)[0] == 200
+                    after_restart = json.load(request(opener, "/admin/state"))["vendo_protocol"]
+                    assert after_restart["coin_deltas"] == before_restart["coin_deltas"]
+                    assert after_restart["totals"] == before_restart["totals"]
+                    report.snapshot("vendo-restart-lost-ack-does-not-credit-twice", address, password, opener)
+                    vendo_unpair(opener, paired, address, password, report)
+                    lab.renew_lease()
+                    assert vendo.post(vendo.frame())[0] == 401
                 device_ip, time_credit_cookie = voucher_redemption(opener, report, address, password, lab, codes)
                 controller.stop()
                 controller = Controller(args.binary, data_dir, initialize=False)
@@ -5349,12 +5400,14 @@ def scenario(args, report: Report, lab) -> None:
                                 cookie_stable=True)
                 controller, opener = reconciler_restart_outage(controller, args, data_dir, opener, report, address,
                                                                 password, lab, device_ip)
-                dashboard_router_unreachable(opener, report, address, password, lab)
+                if ported(lab, report, 30, "dashboard-says-router-unreachable-and-keeps-sales"):
+                    dashboard_router_unreachable(opener, report, address, password, lab)
                 tapped_pause(opener, report, address, password, lab, device_ip, time_credit_cookie)
                 idle_pause(opener, report, address, password, lab, device_ip)
                 top_up_code = top_up_online(opener, report, address, password, lab, device_ip, time_credit_cookie)
                 top_up_pause_budget(opener, report, address, password, lab, device_ip, time_credit_cookie, top_up_code)
-                time_running_out(opener, report, address, password, lab, device_ip)
+                if ported(lab, report, 31, "router-exhaustion-redirects-with-no-invented-time"):
+                    time_running_out(opener, report, address, password, lab, device_ip)
                 controller, opener = pending_credit_recovery(controller, args, data_dir, opener, report, address,
                                                              password, lab, device_ip)
                 concurrent_voucher(opener, report, address, password, lab, codes[1])
@@ -5365,36 +5418,68 @@ def scenario(args, report: Report, lab) -> None:
                 assert request(opener, "/admin/login", "POST", {"password": ADMIN_PASSWORD}).status == 200
                 device_ip = rebind_recovery(opener, report, address, password, lab, device_ip, time_credit_cookie)
                 admin_grant(opener, report, address, password, lab, device_ip, time_credit_cookie)
-                admin_dashboard(opener, report, address, password, lab, device_ip, time_credit_cookie)
-                controller, opener = admin_audit_review(controller, args, data_dir, opener, report, address,
-                                                        password, lab, device_ip, time_credit_cookie)
-                coin_window_empty(opener, report, address, password, lab)
-                paired_coins, coin_vendo, coin_window = coin_window_open(opener, report, address, password, lab, device_ip)
-                coin_window_done(opener, report, address, password, lab, device_ip, coin_vendo, coin_window)
-                coin_window_grace(opener, report, address, password, lab, device_ip, coin_vendo)
-                controller, opener = coin_window_boot(controller, args, data_dir, opener, report, address,
-                                                      password, lab, device_ip, coin_vendo)
-                coin_window_idle(opener, report, address, password, lab, device_ip, coin_vendo)
-                device_ip = coin_window_departure(opener, report, address, password, lab, device_ip, coin_vendo)
+                # Its Sales figures include the Vendo's coins.
+                if ported(lab, report, 30, "admin-dashboard-sales-periods-time-credit-detail-and-batch-usage"):
+                    admin_dashboard(opener, report, address, password, lab, device_ip, time_credit_cookie)
+                else:
+                    dashboard_router_status(opener, report, address, password)
+                coins = ported(lab, report, 30, "audit-review-persists-until-explicit-dismissal-or-linked-grant",
+                               "empty-coin-window-creates-identity-without-free-router-time",
+                               "coin-window-rate-table-and-unique-vendo-reservation",
+                               "coin-done-in-flight-tiered-top-up-and-replayed-closed",
+                               "coin-grace-holds-busy-and-late-coins-reprice-whole-window",
+                               "coin-window-open-at-restart-closes-on-boot",
+                               "coin-window-sixty-seconds-without-coins-sends-close",
+                               "coin-window-real-device-departure-sends-close")
+                if coins:
+                    controller, opener = admin_audit_review(controller, args, data_dir, opener, report, address,
+                                                            password, lab, device_ip, time_credit_cookie)
+                    coin_window_empty(opener, report, address, password, lab)
+                    paired_coins, coin_vendo, coin_window = coin_window_open(opener, report, address, password, lab, device_ip)
+                    coin_window_done(opener, report, address, password, lab, device_ip, coin_vendo, coin_window)
+                    coin_window_grace(opener, report, address, password, lab, device_ip, coin_vendo)
+                    controller, opener = coin_window_boot(controller, args, data_dir, opener, report, address,
+                                                          password, lab, device_ip, coin_vendo)
+                    coin_window_idle(opener, report, address, password, lab, device_ip, coin_vendo)
+                    device_ip = coin_window_departure(opener, report, address, password, lab, device_ip, coin_vendo)
                 resume_code_throttling(opener, report, address, password, lab, device_ip)
                 device_ip = mac_change_without_rebind(opener, report, address, password, lab, device_ip)
                 ambiguous_device_host(opener, report, address, password, lab, device_ip, time_credit_cookie)
                 expired_id, expired_cookie, validity_code = validity_online_expiry(
                     opener, report, address, password, lab, device_ip)
-                admin_expired_grant(opener, report, address, password, expired_id)
+                # It expects the audit review's pending row (#30).
+                if ported(lab, report, 30, "admin-grant-to-expired-time-credit-refused-without-mutation"):
+                    admin_expired_grant(opener, report, address, password, expired_id)
                 validity_offline_expiry(opener, report, address, password, lab,
                                         device_ip, expired_id, expired_cookie, validity_code)
                 # A Top-up never shortens Validity (ADR 0006), so the short-deadline
                 # steps run while the Device holds no live Time Credit.
                 admin_grant_after_deadline(opener, report, address, password, lab, device_ip)
-                coin_credit_after_expiry(opener, report, address, password, lab, device_ip, coin_vendo)
+                if ported(lab, report, 30, "coin-credit-to-expired-target-creates-new-time-credit"):
+                    coin_credit_after_expiry(opener, report, address, password, lab, device_ip, coin_vendo)
                 voucher_while_tapped_paused(opener, report, address, password, lab, device_ip)
-                assert request(opener, "/admin/vendos/unpair", "POST", {"id": paired_coins["id"]}).status == 204
-                sales_report(opener, report, address, password, lab)
-                custom_portal(opener, report, address, password, lab, device_ip)
-                _browser_module.scenario(sys.modules[__name__], opener, address, password, lab, report, restart_browser_controller)
-                _flash_module.scenario(sys.modules[__name__], opener, address, password, lab, report)
-                vendo_auto_select(opener, address, password, lab, report)
+                if coins:
+                    assert request(opener, "/admin/vendos/unpair", "POST", {"id": paired_coins["id"]}).status == 204
+                if ported(lab, report, 33, "sales-report-search-ip-mac-user-literal-totals-navigation",
+                          "sales-report-rows-late-stray-open-vouchers-pagination-auth",
+                          "sales-report-vendo-filter-unpaired-history", "sales-report-csv-export"):
+                    sales_report(opener, report, address, password, lab)
+                if ported(lab, report, 34, "custom-portal-save-check-publish-revert-reset",
+                          "browser-portal-new-voucher-pause-coin-window", "browser-portal-rebind-to-new-device",
+                          "browser-portal-out-of-time", "browser-custom-portal-throwing-custom-js",
+                          "browser-custom-portal-preview", "browser-custom-portal-cover-logo",
+                          "browser-sales-report", "browser-signin-logout-restart"):
+                    custom_portal(opener, report, address, password, lab, device_ip)
+                    _browser_module.scenario(sys.modules[__name__], opener, address, password, lab, report, restart_browser_controller)
+                if ported(lab, report, 30, "flash-pairing-adopted-from-real-vlan-source"):
+                    _flash_module.scenario(sys.modules[__name__], opener, address, password, lab, report)
+                if ported(lab, report, 32, "single-vendo-auto-select-from-either-vlan",
+                          "one-vendo-per-vlan-learned-and-auto-selected",
+                          "picker-is-limited-to-network-and-forged-id-reserves-nothing",
+                          "coin-window-keeps-reserved-vendo-after-vlan-move",
+                          "admin-overrides-network-and-no-match-reserves-nothing"):
+                    vendo_auto_select(opener, address, password, lab, report)
+                lab.own_scenarios(opener, report)
             finally:
                 report.capture_lab_failure()
                 controller.stop()
@@ -5450,20 +5535,27 @@ ONLY_SCENARIOS = {
     "boot": "with --armv7: boot the ARM guest through cloud-init and verify SSH, without CHR",
     "update": "with --armv7, without CHR: install a throwaway-key v0.1.0, then update, roll back and refuse releases (see update_vm.py)",
 }
+# --only scenarios the Docker lab has not ported yet, by the ticket that ports them.
+ONLY_TICKETS = {"pairing": 30, "vouchers": 31, "time-running-out": 31, "vlan": 32,
+                "sales": 33, "vendo-list": 33, "shop-defaults": 33, "browser": 34}
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--only", choices=ONLY_SCENARIOS,
                         help="run onboarding, then one scenario: " + "; ".join(f"{name}: {what}" for name, what in ONLY_SCENARIOS.items()))
-    parser.add_argument("--lab", choices=LABS, default="libvirt", help="which lab runs the Router, Devices and Vendos (default libvirt)")
+    parser.add_argument("--lab", choices=LABS, default="libvirt",
+                        help="which lab runs the Router, Devices and Vendos (default libvirt). docker: a throwaway "
+                             "Docker lab per run (stock CHR, Controller, Devices), no lab lock; runs the Device "
+                             "journeys and skips scenarios not ported to it yet")
+    parser.add_argument("--keep", action="store_true", help="with --lab docker: leave the lab running and print how to reach and remove it")
     parser.add_argument("--build", action="store_true", help="build the Controller while holding the lab lock")
     parser.add_argument("--binary", help="Controller binary under test; --only update builds its own")
     parser.add_argument("--report", type=Path)
     parser.add_argument("--write-vlan-hosts", action="store_true", help="refresh the committed VLAN auto-select research hosts.json")
     parser.add_argument("--armv7", action="store_true", help="run every scenario in a fresh 256 MiB ARM guest")
     parser.add_argument("--arm-boot-timeout", type=float, default=900, help="ARM boot/cloud-init timeout in seconds (default 900)")
-    parser.add_argument("--http-timeout", type=float, help="HTTP timeout in seconds (native 3, ARM 120)")
+    parser.add_argument("--http-timeout", type=float, help="HTTP timeout in seconds (native 3, Docker 30, ARM 120)")
     parser.add_argument("--lock-timeout", type=float, default=2700,
                         help="seconds to queue for the CHR lab lock before giving up (default 2700)")
     args = parser.parse_args()
@@ -5475,6 +5567,17 @@ def main() -> None:
         parser.error(f"--only {args.only} requires --armv7")
     if args.binary is None and args.only != "update":
         parser.error("--binary is required")
+    if args.keep and args.lab != "docker":
+        parser.error("--keep needs --lab docker")
+    if args.lab == "docker":
+        if args.armv7:
+            parser.error("--armv7 runs on the libvirt lab only")
+        if args.only in ONLY_TICKETS:
+            ticket = ONLY_TICKETS[args.only]
+            print(f"SKIP --only {args.only}: not ported to the Docker lab yet (#{ticket})", flush=True)
+            return
+        run(args)  # each Docker lab is its own; the shared CHR lab's lock does not apply
+        return
     with _safety_module.lab_lock(args.lock_timeout):
         run(args)
 
@@ -5484,13 +5587,14 @@ def run(args: argparse.Namespace) -> None:
     boot_only = args.only == "boot"
     update_only = args.only == "update"
     no_lab = boot_only or update_only  # ARM guest only, no CHR
-    HTTP_TIMEOUT = args.http_timeout if args.http_timeout is not None else (120 if args.armv7 else 3)
+    docker = args.lab == "docker"
+    HTTP_TIMEOUT = args.http_timeout if args.http_timeout is not None else (120 if args.armv7 else 30 if docker else 3)
     partial_mode = f"armv7-{args.only}" if no_lab else (f"{args.only}-only" if args.only else None)
     if args.report is None:
         name = f"{partial_mode}.json" if no_lab else ("armv7.json" if args.armv7 else "walking-skeleton.json")
         if not args.armv7 and partial_mode:
             name = f"{partial_mode}.json"
-        args.report = Path(__file__).parent / "reports" / name
+        args.report = Path(__file__).parent / "reports" / (f"docker-{name}" if docker else name)
     releases = None
     if update_only:
         spec = importlib.util.spec_from_file_location("update_vm", Path(__file__).with_name("update_vm.py"))
@@ -5500,13 +5604,16 @@ def run(args: argparse.Namespace) -> None:
         args.binary = str(releases.binary("v0.1.0"))
     elif args.build:
         subprocess.run(["make", "-C", str(ROOT / "controller"), "armv7" if args.armv7 else "build"], check=True)
-    if not no_lab:
+    if docker:
+        lab = LABS["docker"](sys.modules[__name__], Path(args.binary), args.keep)
+    elif not no_lab:
         env = load_lab_env()
         _safety_module.preflight(ROOT)
         lab = LABS[args.lab](sys.modules[__name__], env["CHR_PASSWORD"])
     report = Report(args.binary, args.report)
     if not no_lab:
         report.lab_snapshot = lab.snapshot
+        report.router_password = lab.router_password
     if partial_mode:
         report.data["scenario"] = partial_mode
     try:
@@ -5530,7 +5637,8 @@ def run(args: argparse.Namespace) -> None:
                 ARM_VM.install(ADMIN_PASSWORD)
                 assert_arm_install(ARM_VM, report)
         if not no_lab:
-            scenario(args, report, lab)
+            with lab.running(report):
+                scenario(args, report, lab)
         if ARM_VM is not None and not no_lab:
             peak = ARM_VM.peak_rss_kib()
             report.data["execution"]["peak_controller_rss_kib"] = peak

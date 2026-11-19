@@ -5823,8 +5823,173 @@ def fetch_until(client, ip, url, marker):
 def add_alongside_card(page):
     """The Add alongside card on Router setup: (interfaces offered, suggested range)."""
     card = re.search(r"<h3>Add alongside</h3>(.*?)</section>", page, re.S).group(1)
-    assert 'action="/admin/router/add-alongside"' in card, card
-    return re.findall(r'<option value="([^"]+)">', card), re.search(r'<input name="range" value="([^"]*)"', card).group(1)
+    form = re.search(r'<form class="form add-alongside-interface"(.*?)</form>', card, re.S).group(1)
+    assert 'action="/admin/router/add-alongside"' in form, form
+    interfaces = re.search(r'<select name="interface"[^>]*>(.*?)</select>', form, re.S).group(1)
+    return re.findall(r'<option value="([^"]+)"', interfaces), re.search(r'<input name="range" value="([^"]*)"', form).group(1)
+
+
+def add_alongside_vlan_card(page):
+    """The new-VLAN form of the Add alongside card: (parents offered, parent selected, suggested VLAN ID, suggested range)."""
+    card = re.search(r"<h3>Add alongside</h3>(.*?)</section>", page, re.S).group(1)
+    form = re.search(r'<form class="form add-alongside-vlan"(.*?)</form>', card, re.S).group(1)
+    assert 'action="/admin/router/add-alongside"' in form and '<input type="hidden" name="placement" value="vlan">' in form, form
+    # The new VLAN is the default placement: its form comes first in the card.
+    assert "add-alongside-interface" not in card or card.index("add-alongside-vlan") < card.index("add-alongside-interface"), card
+    parents = re.search(r'<select name="parent"[^>]*>(.*?)</select>', form, re.S).group(1)
+    return (re.findall(r'<option value="([^"]+)"', parents), re.search(r'<option value="([^"]+)" selected>', parents).group(1),
+            int(re.search(r'<input name="vlan"[^>]*value="(\d+)"', form).group(1)),
+            re.search(r'<input name="range" value="([^"]*)"', form).group(1))
+
+
+# Add alongside on a new VLAN: the Controller creates VLAN <id> on the parent as interface <parent>-vlan<id>
+# (comment openpiso-<parent>-vlan<id>) and its server openpiso-<parent>-vlan<id> on it.
+# Edited from the suggestion: the lab host routes 10.5.10.0/24 back via the Router (configure_device_routing).
+VLAN_RANGE = "10.5.10.0/24"
+VLAN_DEVICE = "opnw-vlan-new"  # the Device on the new VLAN, on lan2
+FILTERING_BRIDGE = "opnw-filtering"  # a bridge with VLAN filtering on and no ports, so it carries nothing
+
+
+def remove_vlan_alongside(address, password, client_address):
+    """Remove every server the Controller made on a new VLAN, its network and VLAN, the filtering bridge, and the Device."""
+    def remove(rest, path, query):
+        for row in rest(f"{path}?{query}"):
+            rest(f"{path}/{row['.id']}", "DELETE")
+    router = lambda path, method="GET", body=None: router_rest(address, "admin", password, path, method, body)
+    client = lambda path, method="GET", body=None: router_rest(client_address, "admin", password, path, method, body, scheme="http")
+    for vlan in router("/interface/vlan"):
+        name = vlan.get("comment", "")
+        if not re.fullmatch(r"openpiso-.+-vlan\d+", name):
+            continue
+        for path, query in (("/ip/hotspot", f"name={name}"), ("/ip/hotspot/profile", f"name={name}"),
+                            ("/ip/dhcp-server/lease", f"server={name}"), ("/ip/dhcp-server", f"name={name}"),
+                            ("/ip/dhcp-server/network", f"comment={name}"), ("/ip/pool", f"name={name}"),
+                            ("/ip/address", f"interface={vlan['name']}"), ("/ip/firewall/nat", f"comment=openpiso-controller-{name}"),
+                            ("/interface/vlan", f"name={vlan['name']}")):
+            remove(router, path, query)
+    remove(router, "/interface/bridge", f"name={FILTERING_BRIDGE}")
+    for path, query in (("/routing/rule", f"comment={VLAN_DEVICE}"), ("/ip/route", f"comment={VLAN_DEVICE}"),
+                        ("/routing/table", f"name={VLAN_DEVICE}"), ("/ip/dhcp-client", f"interface={VLAN_DEVICE}"),
+                        ("/ip/address", f"interface={VLAN_DEVICE}"), ("/interface/vlan", f"name={VLAN_DEVICE}")):
+        remove(client, path, query)
+
+
+def carry_vlan_notes(page):
+    """The Router setup notes naming the VLAN ID to carry to an SSID: {server: VLAN ID}."""
+    return {server: int(vlan) for server, vlan in
+            re.findall(r'<p class="carry-vlan" data-server="([^"]+)" data-vlan="(\d+)">', page)}
+
+
+def add_alongside_vlan(opener, report, address, password, client_address, existing):
+    """Router setup's Add alongside on a new VLAN on the interface under hs1, next to hs1 and Add alongside's server
+    (both Adopted) and the second server (not Adopted, VLAN 30 on the same parent). add_alongside runs it."""
+    server = _hotspot_module.SERVER
+    router = lambda path, method="GET", body=None: router_rest(address, "admin", password, path, method, body)
+    client = lambda path, method="GET", body=None: router_rest(client_address, "admin", password, path, method, body, scheme="http")
+    load_seconds = []  # Router setup page loads; the Controller gives its Router reads 10 s
+    def setup_page():  # the checklist pings the Controller from each Adopted server, about a second each
+        started = time.monotonic()
+        page = request(opener, "/admin", timeout=15).read().decode()
+        load_seconds.append(round(time.monotonic() - started, 2))
+        assert "Router unavailable" not in page, page
+        return page
+    remove_vlan_alongside(address, password, client_address)
+    lan2 = client("/interface/ethernet?name=lan2")[0]
+    try:
+        router("/interface/bridge", "PUT", {"name": FILTERING_BRIDGE, "vlan-filtering": "yes"})
+        other_before, users_before = existing.other(), existing.users()
+        tree_before, network_before = hotspot_tree(address, password), network_tree(address, password)
+        bridge_vlans_before = router("/interface/bridge/vlan")
+
+        # The parent defaults to the interface under hs1, and the VLAN ID to the lowest one not in use on it
+        # (from 2: VLAN 1 is the untagged default on most switches and access points).
+        parents, parent, vlan, suggested = add_alongside_vlan_card(setup_page())
+        under = router(f"/ip/hotspot?name={server}")[0]["interface"]
+        under = next((row["interface"] for row in router("/interface/vlan") if row["name"] == under), under)
+        assert parent == under, (parent, under)
+        assert FILTERING_BRIDGE in parents and parent in parents, parents
+        in_use = {int(row["vlan-id"]) for row in router("/interface/vlan") if row["interface"] == parent}
+        assert int(_hotspot_module.OTHER_VLAN) in in_use, in_use
+        assert vlan == min(set(range(2, 4095)) - in_use), (vlan, in_use)
+        iface = f"{parent}-vlan{vlan}"
+        name = "openpiso-" + iface
+
+        # Refused with the reason before any Router write: a VLAN ID in use on that parent, one out of range,
+        # and a parent bridge with VLAN filtering on, which gets the manual steps instead.
+        refusals = {}
+        for form, reason in (({"parent": parent, "vlan": _hotspot_module.OTHER_VLAN}, f"VLAN {_hotspot_module.OTHER_VLAN} is already in use"),
+                             ({"parent": parent, "vlan": "4095"}, "from 1 to 4094"),
+                             ({"parent": FILTERING_BRIDGE, "vlan": str(vlan)}, "VLAN filtering")):
+            response = request(opener, "/admin/router/add-alongside", "POST", {"placement": "vlan", "range": VLAN_RANGE, **form})
+            body = html.unescape(response.read().decode())
+            assert response.status == 400 and reason in body, (form, response.status, body)
+            refusals[f"VLAN {form['vlan']} on {form['parent']}"] = body.strip()
+        manual = refusals[f"VLAN {vlan} on {FILTERING_BRIDGE}"]
+        assert "/interface bridge vlan" in manual and "/interface vlan add" in manual, manual
+        assert hotspot_tree(address, password) == tree_before, "a refused new VLAN changed the HotSpot"
+        assert network_tree(address, password) == network_before, "a refused new VLAN changed the network"
+        assert router("/interface/bridge/vlan") == bridge_vlans_before, "a refused new VLAN changed a bridge's VLANs"
+        report.snapshot("add-alongside-vlan-suggests-parent-and-id-and-refuses-a-used-id-and-a-filtering-bridge",
+                        address, password, opener, parents=parents, parent=parent, vlan=vlan, suggested_range=suggested,
+                        refusals=refusals)
+
+        # The Operator edits the suggested range and creates the server on the suggested VLAN.
+        response = request(opener, "/admin/router/add-alongside", "POST",
+                           {"placement": "vlan", "parent": parent, "vlan": str(vlan), "range": VLAN_RANGE}, timeout=30)
+        page = response.read().decode()
+        assert response.status == 200 and urllib.parse.urlsplit(response.url).path == "/admin", page
+        state = json.load(request(opener, "/admin/state"))
+        assert state["router"]["adopted_hotspot_servers"] == sorted([server, ALONGSIDE, name]), state["router"]
+        assert state["router"]["status"] == "ready", state["router"]
+        vlans = router(f"/interface/vlan?name={iface}")
+        assert len(vlans) == 1 and (vlans[0]["interface"], vlans[0]["vlan-id"]) == (parent, str(vlan)), vlans
+        created = router(f"/ip/hotspot?name={name}")
+        assert len(created) == 1 and created[0]["interface"] == iface and created[0]["disabled"] == "false", created
+        assert [row["address"] for row in router(f"/ip/address?interface={iface}")] == ["10.5.10.1/24"]
+        tree = hotspot_tree(address, password)
+        assert [row for row in tree["servers"] if row["name"] != name] == tree_before["servers"]
+        assert existing.other() == other_before and existing.users() == users_before
+        # The flow names the VLAN ID to carry to an SSID, until a Device arrives from it (checklist item 9).
+        assert carry_vlan_notes(page) == {name: vlan}, page
+        note = re.search(rf'<p class="carry-vlan" data-server="{re.escape(name)}"[^>]*>(.*?)</p>', page, re.S).group(1)
+        assert f"VLAN {vlan}" in note and "SSID" in note, note
+        items = checklist(page)
+        assert unmet(items) == [(name, "device-seen")], items
+        report.snapshot("add-alongside-vlan-creates-the-vlan-and-server-and-names-the-vlan-for-an-ssid", address, password, opener,
+                        vlan_interface=vlans[0], server=created[0], carry_vlan_note=html.unescape(note))
+
+        # A Device on that VLAN gets an address, is sent to the Portal and gets online with a Voucher.
+        client(f"/interface/ethernet/{lan2['.id']}", "PATCH", {"disabled": "no"})
+        device_ip = vlan_device(client, VLAN_DEVICE, "lan2", str(vlan), "10.5.10.1")
+        assert ipaddress.ip_address(device_ip) in ipaddress.ip_network(VLAN_RANGE), device_ip
+        redirect_page = fetch_until(client, device_ip, FIRST_FETCH, f"{PORTAL_URL}/portal")
+        rule = f"/ip/firewall/nat/{router('/ip/firewall/nat?comment=openpiso-controller-' + name)[0]['.id']}"
+        deadline = time.monotonic() + 30
+        while True:  # wait until the Controller's NAT exemption counts the Device's fetch of a static Portal file
+            packets = router(rule)["packets"]
+            pause_device_fetch(client_address, password, device_ip, "/portal/ready.js")
+            if router(rule)["packets"] != packets:
+                break
+            assert time.monotonic() < deadline, "the Controller's NAT exemption never took effect"
+            time.sleep(2)
+        portal_state(pause_device_fetch(client_address, password, device_ip, "/portal/api/state"))
+        response = generate_vouchers(opener, {"seconds": "600", "count": "1"})
+        assert response.status == 200
+        code = voucher_codes(opener, response)[0]
+        state = portal_state(pause_device_fetch(client_address, password, device_ip, "/portal/api/redeem", {"code": code}))
+        assert_message(state, "success", "online")
+        target, internet = device_internet(client_address, password, device_ip)
+        assert PORTAL_URL.removeprefix("http://") + "/portal" not in internet
+        page = setup_page()
+        assert unmet(checklist(page)) == [] and carry_vlan_notes(page) == {}, page
+        report.snapshot("add-alongside-vlan-sends-a-device-on-the-vlan-online", address, password, opener,
+                        device=device_ip, redirect_html=redirect_page, internet_target=target,
+                        adopted=json.load(request(opener, "/admin/state"))["router"]["adopted_hotspot_servers"],
+                        setup_page_seconds=load_seconds)
+    finally:
+        report.capture_lab_failure()
+        remove_vlan_alongside(address, password, client_address)
+        client(f"/interface/ethernet/{lan2['.id']}", "PATCH", {"disabled": lan2["disabled"]})
 
 
 def add_alongside(opener, report, address, password, client_address, existing):
@@ -5967,6 +6132,10 @@ def add_alongside(opener, report, address, password, client_address, existing):
         assert [row["address"] for row in router(f"/ip/address?interface={SPARE}")] == ["10.5.20.1/24"]
         report.snapshot("add-alongside-server-network-reported-and-created-by-its-fix", address, password, opener,
                         missing_dhcp=no_dhcp, missing_address=no_address)
+        # While this server is still on the Router: removing it below leaves it Adopted, and the baseline that
+        # every create runs refuses an Adopted server that is missing. This also loads Router setup with three
+        # Adopted servers.
+        add_alongside_vlan(opener, report, address, password, client_address, existing)
     finally:
         report.capture_lab_failure()
         remove_alongside(address, password, client_address)
@@ -6061,8 +6230,9 @@ def portal_reachability(opener, report, address, password, client_address, devic
                     reason=unroutable["reason"], manual=unroutable["manual"])
 
 
-def onboarding(controller, args, data_dir, opener, report, address, password, client_address, existing, other_before):
-    """Use existing on someone else's HotSpot, after the shared onboarding Adopted hs1 (see use_existing)."""
+def onboarding(controller, args, data_dir, opener, report, address, password, client_address, existing, other_before, started):
+    """Use existing on someone else's HotSpot, after the shared onboarding Adopted hs1 (see use_existing).
+    started(controller) hands each Controller this starts to the caller, which stops it even when a step fails."""
     assert existing.other() == other_before, "Controller boot changed the server that was not ticked"
     report.snapshot("boot-leaves-the-unticked-server-unchanged", address, password, opener, unticked=existing.other())
     existing.teardown_other()
@@ -6101,6 +6271,7 @@ def onboarding(controller, args, data_dir, opener, report, address, password, cl
         if active.get("user", "").startswith("op-"):
             router_rest(address, "admin", password, f"/ip/hotspot/active/{active['.id']}", "DELETE")
     controller = Controller(args.binary, data_dir, initialize=False)
+    started(controller)
     opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
     assert request(opener, "/admin/login", "POST", {"password": ADMIN_PASSWORD}).status == 200
     state = json.load(request(opener, "/admin/state"))
@@ -6157,6 +6328,10 @@ def scenario(args, report: Report, lab: dict[str, str]) -> None:
                 controller.stop()
                 controller = Controller(args.binary, data_dir, initialize=False)
                 return {}
+
+            def started_controller(started):  # a Controller a scenario restarted, for the finally below to stop
+                nonlocal controller
+                controller = started
 
             controller = Controller(args.binary, data_dir, initialize=True)
             try:
@@ -6364,7 +6539,7 @@ def scenario(args, report: Report, lab: dict[str, str]) -> None:
                         vouchers(opener, report, address, lab["CHR_PASSWORD"], client_address)
                     elif args.only == "onboarding":
                         controller, opener = onboarding(controller, args, data_dir, opener, report, address, lab["CHR_PASSWORD"],
-                                                        client_address, existing, other_before)
+                                                        client_address, existing, other_before, started_controller)
                     elif args.only == "browser":
                         device_redirect(client_address, lab["CHR_PASSWORD"])
                         device_ip = router_rest(client_address, "admin", lab["CHR_PASSWORD"],
@@ -6529,7 +6704,7 @@ def assert_arm_install(vm, report: Report) -> None:
 # Partial scenarios for --only: each runs onboarding, then just that scenario, and
 # writes `<name>-only.json` with scenario `<name>-only`. `boot` is the ARMv7 guest boot check.
 ONLY_SCENARIOS = {
-    "onboarding": "Router setup from someone else's HotSpot: Use existing, a Device online, the unticked server, a ledger from before Router setup and Add alongside",
+    "onboarding": "Router setup from someone else's HotSpot: Use existing, a Device online, the unticked server, a ledger from before Router setup and Add alongside on a free interface and on a new VLAN",
     "vouchers": "Voucher batch generation, pricing snapshots, CSV and redemption",
     "pairing": "flash pairing",
     "vlan": "VLAN auto-select",

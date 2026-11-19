@@ -659,22 +659,57 @@ with status, resolution timestamp, actor, reason and linked grant audit ID.
 export PATH="$HOME/.local/go/bin:$PATH"
 make -C controller check    # Go type checking and vet
 make -C controller cross    # static Linux armv7 and arm64 binaries
-make -C controller e2e      # build native binary and run the real-CHR scenario
+make -C controller e2e      # build native binary and run the real-CHR scenario on the Docker lab
 ```
 
-Lab workflow (a full native run is ~23 min, ARMv7 ~26 min, one `--only` run 1.5–3.5 min):
+Lab workflow (a full native run is ~22 min, ARMv7 ~26 min, one `--only` run 1.5–3.5 min):
 
 - Each new issue adds its own `--only <name>` scenario (one `ONLY_SCENARIOS`
   entry in `e2e/run.py`) and iterates on that.
 - Run the full `make -C controller e2e` once before the PR is merged.
 - Run `make -C controller e2e-armv7` at milestones, or when a change touches
-  performance or memory.
-- Parallel runs queue on the lab lock (below) instead of failing.
+  performance or memory. It still runs on the libvirt lab (below).
+
+### The Docker lab (default)
+
+Each run creates its own throwaway lab of Docker containers on private networks:
+a stock RouterOS CHR under QEMU, the Controller binary, an internet stand-in, and
+Linux Devices, Vendos and Playwright browsers on the lab LAN
+([`e2e/docker_lab.py`](e2e/docker_lab.py), [`lab/docker/`](../lab/docker/)). It
+needs Docker, `/dev/kvm` readable by your user, Python 3 and Go; no sudo, libvirt
+or `lab/chr/.env`. The pinned CHR image is downloaded once, checked against
+`CHR_SHA256` and cached in `~/.cache/openpiso/chr/`. Every container has a hard
+memory cap (Router 320 MB, browser 1 GB, the rest 128 MB).
+
+```sh
+make -C controller e2e                                    # full run
+python3 -I controller/e2e/run.py --build --binary "$PWD/controller/bin/openpiso" --only vouchers   # one group
+python3 -I controller/e2e/run.py --binary "$PWD/controller/bin/openpiso" --only pairing --keep     # leave the lab up
+```
+
+Docker runs write `docker-<name>.json` under `e2e/reports/` (the full run's is
+`docker-walking-skeleton.json`), so they never replace a libvirt report. The lab
+is removed when the run ends, including on failure or Ctrl-C. `--keep` leaves it
+running and prints the Router and Controller addresses, a shell per container and
+the command that removes it. Labs share nothing, so runs in different worktrees
+(or the same one) can go at once, and the Docker dev lab runs beside them.
+
+The full Docker run has the libvirt run's steps in the same order, plus the
+Docker lab's own checks: the sealed internet stand-in, the memory caps, a HotSpot
+login on a VLAN and IPv6 on the LAN.
+
+### The libvirt lab (until #39)
+
+Add `--lab libvirt` to `run.py`, or `LAB=libvirt` to `make -C controller e2e`, to
+run on the shared `chr-lab` and `chr-client` VMs as before. The rest of this
+section describes that lab. `--armv7` and `--write-vlan-hosts` need it. Parallel
+libvirt runs queue on the lab lock (below) instead of failing.
 
 For fast UI iteration against the same Router, see the dev lab in
-[`lab/dev/README.md`](../lab/dev/README.md). It shares `chr-lab`: never run both at once.
+[`lab/dev/README.md`](../lab/dev/README.md). The libvirt dev lab shares `chr-lab`
+with libvirt E2E: never run both at once.
 
-The E2E harness **reconfigures the throwaway `chr-lab` and `chr-client` VMs**.
+The libvirt E2E harness **reconfigures the throwaway `chr-lab` and `chr-client` VMs**.
 Use it only with exclusive access. It never operates on `piso-client`,
 `piso-server`, or the `pisonet` network. Requirements:
 

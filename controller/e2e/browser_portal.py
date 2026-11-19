@@ -4,7 +4,7 @@ run.py calls scenario() with its own module, like flash_pairing.scenario. Each D
 Playwright container (browser_device.py) on a Docker macvlan over virbr-hs, with its own MAC and
 IP, so the Controller resolves it through the Router exactly like a phone. The container asks this
 side for Vendo actions over stdin/stdout JSON lines, so the Vendo key never leaves this process.
-Rootless: it needs docker, and the CHR lab lock that run.py already holds.
+Rootless: it needs docker, and on the libvirt lab the CHR lab lock that run.py already holds.
 On the Docker lab (#34), DockerLab sets LAN: every browser container then carries the lab's name and
 the browser cap, and a Device's container joins the lab LAN with its MAC and takes a DHCP lease from
 the Router (DockerLab.browser_joined) instead of using the macvlan. Screenshots go to

@@ -19,11 +19,12 @@ Run from the repo root; prerequisites and procedures live in the linked docs.
 | Run the offline CI checks: Go vet, native build, armv7 build and firmware host sim | `make check` |
 | Run the firmware host sim only | `make sim` |
 | Rebuild the firmware venv from [pinned requirements](firmware/subvendo/requirements.txt), including after deleting it | `make venv` |
-| Run the CHR E2E (exclusive shared-lab access; read the Controller README first) | `make e2e` |
+| Run the E2E on a throwaway Docker lab of its own (needs Docker and `/dev/kvm`; see the [Controller README](controller/README.md#the-docker-lab-default)) | `make e2e` |
 | Start the dev lab (shared CHR; read the dev README first) | `make dev` |
 
 `setup`, `check`, `sim` and `venv` do not access the CHR lab or a physical board.
-`e2e` and `dev` are explicit lab operations; do not run them concurrently.
+`e2e` creates and removes its own lab, so several can run at once. `dev` uses the
+shared libvirt CHR lab; do not run it beside `make -C controller e2e LAB=libvirt`.
 Physical-board procedures are not part of these targets; see the firmware bench README.
 
 `make setup` sets the clone's shared `core.hooksPath` to `.githooks`, covering

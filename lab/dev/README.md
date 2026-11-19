@@ -92,7 +92,7 @@ In order, it:
 3. Turns on `/ip dns allow-remote-requests` on the Router and leaves it on (the HotSpot answers Device DNS through it).
 4. Adds the return-route fixture: libvirt network `openpiso-dev-routing` (`virbr-opdev`) plus a third `chr-lab` NIC, so the Controller sees Devices' real IPs.
 5. Builds the Controller with `-tags dev` and starts it on `0.0.0.0:80`, with data in `lab/dev/.run/data` and `-portal-url http://192.168.122.1`. Ports below 1024 need `cap_net_bind_service`, and a rebuild clears it, so when the dev binary lacks it `up` grants it with `sudo setcap` and may ask for your sudo password.
-6. Onboards the Router if the Controller does not already show it as ready. It drops the `openpiso-controller` user first, so it self-heals after a `make e2e` run.
+6. Onboards the Router if the Controller does not already show it as ready. It drops the `openpiso-controller` user first, so it self-heals after a libvirt E2E run.
 7. Pairs one dev Vendo (id and secret kept in `lab/dev/.run/vendo.json`) and seeds Coin rates `1=60`, `5=360` if there are none.
 
 ### `vendo`
@@ -135,11 +135,11 @@ Artifacts, under `lab/dev/.run/shots/<timestamp>/`:
 
 Pass/fail: the command prints `[dev] <profile>: pass` or `fail (<error>)` per profile and exits 1 if any profile failed. A profile times out after 300 s. Host entries, sessions and leases for the test Devices are removed afterwards.
 
-## Sharing chr-lab with `make e2e`
+## Sharing chr-lab with libvirt E2E
 
-The lab and `make -C controller e2e` use the same Router and the same host route. Never run both.
+The default `make e2e` runs on a Docker lab of its own and does not touch this lab. The libvirt E2E (`make -C controller e2e LAB=libvirt`) uses the same Router and the same host route. Never run both.
 
-1. `python3 -I lab/dev/dev.py down`, then `make -C controller e2e`.
+1. `python3 -I lab/dev/dev.py down`, then `make -C controller e2e LAB=libvirt`.
 2. Afterwards `up` recovers the lab: it re-onboards the Router if needed, and a fresh Vendo pairing deletes stale `openpiso-vendo-*` Router rules.
 
 ## Network plan
@@ -156,7 +156,7 @@ HotSpot LAN `10.5.50.0/24`, DHCP pool `.10-.200`. A Device IP must be inside the
 | `shots` Devices | random `02:de:...` per run | `10.5.50.150-169`, random per run |
 | Return-route NIC on `chr-lab` | `52:54:00:07:08:07` | `10.77.8.2` (host side `10.77.8.1`, `virbr-opdev`) |
 
-`make e2e` uses `.201`, `.202` and `.241`, so it does not overlap.
+Libvirt E2E uses `.201`, `.202` and `.241`, so it does not overlap.
 
 ## Troubleshooting
 
@@ -171,7 +171,7 @@ HotSpot LAN `10.5.50.0/24`, DHCP pool `.10-.200`. A Device IP must be inside the
 | `acceptor inhibited` in `vendo` | Open a Coin Window from the portal ("Insert coin") first. |
 | Browser drops the connection on an admin or portal page | A template syntax error. Read the Controller log. |
 | `shots` profile fails | Open `<profile>/NN-failure.png` and `result.json` in the run folder; the Controller log shows the server side. |
-| Lab broken after `make e2e` | Run `up` again; it re-onboards the Router and re-pairs the Vendo. |
+| Lab broken after libvirt E2E | Run `up` again; it re-onboards the Router and re-pairs the Vendo. |
 
 ## Teardown
 

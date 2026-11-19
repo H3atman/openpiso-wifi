@@ -1827,9 +1827,9 @@ def admin_dashboard(opener, report, address, password, lab, device_ip, cookie):
     assert abs(listed - remaining) <= 10
     assert detail.count('<li data-kind="rebind">') == 2
     # Date-only input can't isolate a redemption, so compare today's local day before and after
-    # one priced redemption (the sibling code stays unsold). The lab host and Controller share
-    # a timezone, so the host's local date is the Controller's.
-    now = datetime.date.today()
+    # one priced redemption (the sibling code stays unsold). Today is the Controller's, in its
+    # system timezone (the Sales report's default To), which need not be the host's.
+    now = datetime.date.fromisoformat(json.load(request(opener, "/admin/sales?format=json"))["to"])
     today = now.isoformat()
     sales_today_before = sales(opener, today, today)
     dashboard_before = dashboard(opener)
@@ -2539,7 +2539,7 @@ def sales_report(opener, report, address, password, lab):
         assert_login_redirect(path)
     empty = sales(opener, "1970-01-01", "1970-01-01")
     assert empty["rows"] == [] and empty["count"] == 0 and empty["page"] == 1
-    today = datetime.date.today().isoformat()
+    today = local_today.isoformat()
     assert dashboard(opener)["sales"]["today"] == sales(opener, today, today)["total_pesos"]
     page = request(opener, "/admin/sales").read().decode()
     assert "Showing 1 to 25 of" in page and "Validity" in page

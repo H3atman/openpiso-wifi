@@ -82,6 +82,15 @@ the simulator.
   they are written, as on pairing, so a Device can still get a reply just after.
   Device checks that expect a block retry for up to 10 s and count the early
   replies (`DockerLab.unreachable`).
+- **Admin browsers are outside the sealed networks.** The admin browser
+  containers run with `--network host` to reach the Controller's published admin
+  port, so they are not on the sealed lab networks. They stand in for the
+  Operator's own machine, not a Device. The sealed-internet check
+  (`lab-sealed-from-real-internet`) covers Devices, Vendos and the Controller.
+- **The ARMv7 guest's container is capped at 512 MB**, an exception to the
+  128 MB of every other container. QEMU peaks at about 435 MiB resident for the
+  256 MB guest (guest RAM, TCG's 64 MiB translation cache and QEMU itself,
+  measured), so 128 MB would kill it.
 - **ARMv7 under TCG is slow.** The guest boots in about 8 minutes and the full
   ARMv7 run takes about 42 minutes; the boot timeout defaults to 1800 s.
 

@@ -918,11 +918,16 @@ class DockerLab:
         self._vlan_lease(device, VLAN_DEVICE_MACS[vlan], vlan)
 
     def vlan_down(self) -> None:
-        """Remove the VLAN Devices and boards; the VLAN HotSpots stay, they are part of the lab."""
+        """Remove the VLAN Devices and boards and their VLAN leases, as libvirt's teardown does; the VLAN
+        HotSpots stay, they are part of the lab. A board MAC left leased on one VLAN would stop it
+        pairing on the other (the Controller refuses a MAC with two leases)."""
         names = [f"{self.lab.name}-{suffix}" for suffix in
                  (*(f"vlan{vlan}-device" for vlan in VLAN_DEVICE_MACS), "board1", "board2", "board3")]
         if gone := [name for name in names if name in self.lab.containers()]:
             sh("docker", "rm", "-f", "-v", *gone)
+        for vlan in VLAN_DEVICE_MACS:
+            for lease in self._rest(f"/ip/dhcp-server/lease?server=opnw-vlan{vlan}"):
+                self._rest(f"/ip/dhcp-server/lease/{lease['.id']}", "DELETE")
         for name in names:
             self._lan.pop(name, None)
         for vendo_id, board in list(self._vendo_senders.items()):

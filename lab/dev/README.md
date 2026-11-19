@@ -10,6 +10,33 @@ python3 -I lab/dev/dev.py {up,vendo,phone,shots,down}
 
 State lives in the gitignored `lab/dev/.run/` (Controller binary, data, logs, admin password, Vendo secret, screenshots).
 
+There are two labs behind the same commands. `--lab docker` (below) is a Docker lab of its own that needs no sudo, no libvirt and no `chr-lab`, and runs beside E2E. Without it, the commands use the libvirt lab described in the rest of this file, which goes away with #39.
+
+## The Docker dev lab (`--lab docker`)
+
+```sh
+python3 -I lab/dev/dev.py --lab docker up      # build, create or reuse the lab, (re)start the Controller
+python3 -I lab/dev/dev.py --lab docker vendo   # coin slot for the dev Vendo
+python3 -I lab/dev/dev.py --lab docker shots   # scripted phones, screenshots
+python3 -I lab/dev/dev.py --lab docker down    # remove the lab and its data
+```
+
+Open `http://127.0.0.1:18088/admin/login` and sign in with the password in `lab/dev/.run/admin-password` (generated on the first `up` of either lab, and kept across `down`).
+
+**What it is.** The E2E Docker lab's compose project ([`lab/docker`](../docker)) under the fixed name `opnwdev`, plus [`lab/docker/dev.yml`](../docker/dev.yml): a stock RouterOS CHR set up by the same code as E2E (`DockerLab.set_up_router`), the Controller and the internet stand-in on the lab WAN, and the dev Vendo board (`opnwdev-vendo`, MAC `02:00:00:0D:00:F0`, hostname `opnw-00f0`) on the lab LAN. E2E labs are `opnwlab-<random>` with Docker-chosen ports, so an E2E run beside it touches nothing of the dev lab. It needs Docker usable by your user with `/dev/kvm`, Go and Python 3. The first `up` downloads and verifies the pinned CHR image, as E2E does.
+
+**`up`** builds the Controller with `-tags dev` into `lab/dev/.run/docker/`. With no lab, it creates one, sets the Router up from stock, onboards it, pairs the dev Vendo (its first Report comes from its own container) and seeds Coin rates `1=60`, `5=360`. With a lab, it only restarts the Controller on the new build. It returns once the lab is ready; the lab stays up until `down`, across terminals. If the lab is there but not running (after a reboot), `up` asks you to run `down` first. It refuses to create a lab when something already answers on port 18088.
+
+**The UI loop.** The repository is mounted read-only into the Controller container at its real path, and the dev build reads `web/templates`, `web/static` and `web/portal` from there: save, refresh. After a Go change run `up` again: it rebuilds and restarts the Controller, and the data (the container's `/data`) is kept. Read the Controller log with `docker logs -f opnwdev-controller-1`.
+
+**The Portal** is at `http://10.77.7.1:18080/portal`, reachable only by Devices behind the HotSpot. View it through `shots`; `phone` is not on the Docker lab yet (#37).
+
+**`vendo`** works as below, sending every Report from the dev Vendo's container. **`shots`** works as below, with each phone a Playwright container on the lab LAN (1 GB cap) that takes its own DHCP lease, and with `http://google.com/` (answered by the internet stand-in) as the plain http URL. Screenshots go to `lab/dev/.run/shots/<timestamp>/`.
+
+**`down`** removes every `opnwdev-*` container and network, the Controller's data with them, and the dev Vendo's secret. The admin password and the shared images stay.
+
+Idle, the lab uses about 170 MB (the Router about 140 MB, the Controller about 16 MB).
+
 ## Prerequisites
 
 - **`chr-lab` and `hotspot-lan`**, created once by `./lab/chr/wizard.sh` (see [`lab/chr/README.md`](../chr/README.md)). Needs libvirt, KVM and your user in the `libvirt` group. `up` starts the VM if it is off.

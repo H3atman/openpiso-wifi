@@ -26,6 +26,8 @@ def main() -> None:
     parser.add_argument("--controller", required=True, help="portal origin reachable through the walled garden")
     parser.add_argument("--vendo", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--start", default=START_URL, help="plain http URL the Device opens first")
+    parser.add_argument("--online-text", help="text the start URL serves once online (default: the NeverSSL title)")
     args = parser.parse_args()
 
     vendo = json.loads(args.vendo.read_text())
@@ -48,51 +50,46 @@ def main() -> None:
             result["browser"] = f"{device['default_browser_type']} {browser.version}"
 
             # 1. Fresh Device, plain http URL: the HotSpot redirects to the Controller portal.
-            page.goto(START_URL)
+            page.goto(args.start)
             page.wait_for_url(re.compile(re.escape(args.controller) + r"/portal"))
+            # "new", not "error": the Controller found this Device by its own IP and MAC.
+            expect(page.locator("html")).to_have_attribute("data-portal-state", "new")
             expect(page.get_by_role("heading", name="OpenPiso WiFi")).to_be_visible()
-            expect(page.get_by_text("Controller is ready")).to_be_visible()
-            # The Controller must see the Device's own IP (return route), not the Router's.
-            expect(page.get_by_role("alert")).to_have_count(0)
             shot("portal-via-hotspot-redirect")
 
-            # 2. Open a Coin Window on the dev Vendo.
-            page.get_by_role("button", name="Insert coin").click()
-            heading = page.get_by_role("heading", name=re.compile(r"Coin Window \d+"))
-            expect(heading).to_be_visible()
-            window_id = int(re.search(r"\d+", heading.inner_text()).group())
-            expect(page.get_by_text(f"Vendo {vendo['id']} · open")).to_be_visible()
+            # 2. Open a Coin Window on the dev Vendo (one Vendo serves this network: no chooser).
+            page.locator('[data-action="insert-coin"]:visible').first.click()
+            expect(page.locator("html")).to_have_attribute("data-portal-state", "coin")
+            window = page.evaluate("fetch('/portal/api/state').then(response => response.json())")["coin_window"]
             shot("coin-window-open")
 
             # 3. Insert coins: the Vendo (this process, in the Controller's walled garden) reports them.
             board = SimulatedVendo(args.controller, vendo["id"], bytes.fromhex(vendo["secret"]), vendo["epoch"])
             board.heartbeat()
-            assert board.window_id == window_id, f"Vendo got window {board.window_id}, portal shows {window_id}"
+            assert board.window_id == window["id"], f"Vendo got window {board.window_id}, portal shows {window['id']}"
             board.insert(5)
             board.heartbeat()
-            expect(page.get_by_text("Coins counted: 5 pesos")).to_be_visible()  # the portal refreshes itself
+            expect(page.locator('[data-portal="coins"]')).to_have_text("₱5")  # the portal refreshes itself
             shot("coins-counted")
 
             # 4. Done: the Vendo sends its final total, the Controller credits time and the Device goes online.
-            page.get_by_role("button", name="Done").click()
-            expect(page.get_by_text("Closing Coin Window")).to_be_visible()
+            with page.expect_response("**/portal/api/coins/done"):
+                page.locator('[data-action="coins-done"]:visible').first.click()
             board.heartbeat()
             assert board.closing, "Controller did not tell the Vendo to close"
             time.sleep(0.3)  # the board's window gap before its final total
             board.post(board.frame(5))
-            deadline = time.monotonic() + 40
-            while True:
-                page.goto(args.controller + "/portal")
-                if page.get_by_text(re.compile(r"Time bought: [1-9]\d* seconds")).count():
-                    break
-                assert time.monotonic() < deadline, "Time Credit was not credited after Done"
-                time.sleep(1)
-            expect(page.get_by_text("Coins counted: 5 pesos")).to_be_visible()
+            expect(page.locator("html")).to_have_attribute("data-portal-state", "online", timeout=40000)
+            bought = page.evaluate("fetch('/portal/api/state').then(response => response.json())")["time_credit"]["bought"]
+            assert bought > 0, f"Time Credit was not credited after Done: bought {bought}"
             shot("time-credited")
             for attempt in range(15):  # the portal's own refresh script may cancel a navigation
                 try:
-                    page.goto(START_URL)
-                    expect(page).to_have_title(re.compile("NeverSSL"))
+                    page.goto(args.start)
+                    if args.online_text is None:
+                        expect(page).to_have_title(re.compile("NeverSSL"))
+                    else:
+                        expect(page.locator("body")).to_contain_text(args.online_text)
                     break
                 except Exception:
                     if attempt == 14:
